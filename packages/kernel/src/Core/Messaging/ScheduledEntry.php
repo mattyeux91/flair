@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Flair\Kernel\Core;
+namespace Flair\Kernel\Core\Messaging;
 
 /**
  * Une entree de Scheduler : un DomainEvent a une echeance, avec les cles de

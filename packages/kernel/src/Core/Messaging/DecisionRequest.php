@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Flair\Kernel\Core;
+namespace Flair\Kernel\Core\Messaging;
 
 /**
  * Marqueur : "quelqu'un doit trancher". Transitoire, jamais journalise - se

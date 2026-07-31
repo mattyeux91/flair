@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Flair\Kernel\Tests\Core;
+namespace Flair\Kernel\Tests\Core\Ecs;
 
-use Flair\Kernel\Core\EntityIdAllocator;
-use Flair\Kernel\Core\WorldState;
+use Flair\Kernel\Core\Ecs\EntityIdAllocator;
+use Flair\Kernel\Core\Ecs\WorldState;
 use PHPUnit\Framework\TestCase;
 
 final class WorldStateTest extends TestCase

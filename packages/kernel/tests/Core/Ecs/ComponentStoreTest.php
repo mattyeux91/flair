@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Flair\Kernel\Tests\Core;
+namespace Flair\Kernel\Tests\Core\Ecs;
 
-use Flair\Kernel\Core\ComponentStore;
+use Flair\Kernel\Core\Ecs\ComponentStore;
 use PHPUnit\Framework\TestCase;
 
 final class ComponentStoreTest extends TestCase

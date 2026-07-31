@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Flair\Kernel\Tests\Core;
+namespace Flair\Kernel\Tests\Core\Messaging;
 
-use Flair\Kernel\Core\DomainEvent;
-use Flair\Kernel\Core\Scheduler;
+use Flair\Kernel\Core\Messaging\DomainEvent;
+use Flair\Kernel\Core\Messaging\Scheduler;
 use PHPUnit\Framework\TestCase;
 
 final class SchedulerTest extends TestCase

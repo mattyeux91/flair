@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Flair\Kernel\Tests\Core;
+namespace Flair\Kernel\Tests\Core\Ecs;
 
-use Flair\Kernel\Core\EntityIdAllocator;
+use Flair\Kernel\Core\Ecs\EntityIdAllocator;
 use PHPUnit\Framework\TestCase;
 
 final class EntityIdAllocatorTest extends TestCase

@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Flair\Kernel\Tests\Core;
+namespace Flair\Kernel\Tests\Core\Messaging;
 
-use Flair\Kernel\Core\DecisionRequest;
-use Flair\Kernel\Core\DomainEvent;
-use Flair\Kernel\Core\Intent;
+use Flair\Kernel\Core\Messaging\DecisionRequest;
+use Flair\Kernel\Core\Messaging\DomainEvent;
+use Flair\Kernel\Core\Messaging\Intent;
 use PHPUnit\Framework\TestCase;
 
 /**

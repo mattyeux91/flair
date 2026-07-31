@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Flair\Kernel\Core;
+namespace Flair\Kernel\Core\Ecs;
 
 /**
  * Stockage d'un type de composant : une colonne indexee par entite.

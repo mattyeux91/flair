@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Flair\Kernel\Core;
+namespace Flair\Kernel\Core\Ecs;
 
 /**
  * Le monde : agrege l'allocation d'entites, un ComponentStore par type de

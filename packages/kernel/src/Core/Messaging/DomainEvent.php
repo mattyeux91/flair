@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Flair\Kernel\Core;
+namespace Flair\Kernel\Core\Messaging;
 
 /**
  * Marqueur : "ceci est arrive". Passe, immuable, journalise dans l'event log

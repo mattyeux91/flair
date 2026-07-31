@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Flair\Kernel\Core;
+namespace Flair\Kernel\Core\Messaging;
 
 /**
  * Marqueur : "voici ce que je fais". Futur immediat, consomme une seule fois,
