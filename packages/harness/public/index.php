@@ -56,7 +56,7 @@ $agingFields = RulesetOverride::AGING_FIELDS;
 <body>
     <header>
         <h1>Harness de calibration — vieillissement</h1>
-        <p>Simule une population synthetique de joueurs et agrege des distributions (courbe de competence par age, ages de retraite) pour juger empiriquement de l'effet des parametres d'<code>AgingBalance</code>.</p>
+        <p>Simule une population synthetique de joueurs et agrege des distributions (courbe de competence par age, ages de retraite) pour juger empiriquement de l'effet des parametres de vieillissement (<code>RetirementBalance</code>/<code>PlayerDevelopmentBalance</code>).</p>
     </header>
 
     <form id="run-form">
@@ -69,7 +69,7 @@ $agingFields = RulesetOverride::AGING_FIELDS;
 
         <fieldset>
             <legend>Comparaison a graines appariees (optionnel)</legend>
-            <label>Champ AgingBalance a modifier
+            <label>Champ de vieillissement a modifier
                 <select name="compareField">
                     <option value="">— aucune comparaison —</option>
                     <?php foreach ($agingFields as $field): ?>

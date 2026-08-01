@@ -6,7 +6,7 @@ namespace Flair\Kernel\Tests\Football\Systems;
 
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Pipeline\Pipeline;
-use Flair\Kernel\Core\Ruleset\AgingBalance;
+use Flair\Kernel\Core\Ruleset\RetirementBalance;
 use Flair\Kernel\Core\Ruleset\Balance;
 use Flair\Kernel\Core\Ruleset\Ruleset;
 use Flair\Kernel\Core\Support\SimDate;
@@ -52,7 +52,7 @@ final class PlayerDevelopmentSystemTest extends TestCase
             fragility: 1.0,
         );
 
-        $ruleset = new Ruleset('test', new Balance(aging: new AgingBalance(retirementEligibleAge: 33.0)));
+        $ruleset = new Ruleset('test', new Balance(retirement: new RetirementBalance(retirementEligibleAge: 33.0)));
 
         $pipeline = new Pipeline([new PlayerDevelopmentSystem()]);
         for ($tick = 1; $tick <= 900; $tick++) {
@@ -97,7 +97,7 @@ final class PlayerDevelopmentSystemTest extends TestCase
             fragility: 1.0,
         ));
 
-        $ruleset = new Ruleset('test', new Balance(aging: new AgingBalance(retirementEligibleAge: 33.0)));
+        $ruleset = new Ruleset('test', new Balance(retirement: new RetirementBalance(retirementEligibleAge: 33.0)));
         $pipeline = new Pipeline([new PlayerDevelopmentSystem()]);
         for ($tick = 1; $tick <= 900; $tick++) {
             $pipeline->tick($world, tick: $tick, worldSeed: 1, ruleset: $ruleset, intents: []);

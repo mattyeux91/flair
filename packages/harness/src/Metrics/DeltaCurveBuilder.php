@@ -8,7 +8,8 @@ namespace Flair\Harness\Metrics;
  * Corrige le biais de survie des courbes agregees par coupe transversale
  * (AggregateResult::$curves) : la retraite retire du pool en priorite les
  * joueurs a forte fragilite, qui sont aussi ceux qui declinent le plus vite
- * (meme levier - AgingBalance/PlayerPotentials::$fragility). A un age avance,
+ * (meme levier - PlayerPotentials::$fragility, pondere separement par
+ * RetirementBalance et PlayerDevelopmentBalance). A un age avance,
  * la moyenne brute finit par ne representer qu'un petit sous-groupe de
  * survivants resistants, pas la population - c'est ce qui produit une
  * remontee illusoire en fin de courbe.

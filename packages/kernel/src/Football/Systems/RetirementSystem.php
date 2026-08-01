@@ -7,7 +7,7 @@ namespace Flair\Kernel\Football\Systems;
 use Flair\Kernel\Core\Messaging\DomainEvent;
 use Flair\Kernel\Core\Pipeline\System;
 use Flair\Kernel\Core\Pipeline\SystemContext;
-use Flair\Kernel\Core\Ruleset\AgingBalance;
+use Flair\Kernel\Core\Ruleset\RetirementBalance;
 use Flair\Kernel\Core\Support\Rng;
 use Flair\Kernel\Core\Support\SimDate;
 use Flair\Kernel\Football\Components\Person;
@@ -21,7 +21,7 @@ use Flair\Kernel\Football\Events\PlayerRetired;
  * La retraite (docs/15-roadmap.md §4, docs/14-algorithmes.md §2) : purement
  * periodique, aucun evenement ecoute. Pour chaque entite qui porte
  * Person+PlayerPotentials, chaque tick : au-dela d'un age d'eligibilite
- * (`Ruleset\AgingBalance::$retirementEligibleAge`), une probabilite de
+ * (`Ruleset\RetirementBalance::$retirementEligibleAge`), une probabilite de
  * retraite croissante avec l'age et la fragilite est tiree. Si elle tombe :
  * les trois composants de competences
  * (`PlayerPhysicalSkills`/`PlayerTechnicalSkills`/`PlayerMentalSkills`) et
@@ -81,7 +81,7 @@ final class RetirementSystem implements System
     public function update(SystemContext $ctx): void
     {
         $now = new SimDate($ctx->tick);
-        $aging = $ctx->ruleset()->balance->aging;
+        $retirement = $ctx->ruleset()->balance->retirement;
 
         foreach ($ctx->components(PlayerPotentials::class)->entities() as $entityId) {
             $person = $ctx->components(Person::class)->get($entityId);
@@ -94,7 +94,7 @@ final class RetirementSystem implements System
             $ageYears = $now->yearsSince($person->birthDate);
             $rng = $ctx->rng($entityId);
 
-            if ($ageYears >= $aging->retirementEligibleAge && $this->retires($ageYears, $potential->fragility, $aging, $rng)) {
+            if ($ageYears >= $retirement->retirementEligibleAge && $this->retires($ageYears, $potential->fragility, $retirement, $rng)) {
                 $ctx->components(PlayerPotentials::class)->remove($entityId);
                 $ctx->components(PlayerPhysicalSkills::class)->remove($entityId);
                 $ctx->components(PlayerTechnicalSkills::class)->remove($entityId);
@@ -104,10 +104,10 @@ final class RetirementSystem implements System
         }
     }
 
-    private function retires(float $ageYears, float $fragility, AgingBalance $aging, Rng $rng): bool
+    private function retires(float $ageYears, float $fragility, RetirementBalance $retirement, Rng $rng): bool
     {
-        $yearsPastEligible = $ageYears - $aging->retirementEligibleAge;
-        $annualChance = min(1.0, $yearsPastEligible * $aging->retirementAgeWeight + $fragility * $aging->retirementFragilityWeight);
+        $yearsPastEligible = $ageYears - $retirement->retirementEligibleAge;
+        $annualChance = min(1.0, $yearsPastEligible * $retirement->retirementAgeWeight + $fragility * $retirement->retirementFragilityWeight);
         $dailyChance = $annualChance / 365.0;
         $roll = $rng->nextUint32() % 10_000;
 

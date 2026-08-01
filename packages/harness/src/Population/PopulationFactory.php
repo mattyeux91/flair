@@ -18,7 +18,7 @@ use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
  * jet de distributions uniformes, a affiner une fois qu'on aura regarde
  * tourner les premiers agregats (c'est tout le sens de cet outil). Les ages
  * de pic sont tires dans des fourchettes qui respectent deja l'ordre
- * qualitatif documente dans AgingBalance (physique < technique < mental).
+ * qualitatif documente dans PlayerDevelopmentBalance (physique < technique < mental).
  */
 final class PopulationFactory
 {

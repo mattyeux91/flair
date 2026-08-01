@@ -7,7 +7,7 @@ namespace Flair\Kernel\Football\Systems;
 use Flair\Kernel\Core\Messaging\DomainEvent;
 use Flair\Kernel\Core\Pipeline\System;
 use Flair\Kernel\Core\Pipeline\SystemContext;
-use Flair\Kernel\Core\Ruleset\AgingBalance;
+use Flair\Kernel\Core\Ruleset\PlayerDevelopmentBalance;
 use Flair\Kernel\Core\Support\Rng;
 use Flair\Kernel\Core\Support\SimDate;
 use Flair\Kernel\Football\Components\Person;
@@ -30,7 +30,7 @@ use Flair\Kernel\Football\Components\TrainingEffect;
  * borne. Chaque categorie a **son propre pic**
  * (`PlayerPotentials::$physicalPeakAge`/`$technicalPeakAge`/
  * `$mentalPeakAge`, individuels) et **sa propre pente de declin post-pic**
- * (`AgingBalance::$physicalDeclineMultiplier` et consorts, globaux) - le
+ * (`PlayerDevelopmentBalance::$physicalDeclineMultiplier` et consorts, globaux) - le
  * physique culmine et decline avant le mental, a talent egal.
  *
  * **Seul writer** (`set()`) des trois composants de competences - la
@@ -76,7 +76,7 @@ use Flair\Kernel\Football\Components\TrainingEffect;
  *   additif ;
  * - `f`/`g` sont un premier jet qualitatif (memes contraintes de forme que
  *   14- §2), a calibrer via le harness d'equilibrage (Phase 1) - leurs
- *   coefficients vivent dans `Ruleset\AgingBalance`, jamais en dur ici ;
+ *   coefficients vivent dans `Ruleset\PlayerDevelopmentBalance`, jamais en dur ici ;
  * - `growthPrimeAgeThreshold` (age d'entree en phase de progression
  *   maximale) est uniforme pour tous les joueurs et toutes les categories,
  *   alors que l'age de pic (sortie de cette phase) est individuel et
@@ -136,7 +136,7 @@ final class PlayerDevelopmentSystem implements System
     public function update(SystemContext $ctx): void
     {
         $now = new SimDate($ctx->tick);
-        $aging = $ctx->ruleset()->balance->aging;
+        $development = $ctx->ruleset()->balance->playerDevelopment;
         $developmentRate = $ctx->ruleset()->balance->developmentRate;
 
         foreach ($ctx->components(PlayerPotentials::class)->entities() as $entityId) {
@@ -153,41 +153,41 @@ final class PlayerDevelopmentSystem implements System
             $trainingEffect = $ctx->components(TrainingEffect::class)->get($entityId);
             $quality = $trainingEffect === null ? 1.0 : $trainingEffect->quality;
 
-            $physicalAgeFactor = $this->ageFactor($ageYears, $potential->physicalPeakAge, $aging);
-            $technicalAgeFactor = $this->ageFactor($ageYears, $potential->technicalPeakAge, $aging);
-            $mentalAgeFactor = $this->ageFactor($ageYears, $potential->mentalPeakAge, $aging);
+            $physicalAgeFactor = $this->ageFactor($ageYears, $potential->physicalPeakAge, $development);
+            $technicalAgeFactor = $this->ageFactor($ageYears, $potential->technicalPeakAge, $development);
+            $mentalAgeFactor = $this->ageFactor($ageYears, $potential->mentalPeakAge, $development);
 
             $physical = $ctx->components(PlayerPhysicalSkills::class)->get($entityId);
             if ($physical !== null) {
                 $ctx->components(PlayerPhysicalSkills::class)->set($entityId, new PlayerPhysicalSkills(
-                    pace: $this->nextValue($physical->pace, $potential, $physicalAgeFactor, $developmentRate, $aging->physicalDeclineMultiplier, $quality, $rng),
-                    stamina: $this->nextValue($physical->stamina, $potential, $physicalAgeFactor, $developmentRate, $aging->physicalDeclineMultiplier, $quality, $rng),
-                    strength: $this->nextValue($physical->strength, $potential, $physicalAgeFactor, $developmentRate, $aging->physicalDeclineMultiplier, $quality, $rng),
-                    reflexes: $this->nextValue($physical->reflexes, $potential, $physicalAgeFactor, $developmentRate, $aging->physicalDeclineMultiplier, $quality, $rng),
+                    pace: $this->nextValue($physical->pace, $potential, $physicalAgeFactor, $developmentRate, $development->physicalDeclineMultiplier, $quality, $rng),
+                    stamina: $this->nextValue($physical->stamina, $potential, $physicalAgeFactor, $developmentRate, $development->physicalDeclineMultiplier, $quality, $rng),
+                    strength: $this->nextValue($physical->strength, $potential, $physicalAgeFactor, $developmentRate, $development->physicalDeclineMultiplier, $quality, $rng),
+                    reflexes: $this->nextValue($physical->reflexes, $potential, $physicalAgeFactor, $developmentRate, $development->physicalDeclineMultiplier, $quality, $rng),
                 ));
             }
 
             $technical = $ctx->components(PlayerTechnicalSkills::class)->get($entityId);
             if ($technical !== null) {
                 $ctx->components(PlayerTechnicalSkills::class)->set($entityId, new PlayerTechnicalSkills(
-                    technique: $this->nextValue($technical->technique, $potential, $technicalAgeFactor, $developmentRate, $aging->technicalDeclineMultiplier, $quality, $rng),
-                    passing: $this->nextValue($technical->passing, $potential, $technicalAgeFactor, $developmentRate, $aging->technicalDeclineMultiplier, $quality, $rng),
-                    finishing: $this->nextValue($technical->finishing, $potential, $technicalAgeFactor, $developmentRate, $aging->technicalDeclineMultiplier, $quality, $rng),
-                    defending: $this->nextValue($technical->defending, $potential, $technicalAgeFactor, $developmentRate, $aging->technicalDeclineMultiplier, $quality, $rng),
-                    positioning: $this->nextValue($technical->positioning, $potential, $technicalAgeFactor, $developmentRate, $aging->technicalDeclineMultiplier, $quality, $rng),
-                    handling: $this->nextValue($technical->handling, $potential, $technicalAgeFactor, $developmentRate, $aging->technicalDeclineMultiplier, $quality, $rng),
-                    distribution: $this->nextValue($technical->distribution, $potential, $technicalAgeFactor, $developmentRate, $aging->technicalDeclineMultiplier, $quality, $rng),
+                    technique: $this->nextValue($technical->technique, $potential, $technicalAgeFactor, $developmentRate, $development->technicalDeclineMultiplier, $quality, $rng),
+                    passing: $this->nextValue($technical->passing, $potential, $technicalAgeFactor, $developmentRate, $development->technicalDeclineMultiplier, $quality, $rng),
+                    finishing: $this->nextValue($technical->finishing, $potential, $technicalAgeFactor, $developmentRate, $development->technicalDeclineMultiplier, $quality, $rng),
+                    defending: $this->nextValue($technical->defending, $potential, $technicalAgeFactor, $developmentRate, $development->technicalDeclineMultiplier, $quality, $rng),
+                    positioning: $this->nextValue($technical->positioning, $potential, $technicalAgeFactor, $developmentRate, $development->technicalDeclineMultiplier, $quality, $rng),
+                    handling: $this->nextValue($technical->handling, $potential, $technicalAgeFactor, $developmentRate, $development->technicalDeclineMultiplier, $quality, $rng),
+                    distribution: $this->nextValue($technical->distribution, $potential, $technicalAgeFactor, $developmentRate, $development->technicalDeclineMultiplier, $quality, $rng),
                 ));
             }
 
             $mental = $ctx->components(PlayerMentalSkills::class)->get($entityId);
             if ($mental !== null) {
                 $ctx->components(PlayerMentalSkills::class)->set($entityId, new PlayerMentalSkills(
-                    vision: $this->nextValue($mental->vision, $potential, $mentalAgeFactor, $developmentRate, $aging->mentalDeclineMultiplier, $quality, $rng),
-                    composure: $this->nextValue($mental->composure, $potential, $mentalAgeFactor, $developmentRate, $aging->mentalDeclineMultiplier, $quality, $rng),
-                    leadership: $this->nextValue($mental->leadership, $potential, $mentalAgeFactor, $developmentRate, $aging->mentalDeclineMultiplier, $quality, $rng),
-                    discipline: $this->nextValue($mental->discipline, $potential, $mentalAgeFactor, $developmentRate, $aging->mentalDeclineMultiplier, $quality, $rng),
-                    command: $this->nextValue($mental->command, $potential, $mentalAgeFactor, $developmentRate, $aging->mentalDeclineMultiplier, $quality, $rng),
+                    vision: $this->nextValue($mental->vision, $potential, $mentalAgeFactor, $developmentRate, $development->mentalDeclineMultiplier, $quality, $rng),
+                    composure: $this->nextValue($mental->composure, $potential, $mentalAgeFactor, $developmentRate, $development->mentalDeclineMultiplier, $quality, $rng),
+                    leadership: $this->nextValue($mental->leadership, $potential, $mentalAgeFactor, $developmentRate, $development->mentalDeclineMultiplier, $quality, $rng),
+                    discipline: $this->nextValue($mental->discipline, $potential, $mentalAgeFactor, $developmentRate, $development->mentalDeclineMultiplier, $quality, $rng),
+                    command: $this->nextValue($mental->command, $potential, $mentalAgeFactor, $developmentRate, $development->mentalDeclineMultiplier, $quality, $rng),
                 ));
             }
         }
@@ -196,19 +196,19 @@ final class PlayerDevelopmentSystem implements System
     /**
      * g(age) : forte avant `growthPrimeAgeThreshold`, plate jusqu'au pic de
      * la categorie, negative apres (docs/14- §2). Premier jet qualitatif, a
-     * calibrer en Phase 1 via `Ruleset\AgingBalance`.
+     * calibrer en Phase 1 via `Ruleset\PlayerDevelopmentBalance`.
      */
-    private function ageFactor(float $ageYears, int $peakAge, AgingBalance $aging): float
+    private function ageFactor(float $ageYears, int $peakAge, PlayerDevelopmentBalance $development): float
     {
-        if ($ageYears < $aging->growthPrimeAgeThreshold) {
+        if ($ageYears < $development->growthPrimeAgeThreshold) {
             return 1.0;
         }
 
         if ($ageYears < $peakAge) {
-            return $aging->growthPlateauFactor;
+            return $development->growthPlateauFactor;
         }
 
-        return -$aging->declineRatePerYear * ($ageYears - $peakAge);
+        return -$development->declineRatePerYear * ($ageYears - $peakAge);
     }
 
     private function nextValue(
