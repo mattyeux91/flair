@@ -142,6 +142,11 @@ final class SimulationTestSystem implements System
         return [];
     }
 
+    public function removes(): array
+    {
+        return [];
+    }
+
     public function subscribesTo(): array
     {
         return $this->subscribesTo;

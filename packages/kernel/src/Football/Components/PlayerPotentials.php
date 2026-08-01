@@ -15,10 +15,11 @@ namespace Flair\Kernel\Football\Components;
  * categorie a ce jour. L'age de pic, en revanche, est individuel **et**
  * distinct par categorie (`*PeakAge`) : c'est un fait de football etabli
  * que le physique culmine avant le mental, a niveau de talent egal, et
- * `AgingSystem` en a un usage reel (pente de declin post-pic differente par
- * categorie, `Ruleset\AgingBalance`). Simplification restante, assumee :
- * un seul `ceiling`/`growthRate`/`fragility` pour les trois - a corriger
- * si un systeme en a besoin (cf. docblock d'AgingSystem).
+ * `PlayerDevelopmentSystem` en a un usage reel (pente de declin post-pic
+ * differente par categorie, `Ruleset\AgingBalance`). Simplification
+ * restante, assumee : un seul `ceiling`/`growthRate`/`fragility` pour les
+ * trois - a corriger si un systeme en a besoin (cf. docblock de
+ * PlayerDevelopmentSystem).
  */
 final readonly class PlayerPotentials
 {

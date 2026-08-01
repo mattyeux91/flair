@@ -7,8 +7,8 @@ declare(strict_types=1);
  * Simule une population synthetique de joueurs et affiche des metriques
  * agregees (courbes de competence par age, distribution des ages de
  * retraite) - reponse au constat que bin/demo.php (4 joueurs) est trop petit
- * pour juger si AgingSystem/AgingBalance sont plausibles : le bruit
- * stochastique y noie l'effet de chaque parametre.
+ * pour juger si PlayerDevelopmentSystem/RetirementSystem/AgingBalance sont
+ * plausibles : le bruit stochastique y noie l'effet de chaque parametre.
  *
  * Usage :
  *   php bin/aggregate.php --players=500 --years=40 --seed=42

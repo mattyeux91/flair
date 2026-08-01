@@ -17,8 +17,11 @@ interface System
     /** @return list<class-string> */
     public function reads(): array;
 
-    /** @return list<class-string> */
+    /** @return list<class-string> composants mutes en place via ComponentStore::set() */
     public function writes(): array;
+
+    /** @return list<class-string> composants retires via ComponentStore::remove() (archetype-strip) - distinct de writes(), qui ne couvre que set() */
+    public function removes(): array;
 
     /** @return list<class-string> types d'evenements ecoutes - vide si purement periodique */
     public function subscribesTo(): array;

@@ -32,7 +32,8 @@ use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
 use Flair\Kernel\Football\Components\PlayerPotentials;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
 use Flair\Kernel\Football\Events\PlayerRetired;
-use Flair\Kernel\Football\Systems\AgingSystem;
+use Flair\Kernel\Football\Systems\PlayerDevelopmentSystem;
+use Flair\Kernel\Football\Systems\RetirementSystem;
 
 /** @return array<string, int> nom -> entityId */
 function demoCreatePlayers(WorldState $world, int $atTick): array
@@ -106,7 +107,7 @@ const DEMO_WORLD_SEED = 42;
 $world = new WorldState();
 $players = demoCreatePlayers($world, atTick: 1);
 
-$simulation = new Simulation(new Pipeline([new AgingSystem()]));
+$simulation = new Simulation(new Pipeline([new RetirementSystem(), new PlayerDevelopmentSystem()]));
 $ruleset = new Ruleset('demo', new Balance(developmentRate: 1.0));
 
 echo "Tick 0 (depart) :\n";

@@ -9,26 +9,24 @@ use Flair\Kernel\Core\Pipeline\Pipeline;
 use Flair\Kernel\Core\Ruleset\AgingBalance;
 use Flair\Kernel\Core\Ruleset\Balance;
 use Flair\Kernel\Core\Ruleset\Ruleset;
-use Flair\Kernel\Core\Simulation\Simulation;
-use Flair\Kernel\Core\Simulation\TickContext;
 use Flair\Kernel\Core\Support\SimDate;
 use Flair\Kernel\Football\Components\Person;
 use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
 use Flair\Kernel\Football\Components\PlayerPotentials;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
-use Flair\Kernel\Football\Events\PlayerRetired;
-use Flair\Kernel\Football\Systems\AgingSystem;
+use Flair\Kernel\Football\Systems\PlayerDevelopmentSystem;
+use Flair\Kernel\Football\Systems\RetirementSystem;
 use PHPUnit\Framework\TestCase;
 
-final class AgingSystemTest extends TestCase
+final class PlayerDevelopmentSystemTest extends TestCase
 {
     public function testAYoungPlayerWithRoomToGrowImprovesOverSeveralTicks(): void
     {
         $world = new WorldState();
         $entity = $this->createPlayer($world, ageYears: 18.0, ceiling: 90, currentSkill: 40, peakAge: 27);
 
-        $pipeline = new Pipeline([new AgingSystem()]);
+        $pipeline = new Pipeline([new PlayerDevelopmentSystem()]);
         for ($tick = 1; $tick <= 200; $tick++) {
             $pipeline->tick($world, tick: $tick, worldSeed: 1, ruleset: $this->ruleset(), intents: []);
         }
@@ -56,7 +54,7 @@ final class AgingSystemTest extends TestCase
 
         $ruleset = new Ruleset('test', new Balance(aging: new AgingBalance(retirementEligibleAge: 33.0)));
 
-        $pipeline = new Pipeline([new AgingSystem()]);
+        $pipeline = new Pipeline([new PlayerDevelopmentSystem()]);
         for ($tick = 1; $tick <= 900; $tick++) {
             $pipeline->tick($world, tick: $tick, worldSeed: 1, ruleset: $ruleset, intents: []);
         }
@@ -100,7 +98,7 @@ final class AgingSystemTest extends TestCase
         ));
 
         $ruleset = new Ruleset('test', new Balance(aging: new AgingBalance(retirementEligibleAge: 33.0)));
-        $pipeline = new Pipeline([new AgingSystem()]);
+        $pipeline = new Pipeline([new PlayerDevelopmentSystem()]);
         for ($tick = 1; $tick <= 900; $tick++) {
             $pipeline->tick($world, tick: $tick, worldSeed: 1, ruleset: $ruleset, intents: []);
         }
@@ -120,8 +118,8 @@ final class AgingSystemTest extends TestCase
         $worldB = new WorldState();
         $this->createPlayer($worldB, ageYears: 18.0, ceiling: 90, currentSkill: 40, peakAge: 27);
 
-        $pipelineA = new Pipeline([new AgingSystem()]);
-        $pipelineB = new Pipeline([new AgingSystem()]);
+        $pipelineA = new Pipeline([new PlayerDevelopmentSystem()]);
+        $pipelineB = new Pipeline([new PlayerDevelopmentSystem()]);
 
         for ($tick = 1; $tick <= 50; $tick++) {
             $pipelineA->tick($worldA, tick: $tick, worldSeed: 777, ruleset: $this->ruleset(), intents: []);
@@ -141,8 +139,8 @@ final class AgingSystemTest extends TestCase
         $fastWorld = new WorldState();
         $this->createPlayer($fastWorld, ageYears: 18.0, ceiling: 90, currentSkill: 40, peakAge: 27);
 
-        $normalPipeline = new Pipeline([new AgingSystem()]);
-        $fastPipeline = new Pipeline([new AgingSystem()]);
+        $normalPipeline = new Pipeline([new PlayerDevelopmentSystem()]);
+        $fastPipeline = new Pipeline([new PlayerDevelopmentSystem()]);
 
         for ($tick = 1; $tick <= 200; $tick++) {
             $normalPipeline->tick($normalWorld, tick: $tick, worldSeed: 1, ruleset: $this->ruleset(1.0), intents: []);
@@ -157,10 +155,14 @@ final class AgingSystemTest extends TestCase
         self::assertGreaterThan($normalSkills->technique, $fastSkills->technique);
     }
 
-    public function testARetiredPlayerLosesAllSkillComponentsAndPotentialsAndEmitsAFact(): void
+    public function testRetirementAndDevelopmentSystemsCoexistInDeclaredOrder(): void
     {
+        // Preuve executable que l'ordre RetirementSystem -> PlayerDevelopmentSystem
+        // est sur : un joueur age/fragile part a la retraite (ses composants
+        // disparaissent) pendant qu'un jeune joueur, dans le meme monde,
+        // continue de progresser normalement.
         $world = new WorldState();
-        $entity = $this->createPlayer(
+        $veteran = $this->createPlayer(
             $world,
             ageYears: 36.0,
             ceiling: 90,
@@ -168,35 +170,18 @@ final class AgingSystemTest extends TestCase
             peakAge: 27,
             fragility: 0.8,
         );
+        $rookie = $this->createPlayer($world, ageYears: 18.0, ceiling: 90, currentSkill: 40, peakAge: 27);
 
-        $simulation = new Simulation(new Pipeline([new AgingSystem()]));
-        $retirementEvents = [];
-
-        for ($tick = 1; $tick <= 200; $tick++) {
-            $result = $simulation->step($world, new TickContext(
-                tick: $tick,
-                seed: 1,
-                intents: [],
-                ruleset: $this->ruleset(),
-            ));
-
-            foreach ($result->events as $event) {
-                if ($event instanceof PlayerRetired) {
-                    $retirementEvents[] = $event;
-                }
-            }
-
-            if ($world->components(PlayerPotentials::class)->get($entity) === null) {
-                break;
-            }
+        $pipeline = new Pipeline([new RetirementSystem(), new PlayerDevelopmentSystem()]);
+        for ($tick = 1; $tick <= 900; $tick++) {
+            $pipeline->tick($world, tick: $tick, worldSeed: 1, ruleset: $this->ruleset(), intents: []);
         }
 
-        self::assertNull($world->components(PlayerPotentials::class)->get($entity));
-        self::assertNull($world->components(PlayerPhysicalSkills::class)->get($entity));
-        self::assertNull($world->components(PlayerTechnicalSkills::class)->get($entity));
-        self::assertNull($world->components(PlayerMentalSkills::class)->get($entity));
-        self::assertCount(1, $retirementEvents);
-        self::assertSame($entity, $retirementEvents[0]->playerId);
+        self::assertNull($world->components(PlayerPotentials::class)->get($veteran));
+
+        $rookieSkills = $world->components(PlayerTechnicalSkills::class)->get($rookie);
+        self::assertNotNull($rookieSkills);
+        self::assertGreaterThan(40, $rookieSkills->technique);
     }
 
     private function createPlayer(

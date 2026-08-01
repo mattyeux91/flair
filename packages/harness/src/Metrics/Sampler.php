@@ -15,14 +15,17 @@ use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
 use Flair\Kernel\Football\Events\PlayerRetired;
-use Flair\Kernel\Football\Systems\AgingSystem;
+use Flair\Kernel\Football\Systems\PlayerDevelopmentSystem;
+use Flair\Kernel\Football\Systems\RetirementSystem;
 
 /**
  * Fait tourner la simulation du noyau sur une population deja construite,
  * et releve un SkillSample par joueur actif et par categorie a chaque fin
  * d'annee simulee (pas a chaque tick - inutile pour des courbes annuelles,
  * couteux en memoire). Ne reimplemente aucune logique de vieillissement :
- * observe seulement ce que Flair\Kernel\Football\Systems\AgingSystem ecrit.
+ * observe seulement ce que le pipeline football ecrit
+ * (Flair\Kernel\Football\Systems\RetirementSystem et
+ * Flair\Kernel\Football\Systems\PlayerDevelopmentSystem).
  */
 final class Sampler
 {
@@ -31,7 +34,7 @@ final class Sampler
     /** @param list<int> $playerIds */
     public function run(WorldState $world, array $playerIds, int $years, int $worldSeed, Ruleset $ruleset): AggregateResult
     {
-        $simulation = new Simulation(new Pipeline([new AgingSystem()]));
+        $simulation = new Simulation(new Pipeline([new RetirementSystem(), new PlayerDevelopmentSystem()]));
 
         /** @var list<SkillSample> $samples */
         $samples = [];

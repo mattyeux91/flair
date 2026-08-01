@@ -10,15 +10,16 @@ namespace Flair\Kernel\Core\Ruleset;
  *
  * `developmentRate` est le premier - multiplicateur global sur la
  * progression naturelle (vieillissement, docs/14- §2), lu par
- * Football\AgingSystem. `aging` regroupe les leviers plus fins du meme
- * systeme (age de retraite, forme de g(age)...) - une classe dediee plutot
- * que des scalaires ici, pour ne pas melanger les sous-domaines a mesure
- * que d'autres systemes (blessures, marche...) rejoindront `Balance`.
+ * Football\PlayerDevelopmentSystem. `aging` regroupe les leviers plus fins
+ * de ce systeme et de Football\RetirementSystem (age de retraite, forme de
+ * g(age)...) - une classe dediee plutot que des scalaires ici, pour ne pas
+ * melanger les sous-domaines a mesure que d'autres systemes (blessures,
+ * marche...) rejoindront `Balance`.
  */
 final readonly class Balance
 {
     public function __construct(
-        /** Multiplicateur global sur `annualDelta` dans AgingSystem::nextValue - accelere/ralentit la progression et le declin des attributs sans changer leur forme (g(age), plafond...). */
+        /** Multiplicateur global sur `annualDelta` dans PlayerDevelopmentSystem::nextValue - accelere/ralentit la progression et le declin des attributs sans changer leur forme (g(age), plafond...). */
         public float $developmentRate = 1.0,
         public AgingBalance $aging = new AgingBalance(),
     ) {

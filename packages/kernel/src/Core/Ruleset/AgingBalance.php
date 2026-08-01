@@ -6,21 +6,23 @@ namespace Flair\Kernel\Core\Ruleset;
 
 /**
  * Leviers d'equilibrage du vieillissement (docs/14-algorithmes.md §2), lus
- * par Football\AgingSystem : age d'eligibilite a la retraite, poids de
- * l'age/la fragilite dans la probabilite annuelle de retraite, forme de
- * g(age) (seuil de progression maximale, plateau, pente de declin), et un
- * multiplicateur de declin post-pic par categorie de competences - le
- * physique decline plus vite que le mental une fois son pic depasse.
- * L'age de pic lui-meme n'est **pas** ici : il est individuel et distinct
- * par categorie, dans `PlayerPotentials` (`*PeakAge`) - ce fichier ne porte
- * que la pente, jamais le moment.
+ * par deux systemes distincts : Football\RetirementSystem (age
+ * d'eligibilite a la retraite, poids de l'age/la fragilite dans la
+ * probabilite annuelle de retraite) et Football\PlayerDevelopmentSystem
+ * (forme de g(age) - seuil de progression maximale, plateau, pente de
+ * declin -, et un multiplicateur de declin post-pic par categorie de
+ * competences - le physique decline plus vite que le mental une fois son
+ * pic depasse). L'age de pic lui-meme n'est **pas** ici : il est individuel
+ * et distinct par categorie, dans `PlayerPotentials` (`*PeakAge`) - ce
+ * fichier ne porte que la pente, jamais le moment.
  *
- * Premier jet qualitatif (cf. docblock d'AgingSystem), a calibrer via le
- * harness d'equilibrage (Phase 1) - cette classe existe pour que ce
- * calibrage n'implique jamais de toucher au code du systeme, seulement au
- * Ruleset. Les trois multiplicateurs de declin respectent deja un ordre
- * qualitatif (physique decline plus vite que technique, lui-meme plus vite
- * que mental), mais ne sont pas equilibres.
+ * Premier jet qualitatif (cf. docblocks de RetirementSystem et
+ * PlayerDevelopmentSystem), a calibrer via le harness d'equilibrage
+ * (Phase 1) - cette classe existe pour que ce calibrage n'implique jamais
+ * de toucher au code des systemes, seulement au Ruleset. Les trois
+ * multiplicateurs de declin respectent deja un ordre qualitatif (physique
+ * decline plus vite que technique, lui-meme plus vite que mental), mais ne
+ * sont pas equilibres.
  */
 final readonly class AgingBalance
 {

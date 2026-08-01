@@ -9,7 +9,7 @@ use PHPUnit\Framework\TestCase;
 
 final class AgingBalanceTest extends TestCase
 {
-    public function testDefaultsMatchTheFirstJetDocumentedInAgingSystem(): void
+    public function testDefaultsMatchTheFirstJetDocumentedInPlayerDevelopmentSystem(): void
     {
         $aging = new AgingBalance();
 
