@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Flair\Kernel\Tests\Football;
+namespace Flair\Kernel\Tests\Football\Systems;
 
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Pipeline\Pipeline;
@@ -12,13 +12,13 @@ use Flair\Kernel\Core\Ruleset\Ruleset;
 use Flair\Kernel\Core\Simulation\Simulation;
 use Flair\Kernel\Core\Simulation\TickContext;
 use Flair\Kernel\Core\Support\SimDate;
-use Flair\Kernel\Football\AgingSystem;
-use Flair\Kernel\Football\Person;
-use Flair\Kernel\Football\PlayerMentalSkills;
-use Flair\Kernel\Football\PlayerPhysicalSkills;
-use Flair\Kernel\Football\PlayerPotentials;
-use Flair\Kernel\Football\PlayerRetired;
-use Flair\Kernel\Football\PlayerTechnicalSkills;
+use Flair\Kernel\Football\Components\Person;
+use Flair\Kernel\Football\Components\PlayerMentalSkills;
+use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
+use Flair\Kernel\Football\Components\PlayerPotentials;
+use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
+use Flair\Kernel\Football\Events\PlayerRetired;
+use Flair\Kernel\Football\Systems\AgingSystem;
 use PHPUnit\Framework\TestCase;
 
 final class AgingSystemTest extends TestCase

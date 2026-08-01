@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Flair\Kernel\Football;
+namespace Flair\Kernel\Football\Systems;
 
 use Flair\Kernel\Core\Messaging\DomainEvent;
 use Flair\Kernel\Core\Pipeline\System;
@@ -10,6 +10,12 @@ use Flair\Kernel\Core\Pipeline\SystemContext;
 use Flair\Kernel\Core\Ruleset\AgingBalance;
 use Flair\Kernel\Core\Support\Rng;
 use Flair\Kernel\Core\Support\SimDate;
+use Flair\Kernel\Football\Components\Person;
+use Flair\Kernel\Football\Components\PlayerMentalSkills;
+use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
+use Flair\Kernel\Football\Components\PlayerPotentials;
+use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
+use Flair\Kernel\Football\Events\PlayerRetired;
 
 /**
  * Le vieillissement (docs/15-roadmap.md §4, docs/14-algorithmes.md §2) :

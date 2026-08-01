@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Flair\Kernel\Football;
+namespace Flair\Kernel\Football\Components;
 
 use Flair\Kernel\Core\Support\SimDate;
 

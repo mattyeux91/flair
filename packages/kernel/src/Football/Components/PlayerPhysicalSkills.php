@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Flair\Kernel\Football;
+namespace Flair\Kernel\Football\Components;
 
 /**
  * Les attributs physiques d'un joueur (docs/12-modele-du-monde.md §5).

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Flair\Kernel\Football;
+namespace Flair\Kernel\Football\Events;
 
 use Flair\Kernel\Core\Messaging\DomainEvent;
 
