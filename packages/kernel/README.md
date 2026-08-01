@@ -192,9 +192,12 @@ Parmi les sept interdits structurants de `docs/11-` §9, ce que le code garantit
 
 ```bash
 cd packages/kernel
-vendor/bin/phpunit          # 82 tests
-vendor/bin/phpstan analyse  # niveau max
+vendor/bin/phpunit          # tests
+vendor/bin/phpstan analyse  # niveau max (src, tests, bin)
+php bin/demo.php            # observer un tick reel : quelques joueurs, plusieurs annees simulees
 ```
+
+`bin/demo.php` n'est pas le harness d'équilibrage (`packages/harness/`, Phase 1) : juste un point d'entrée rapide pour voir un système tourner sans repasser par la suite de tests. Gagnera des systèmes au même rythme qu'ils seront écrits.
 
 Conventions de test observées dans le code existant, à reproduire :
 - **Collaborateurs réels, jamais de mocks** — un test construit un vrai `WorldState`/`Scheduler`/`OutQueue` et vérifie le comportement observable, pas des appels attendus sur un double.
