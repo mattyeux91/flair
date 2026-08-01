@@ -6,10 +6,12 @@ namespace Flair\Kernel\Tests\Core\Pipeline;
 
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Messaging\DomainEvent;
+use Flair\Kernel\Core\Messaging\Intent;
 use Flair\Kernel\Core\Messaging\OutQueue;
 use Flair\Kernel\Core\Messaging\Scheduler;
 use Flair\Kernel\Core\Pipeline\SeqCounter;
 use Flair\Kernel\Core\Pipeline\SystemContext;
+use Flair\Kernel\Core\Ruleset;
 use PHPUnit\Framework\TestCase;
 
 final class SystemContextTest extends TestCase
@@ -112,11 +114,30 @@ final class SystemContextTest extends TestCase
         );
     }
 
+    public function testRulesetRoundTripsThroughTheConstructedValue(): void
+    {
+        $ruleset = new Ruleset('2026.1.0');
+        $ctx = $this->makeContext(ruleset: $ruleset);
+
+        self::assertSame($ruleset, $ctx->ruleset());
+    }
+
+    public function testIntentsRoundTripThroughTheConstructedList(): void
+    {
+        $intent = new SystemContextTestIntent();
+        $ctx = $this->makeContext(intents: [$intent]);
+
+        self::assertSame([$intent], $ctx->intents());
+    }
+
+    /** @param list<Intent> $intents */
     private function makeContext(
         int $tick = 1,
         int $systemIndex = 0,
         string $systemId = 'test-system',
         int $worldSeed = 1,
+        ?Ruleset $ruleset = null,
+        array $intents = [],
         ?WorldState $world = null,
         ?Scheduler $scheduler = null,
         ?OutQueue $outQueue = null,
@@ -127,6 +148,8 @@ final class SystemContextTest extends TestCase
             systemIndex: $systemIndex,
             systemId: $systemId,
             worldSeed: $worldSeed,
+            ruleset: $ruleset ?? new Ruleset('test'),
+            intents: $intents,
             world: $world ?? new WorldState(),
             scheduler: $scheduler ?? new Scheduler(),
             outQueue: $outQueue ?? new OutQueue(),
@@ -144,4 +167,8 @@ final class SystemContextTestComponent
     public function __construct(public int $value)
     {
     }
+}
+
+final class SystemContextTestIntent implements Intent
+{
 }

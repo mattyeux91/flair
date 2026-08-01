@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Flair\Kernel\Core\Pipeline;
 
 use Flair\Kernel\Core\Ecs\WorldState;
-use Flair\Kernel\Core\Messaging\OutQueue;
-use Flair\Kernel\Core\Messaging\Scheduler;
+use Flair\Kernel\Core\Messaging\Intent;
+use Flair\Kernel\Core\Ruleset;
 
 /**
  * Execute un tick sur une liste de systemes declaree, dans l'ordre
@@ -21,6 +21,10 @@ use Flair\Kernel\Core\Messaging\Scheduler;
  * Scheduler et OutQueue restent deux lots distincts, simplement concatenes :
  * chacun est deja ordonne par sa propre regle (drainDueBy/drain), il n'y a
  * pas de cle de tri unifiee documentee entre les deux sources.
+ *
+ * Scheduler/OutQueue ne sont plus des parametres : ils vivent desormais dans
+ * WorldState (docs/11- §1 - step() ne prend que WorldState + TickContext,
+ * rien d'autre ne pourrait les faire survivre d'un appel a l'autre).
  */
 final class Pipeline
 {
@@ -29,14 +33,28 @@ final class Pipeline
     {
     }
 
-    public function tick(WorldState $world, Scheduler $scheduler, OutQueue $outQueue, int $tick, int $worldSeed): void
+    /** @param list<Intent> $intents */
+    public function tick(WorldState $world, int $tick, int $worldSeed, Ruleset $ruleset, array $intents): void
     {
+        $scheduler = $world->scheduler();
+        $outQueue = $world->outQueue();
         $seq = new SeqCounter();
 
         $incoming = [...$scheduler->drainDueBy($tick), ...$outQueue->drain()];
 
         foreach ($this->systems as $index => $system) {
-            $ctx = new SystemContext($tick, $index, $system->id(), $worldSeed, $world, $scheduler, $outQueue, $seq);
+            $ctx = new SystemContext(
+                $tick,
+                $index,
+                $system->id(),
+                $worldSeed,
+                $ruleset,
+                $intents,
+                $world,
+                $scheduler,
+                $outQueue,
+                $seq,
+            );
 
             foreach ($incoming as $event) {
                 foreach ($system->subscribesTo() as $type) {

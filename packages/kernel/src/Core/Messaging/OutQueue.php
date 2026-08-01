@@ -41,6 +41,34 @@ final class OutQueue
         $entries = $this->entries;
         $this->entries = [];
 
+        return self::sorted($entries);
+    }
+
+    /**
+     * Lecture non destructive, meme tri que drain() : ce qui a ete emis
+     * *pendant* le tick courant, sans vider la file. Sert a StepResult
+     * (Core/Simulation/Simulation.php) - l'OutQueue a ete videe en tout
+     * debut de Pipeline::tick() pour calculer l'InQueue, donc tout ce
+     * qu'elle contient a la fin du tick vient des emit() de ce tick.
+     *
+     * @return list<DomainEvent>
+     */
+    public function pending(): array
+    {
+        return self::sorted($this->entries);
+    }
+
+    public function count(): int
+    {
+        return count($this->entries);
+    }
+
+    /**
+     * @param list<OutQueueEntry> $entries
+     * @return list<DomainEvent>
+     */
+    private static function sorted(array $entries): array
+    {
         usort(
             $entries,
             static fn (OutQueueEntry $a, OutQueueEntry $b): int => $a->systemIndex <=> $b->systemIndex
@@ -49,10 +77,5 @@ final class OutQueue
         );
 
         return array_map(static fn (OutQueueEntry $entry): DomainEvent => $entry->event, $entries);
-    }
-
-    public function count(): int
-    {
-        return count($this->entries);
     }
 }

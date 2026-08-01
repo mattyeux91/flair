@@ -6,11 +6,13 @@ namespace Flair\Kernel\Tests\Core\Pipeline;
 
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Messaging\DomainEvent;
+use Flair\Kernel\Core\Messaging\Intent;
 use Flair\Kernel\Core\Messaging\OutQueue;
 use Flair\Kernel\Core\Messaging\Scheduler;
 use Flair\Kernel\Core\Pipeline\Pipeline;
 use Flair\Kernel\Core\Pipeline\System;
 use Flair\Kernel\Core\Pipeline\SystemContext;
+use Flair\Kernel\Core\Ruleset;
 use PHPUnit\Framework\TestCase;
 
 final class PipelineTest extends TestCase
@@ -29,7 +31,7 @@ final class PipelineTest extends TestCase
         });
 
         $pipeline = new Pipeline([$a, $b, $c]);
-        $pipeline->tick(new WorldState(), new Scheduler(), new OutQueue(), tick: 1, worldSeed: 1);
+        $pipeline->tick(new WorldState(), tick: 1, worldSeed: 1, ruleset: $this->ruleset(), intents: []);
 
         self::assertSame(['a', 'b', 'c'], $log);
     }
@@ -42,9 +44,10 @@ final class PipelineTest extends TestCase
         $scheduler = new Scheduler();
         $scheduler->schedule(new PipelineTestEventX(), atTick: 1, systemIndex: 0, entityId: 0, seq: 0);
         $scheduler->schedule(new PipelineTestEventY(), atTick: 1, systemIndex: 0, entityId: 0, seq: 1);
+        $world = new WorldState(scheduler: $scheduler);
 
         $pipeline = new Pipeline([$x, $y]);
-        $pipeline->tick(new WorldState(), $scheduler, new OutQueue(), tick: 1, worldSeed: 1);
+        $pipeline->tick($world, tick: 1, worldSeed: 1, ruleset: $this->ruleset(), intents: []);
 
         self::assertSame(['handle:' . PipelineTestEventX::class, 'update'], $x->log);
         self::assertSame(['handle:' . PipelineTestEventY::class, 'update'], $y->log);
@@ -63,8 +66,10 @@ final class PipelineTest extends TestCase
         $outQueue = new OutQueue();
         $outQueue->emit(new PipelineTestEventY(), systemIndex: 0, entityId: 0, seq: 0);
 
+        $world = new WorldState(scheduler: $scheduler, outQueue: $outQueue);
+
         $pipeline = new Pipeline([$recorder]);
-        $pipeline->tick(new WorldState(), $scheduler, $outQueue, tick: 1, worldSeed: 1);
+        $pipeline->tick($world, tick: 1, worldSeed: 1, ruleset: $this->ruleset(), intents: []);
 
         self::assertSame(
             ['handle:' . PipelineTestEventX::class, 'handle:' . PipelineTestEventY::class, 'update'],
@@ -84,19 +89,19 @@ final class PipelineTest extends TestCase
 
         $scheduler = new Scheduler();
         $scheduler->schedule(new PipelineTestEventX(), atTick: 1, systemIndex: 0, entityId: 0, seq: 0);
-        $outQueue = new OutQueue();
+        $world = new WorldState(scheduler: $scheduler);
 
         $pipeline = new Pipeline([$selfSubscriber]);
-        $pipeline->tick(new WorldState(), $scheduler, $outQueue, tick: 1, worldSeed: 1);
+        $pipeline->tick($world, tick: 1, worldSeed: 1, ruleset: $this->ruleset(), intents: []);
 
         // Un seul handle() ce tick, malgre l'emission d'un evenement du meme
         // type pendant handle().
         self::assertSame(['handle:' . PipelineTestEventX::class, 'update'], $selfSubscriber->log);
         // L'evenement emis n'a pas disparu : il attend le prochain drain().
-        self::assertSame(1, $outQueue->count());
+        self::assertSame(1, $world->outQueue()->count());
 
         $selfSubscriber->log = [];
-        $pipeline->tick(new WorldState(), $scheduler, $outQueue, tick: 2, worldSeed: 1);
+        $pipeline->tick($world, tick: 2, worldSeed: 1, ruleset: $this->ruleset(), intents: []);
 
         self::assertSame(['handle:' . PipelineTestEventX::class, 'update'], $selfSubscriber->log);
     }
@@ -122,19 +127,17 @@ final class PipelineTest extends TestCase
         $reactor = new PipelineTestRecordingSystem('reactor', subscribesTo: [PipelineTestEventX::class]);
 
         $world = new WorldState();
-        $scheduler = new Scheduler();
-        $outQueue = new OutQueue();
         $pipeline = new Pipeline([$counter, $reactor]);
 
-        $pipeline->tick($world, $scheduler, $outQueue, tick: 1, worldSeed: 1); // compteur = 1
+        $pipeline->tick($world, tick: 1, worldSeed: 1, ruleset: $this->ruleset(), intents: []); // compteur = 1
         self::assertSame(['update'], $reactor->log); // update() tourne chaque tick, meme sans handle()
 
         $reactor->log = [];
-        $pipeline->tick($world, $scheduler, $outQueue, tick: 2, worldSeed: 1); // compteur = 2, programme pour le tick 3
+        $pipeline->tick($world, tick: 2, worldSeed: 1, ruleset: $this->ruleset(), intents: []); // compteur = 2, programme pour le tick 3
         self::assertSame(['update'], $reactor->log);
 
         $reactor->log = [];
-        $pipeline->tick($world, $scheduler, $outQueue, tick: 3, worldSeed: 1); // l'echeance arrive
+        $pipeline->tick($world, tick: 3, worldSeed: 1, ruleset: $this->ruleset(), intents: []); // l'echeance arrive
         self::assertSame(['handle:' . PipelineTestEventX::class, 'update'], $reactor->log);
     }
 
@@ -150,12 +153,39 @@ final class PipelineTest extends TestCase
 
         $pipeline = new Pipeline([$system]);
 
-        $pipeline->tick(new WorldState(), new Scheduler(), new OutQueue(), tick: 1, worldSeed: 777);
-        $pipeline->tick(new WorldState(), new Scheduler(), new OutQueue(), tick: 1, worldSeed: 777);
-        $pipeline->tick(new WorldState(), new Scheduler(), new OutQueue(), tick: 1, worldSeed: 999);
+        $pipeline->tick(new WorldState(), tick: 1, worldSeed: 777, ruleset: $this->ruleset(), intents: []);
+        $pipeline->tick(new WorldState(), tick: 1, worldSeed: 777, ruleset: $this->ruleset(), intents: []);
+        $pipeline->tick(new WorldState(), tick: 1, worldSeed: 999, ruleset: $this->ruleset(), intents: []);
 
         self::assertSame($draws[0], $draws[1]); // meme worldSeed -> meme tirage
         self::assertNotSame($draws[0], $draws[2]); // worldSeed different -> tirage different
+    }
+
+    public function testRulesetAndIntentsAreThreadedThroughToSystemContext(): void
+    {
+        $intent = new PipelineTestIntent();
+        $ruleset = $this->ruleset('2026.1.0');
+        $seenRuleset = null;
+        $seenIntents = null;
+
+        $system = new PipelineTestRecordingSystem(
+            'reader',
+            onUpdate: function (SystemContext $ctx) use (&$seenRuleset, &$seenIntents): void {
+                $seenRuleset = $ctx->ruleset();
+                $seenIntents = $ctx->intents();
+            },
+        );
+
+        $pipeline = new Pipeline([$system]);
+        $pipeline->tick(new WorldState(), tick: 1, worldSeed: 1, ruleset: $ruleset, intents: [$intent]);
+
+        self::assertSame($ruleset, $seenRuleset);
+        self::assertSame([$intent], $seenIntents);
+    }
+
+    private function ruleset(string $version = 'test'): Ruleset
+    {
+        return new Ruleset($version);
     }
 }
 
@@ -225,4 +255,8 @@ final class PipelineTestCounter
     public function __construct(public int $value)
     {
     }
+}
+
+final class PipelineTestIntent implements Intent
+{
 }

@@ -84,6 +84,49 @@ final class OutQueueTest extends TestCase
 
         self::assertSame(0, $queue->count());
     }
+
+    public function testPendingOnAnEmptyQueueReturnsNothing(): void
+    {
+        $queue = new OutQueue();
+
+        self::assertSame([], $queue->pending());
+    }
+
+    public function testPendingDoesNotEmptyTheQueue(): void
+    {
+        $queue = new OutQueue();
+        $queue->emit(new OutQueueTestEvent(), systemIndex: 0, entityId: 0, seq: 0);
+
+        $queue->pending();
+
+        self::assertSame(1, $queue->count());
+    }
+
+    public function testPendingReturnsTheSameOrderAsDrain(): void
+    {
+        $queue = new OutQueue();
+
+        $sys1 = new OutQueueTestEvent();
+        $sys0Entity9 = new OutQueueTestEvent();
+        $sys0Entity1 = new OutQueueTestEvent();
+
+        $queue->emit($sys1, systemIndex: 1, entityId: 0, seq: 0);
+        $queue->emit($sys0Entity9, systemIndex: 0, entityId: 9, seq: 0);
+        $queue->emit($sys0Entity1, systemIndex: 0, entityId: 1, seq: 0);
+
+        $pending = $queue->pending();
+
+        self::assertSame([$sys0Entity1, $sys0Entity9, $sys1], $pending);
+        self::assertSame($pending, $queue->drain());
+    }
+
+    public function testCallingPendingTwiceReturnsTheSameResult(): void
+    {
+        $queue = new OutQueue();
+        $queue->emit(new OutQueueTestEvent(), systemIndex: 0, entityId: 0, seq: 0);
+
+        self::assertSame($queue->pending(), $queue->pending());
+    }
 }
 
 final class OutQueueTestEvent implements DomainEvent

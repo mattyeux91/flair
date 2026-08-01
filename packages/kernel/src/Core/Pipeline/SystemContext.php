@@ -7,8 +7,10 @@ namespace Flair\Kernel\Core\Pipeline;
 use Flair\Kernel\Core\Ecs\ComponentStore;
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Messaging\DomainEvent;
+use Flair\Kernel\Core\Messaging\Intent;
 use Flair\Kernel\Core\Messaging\OutQueue;
 use Flair\Kernel\Core\Messaging\Scheduler;
+use Flair\Kernel\Core\Ruleset;
 use Flair\Kernel\Core\Support\Rng;
 
 /**
@@ -24,17 +26,24 @@ use Flair\Kernel\Core\Support\Rng;
  * RNG du systeme (docs/13- §4.1) : contrairement a l'index, il ne bouge pas
  * si le pipeline est reordonne.
  *
+ * `ruleset`/`intents` viennent du `TickContext` (11- §1) : exposes des
+ * maintenant meme si aucun systeme du domaine football n'existe encore pour
+ * les lire, comme `rng()` avant le premier systeme concret.
+ *
  * N'applique pas les declarations reads()/writes() de System : ce controle
  * porte sur l'ensemble des systemes du pipeline, pas sur un contexte isole
  * (voir le plan associe a cette classe).
  */
 final readonly class SystemContext
 {
+    /** @param list<Intent> $intents */
     public function __construct(
         public int $tick,
         private int $systemIndex,
         private string $systemId,
         private int $worldSeed,
+        private Ruleset $ruleset,
+        private array $intents,
         private WorldState $world,
         private Scheduler $scheduler,
         private OutQueue $outQueue,
@@ -91,5 +100,16 @@ final readonly class SystemContext
     public function rng(int $entityId): Rng
     {
         return Rng::forStream($this->worldSeed, $this->tick, $this->systemId, $entityId);
+    }
+
+    public function ruleset(): Ruleset
+    {
+        return $this->ruleset;
+    }
+
+    /** @return list<Intent> */
+    public function intents(): array
+    {
+        return $this->intents;
     }
 }

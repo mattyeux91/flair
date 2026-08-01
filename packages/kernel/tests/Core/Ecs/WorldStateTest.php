@@ -6,6 +6,9 @@ namespace Flair\Kernel\Tests\Core\Ecs;
 
 use Flair\Kernel\Core\Ecs\EntityIdAllocator;
 use Flair\Kernel\Core\Ecs\WorldState;
+use Flair\Kernel\Core\Messaging\DomainEvent;
+use Flair\Kernel\Core\Messaging\OutQueue;
+use Flair\Kernel\Core\Messaging\Scheduler;
 use PHPUnit\Framework\TestCase;
 
 final class WorldStateTest extends TestCase
@@ -64,6 +67,48 @@ final class WorldStateTest extends TestCase
 
         self::assertSame(2, $world->singleton(WorldStateTestComponentA::class)?->value);
     }
+
+    public function testSchedulerReturnsTheSameInstanceOnEachCall(): void
+    {
+        $world = new WorldState();
+
+        self::assertSame($world->scheduler(), $world->scheduler());
+    }
+
+    public function testOutQueueReturnsTheSameInstanceOnEachCall(): void
+    {
+        $world = new WorldState();
+
+        self::assertSame($world->outQueue(), $world->outQueue());
+    }
+
+    public function testAPreBuiltSchedulerCanBeInjectedAndIsThenExposedAsIs(): void
+    {
+        $scheduler = new Scheduler();
+        $event = new WorldStateTestEvent();
+        $scheduler->schedule($event, atTick: 5, systemIndex: 0, entityId: 0, seq: 0);
+
+        $world = new WorldState(scheduler: $scheduler);
+
+        self::assertSame($scheduler, $world->scheduler());
+        self::assertSame([$event], $world->scheduler()->drainDueBy(5));
+    }
+
+    public function testAPreBuiltOutQueueCanBeInjectedAndIsThenExposedAsIs(): void
+    {
+        $outQueue = new OutQueue();
+        $event = new WorldStateTestEvent();
+        $outQueue->emit($event, systemIndex: 0, entityId: 0, seq: 0);
+
+        $world = new WorldState(outQueue: $outQueue);
+
+        self::assertSame($outQueue, $world->outQueue());
+        self::assertSame([$event], $world->outQueue()->pending());
+    }
+}
+
+final class WorldStateTestEvent implements DomainEvent
+{
 }
 
 final class WorldStateTestComponentA

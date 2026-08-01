@@ -280,6 +280,8 @@ Et parmi les Faits eux-mêmes, **seuls ceux qui passent le seuil de pertinence**
 
 **Snapshots** : sérialisation complète du `WorldState` à intervalle régulier (fin de saison, et toutes les N ticks). Le démarrage charge le dernier snapshot et rejoue le delta. Sans snapshot, redémarrer un monde de 10 ans coûte des minutes.
 
+> ⚠️ Le `WorldState` inclut le `Scheduler` et l'`OutQueue`, pas seulement les entités/composants/singletons. Raison : `step(WorldState, TickContext): StepResult` (`11-`§1) ne prend que ces deux paramètres — rien d'autre ne pourrait faire survivre le `Scheduler`/l'`OutQueue` d'un appel à l'autre. C'est aussi ce qui ferme un trou de durabilité réel : un événement seulement *planifié* (`schedule()`) n'émet aucun Fait tant qu'il n'est pas déclenché, donc un snapshot qui l'ignorerait le perdrait silencieusement à un redémarrage du Host.
+
 Stockage : PostgreSQL. `events (world_id, tick, seq, type, payload jsonb)` en append-only, index sur `(world_id, tick, seq)`. Les projections sont des tables normales, reconstructibles depuis zéro.
 
 ---
