@@ -9,6 +9,7 @@ use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Messaging\DomainEvent;
 use Flair\Kernel\Core\Messaging\OutQueue;
 use Flair\Kernel\Core\Messaging\Scheduler;
+use Flair\Kernel\Core\Support\Rng;
 
 /**
  * Facade unique par laquelle un System accede a tout : lecture/ecriture du
@@ -19,6 +20,10 @@ use Flair\Kernel\Core\Messaging\Scheduler;
  * necessaires uniquement au Scheduler/OutQueue sous-jacents. Un System n'a
  * jamais besoin de les lire lui-meme.
  *
+ * `systemId` (distinct de `systemIndex`) sert uniquement a deriver le flux
+ * RNG du systeme (docs/13- §4.1) : contrairement a l'index, il ne bouge pas
+ * si le pipeline est reordonne.
+ *
  * N'applique pas les declarations reads()/writes() de System : ce controle
  * porte sur l'ensemble des systemes du pipeline, pas sur un contexte isole
  * (voir le plan associe a cette classe).
@@ -28,6 +33,8 @@ final readonly class SystemContext
     public function __construct(
         public int $tick,
         private int $systemIndex,
+        private string $systemId,
+        private int $worldSeed,
         private WorldState $world,
         private Scheduler $scheduler,
         private OutQueue $outQueue,
@@ -73,5 +80,16 @@ final readonly class SystemContext
     public function emit(DomainEvent $event, int $entityId): void
     {
         $this->outQueue->emit($event, $this->systemIndex, $entityId, $this->seq->next());
+    }
+
+    /**
+     * Flux RNG isole pour cette entite, ce systeme, ce tick et ce monde
+     * (docs/13- §4.1). Jamais un PRNG global partage : deux appels avec le
+     * meme (worldSeed, tick, systemId, entityId) renvoient toujours la meme
+     * sequence.
+     */
+    public function rng(int $entityId): Rng
+    {
+        return Rng::forStream($this->worldSeed, $this->tick, $this->systemId, $entityId);
     }
 }

@@ -29,14 +29,14 @@ final class Pipeline
     {
     }
 
-    public function tick(WorldState $world, Scheduler $scheduler, OutQueue $outQueue, int $tick): void
+    public function tick(WorldState $world, Scheduler $scheduler, OutQueue $outQueue, int $tick, int $worldSeed): void
     {
         $seq = new SeqCounter();
 
         $incoming = [...$scheduler->drainDueBy($tick), ...$outQueue->drain()];
 
         foreach ($this->systems as $index => $system) {
-            $ctx = new SystemContext($tick, $index, $world, $scheduler, $outQueue, $seq);
+            $ctx = new SystemContext($tick, $index, $system->id(), $worldSeed, $world, $scheduler, $outQueue, $seq);
 
             foreach ($incoming as $event) {
                 foreach ($system->subscribesTo() as $type) {

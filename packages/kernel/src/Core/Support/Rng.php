@@ -2,15 +2,15 @@
 
 declare(strict_types=1);
 
-namespace Flair\Kernel\Core;
+namespace Flair\Kernel\Core\Support;
 
 /**
  * PRNG 32 bits deterministe (xoshiro128**, Blackman & Vigna, domaine public).
  *
  * PHP fait basculer silencieusement un depassement d'int en float - sans
  * erreur ni avertissement - ce qui casserait le determinisme sans le
- * signaler. Toute multiplication 32x32 passe donc par {@see mul32()}, qui ne
- * repose jamais sur le fait qu'un int PHP tienne sur 64 bits.
+ * signaler. Toute multiplication 32x32 passe donc par {@see Math32::mul32()},
+ * qui ne repose jamais sur le fait qu'un int PHP tienne sur 64 bits.
  *
  * Voir docs/13-moteur-de-simulation.md §4.3.
  */
@@ -39,9 +39,19 @@ final class Rng
         }
     }
 
+    /**
+     * Un flux isole par (monde, tick, systeme, entite) - jamais un PRNG
+     * global partage (docs/13- §4.1) : ajouter un systeme ou une entite ne
+     * decale le tirage d'aucun autre flux.
+     */
+    public static function forStream(int $worldSeed, int $tick, string $systemId, int $entityId): self
+    {
+        return new self(Hash::mix32($worldSeed, $tick, crc32($systemId), $entityId));
+    }
+
     public function nextUint32(): int
     {
-        $result = self::mul32(self::rotl(self::mul32($this->s1, 5), 7), 9);
+        $result = Math32::mul32(self::rotl(Math32::mul32($this->s1, 5), 7), 9);
 
         $t = ($this->s1 << 9) & self::MASK;
 
@@ -60,31 +70,10 @@ final class Rng
     {
         $state = ($state + 0x9E3779B9) & self::MASK;
         $z = $state;
-        $z = self::mul32($z ^ ($z >> 16), 0x85EBCA6B);
-        $z = self::mul32($z ^ ($z >> 13), 0xC2B2AE35);
+        $z = Math32::mul32($z ^ ($z >> 16), 0x85EBCA6B);
+        $z = Math32::mul32($z ^ ($z >> 13), 0xC2B2AE35);
 
         return ($z ^ ($z >> 16)) & self::MASK;
-    }
-
-    /**
-     * Multiplication 32x32 -> 32 bits basse, par blocs de 16 bits.
-     *
-     * Une multiplication directe (a * b) & self::MASK ne suffit pas : le
-     * produit intermediaire de deux operandes proches de 0xFFFFFFFF depasse
-     * PHP_INT_MAX sur une machine 64 bits, et bascule en float *avant* que
-     * le masque ne s'applique. C'est exactement le piege documente en §4.3.
-     */
-    private static function mul32(int $a, int $b): int
-    {
-        $aLo = $a & 0xFFFF;
-        $aHi = ($a >> 16) & 0xFFFF;
-        $bLo = $b & 0xFFFF;
-        $bHi = ($b >> 16) & 0xFFFF;
-
-        $low = $aLo * $bLo;
-        $mid = ($aLo * $bHi + $aHi * $bLo) & 0xFFFF;
-
-        return ($low + ($mid << 16)) & self::MASK;
     }
 
     private static function rotl(int $x, int $k): int

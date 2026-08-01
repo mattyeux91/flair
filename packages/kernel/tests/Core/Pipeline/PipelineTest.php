@@ -29,7 +29,7 @@ final class PipelineTest extends TestCase
         });
 
         $pipeline = new Pipeline([$a, $b, $c]);
-        $pipeline->tick(new WorldState(), new Scheduler(), new OutQueue(), tick: 1);
+        $pipeline->tick(new WorldState(), new Scheduler(), new OutQueue(), tick: 1, worldSeed: 1);
 
         self::assertSame(['a', 'b', 'c'], $log);
     }
@@ -44,7 +44,7 @@ final class PipelineTest extends TestCase
         $scheduler->schedule(new PipelineTestEventY(), atTick: 1, systemIndex: 0, entityId: 0, seq: 1);
 
         $pipeline = new Pipeline([$x, $y]);
-        $pipeline->tick(new WorldState(), $scheduler, new OutQueue(), tick: 1);
+        $pipeline->tick(new WorldState(), $scheduler, new OutQueue(), tick: 1, worldSeed: 1);
 
         self::assertSame(['handle:' . PipelineTestEventX::class, 'update'], $x->log);
         self::assertSame(['handle:' . PipelineTestEventY::class, 'update'], $y->log);
@@ -64,7 +64,7 @@ final class PipelineTest extends TestCase
         $outQueue->emit(new PipelineTestEventY(), systemIndex: 0, entityId: 0, seq: 0);
 
         $pipeline = new Pipeline([$recorder]);
-        $pipeline->tick(new WorldState(), $scheduler, $outQueue, tick: 1);
+        $pipeline->tick(new WorldState(), $scheduler, $outQueue, tick: 1, worldSeed: 1);
 
         self::assertSame(
             ['handle:' . PipelineTestEventX::class, 'handle:' . PipelineTestEventY::class, 'update'],
@@ -87,7 +87,7 @@ final class PipelineTest extends TestCase
         $outQueue = new OutQueue();
 
         $pipeline = new Pipeline([$selfSubscriber]);
-        $pipeline->tick(new WorldState(), $scheduler, $outQueue, tick: 1);
+        $pipeline->tick(new WorldState(), $scheduler, $outQueue, tick: 1, worldSeed: 1);
 
         // Un seul handle() ce tick, malgre l'emission d'un evenement du meme
         // type pendant handle().
@@ -96,7 +96,7 @@ final class PipelineTest extends TestCase
         self::assertSame(1, $outQueue->count());
 
         $selfSubscriber->log = [];
-        $pipeline->tick(new WorldState(), $scheduler, $outQueue, tick: 2);
+        $pipeline->tick(new WorldState(), $scheduler, $outQueue, tick: 2, worldSeed: 1);
 
         self::assertSame(['handle:' . PipelineTestEventX::class, 'update'], $selfSubscriber->log);
     }
@@ -126,16 +126,36 @@ final class PipelineTest extends TestCase
         $outQueue = new OutQueue();
         $pipeline = new Pipeline([$counter, $reactor]);
 
-        $pipeline->tick($world, $scheduler, $outQueue, tick: 1); // compteur = 1
+        $pipeline->tick($world, $scheduler, $outQueue, tick: 1, worldSeed: 1); // compteur = 1
         self::assertSame(['update'], $reactor->log); // update() tourne chaque tick, meme sans handle()
 
         $reactor->log = [];
-        $pipeline->tick($world, $scheduler, $outQueue, tick: 2); // compteur = 2, programme pour le tick 3
+        $pipeline->tick($world, $scheduler, $outQueue, tick: 2, worldSeed: 1); // compteur = 2, programme pour le tick 3
         self::assertSame(['update'], $reactor->log);
 
         $reactor->log = [];
-        $pipeline->tick($world, $scheduler, $outQueue, tick: 3); // l'echeance arrive
+        $pipeline->tick($world, $scheduler, $outQueue, tick: 3, worldSeed: 1); // l'echeance arrive
         self::assertSame(['handle:' . PipelineTestEventX::class, 'update'], $reactor->log);
+    }
+
+    public function testWorldSeedIsThreadedThroughToEachSystemsRngStream(): void
+    {
+        $draws = [];
+        $system = new PipelineTestRecordingSystem(
+            'drawer',
+            onUpdate: function (SystemContext $ctx) use (&$draws): void {
+                $draws[] = $ctx->rng(entityId: 7)->nextUint32();
+            },
+        );
+
+        $pipeline = new Pipeline([$system]);
+
+        $pipeline->tick(new WorldState(), new Scheduler(), new OutQueue(), tick: 1, worldSeed: 777);
+        $pipeline->tick(new WorldState(), new Scheduler(), new OutQueue(), tick: 1, worldSeed: 777);
+        $pipeline->tick(new WorldState(), new Scheduler(), new OutQueue(), tick: 1, worldSeed: 999);
+
+        self::assertSame($draws[0], $draws[1]); // meme worldSeed -> meme tirage
+        self::assertNotSame($draws[0], $draws[2]); // worldSeed different -> tirage different
     }
 }
 

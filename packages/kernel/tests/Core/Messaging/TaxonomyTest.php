@@ -7,6 +7,7 @@ namespace Flair\Kernel\Tests\Core\Messaging;
 use Flair\Kernel\Core\Messaging\DecisionRequest;
 use Flair\Kernel\Core\Messaging\DomainEvent;
 use Flair\Kernel\Core\Messaging\Intent;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -14,34 +15,50 @@ use PHPUnit\Framework\TestCase;
  * (docs/16-evenements-et-cascades.md §1). Ces tests encodent la regle en
  * assertion executable plutot qu'en commentaire : les trois types ne se
  * recouvrent jamais.
+ *
+ * Le message et les types exclus transitent par un data provider (types
+ * generiques `object`/`class-string` au niveau du test) plutot que d'etre
+ * construits en dur dans le corps du test : sans ca, PHPStan prouve
+ * statiquement qu'une classe `final` qui n'implemente qu'une seule des trois
+ * interfaces ne peut jamais satisfaire les deux autres, et signale
+ * l'assertion comme deja tranchee (`staticMethod.alreadyNarrowedType`) - un
+ * faux positif ici, puisque le test existe justement pour attraper une
+ * future violation de cette regle, pas pour verifier l'etat actuel du code.
  */
 final class TaxonomyTest extends TestCase
 {
-    public function testADomainEventSatisfiesOnlyItsOwnType(): void
+    /** @return iterable<string, array{0: object, 1: class-string, 2: list<class-string>}> */
+    public static function messages(): iterable
     {
-        $event = new TaxonomyTestEvent();
-
-        self::assertInstanceOf(DomainEvent::class, $event);
-        self::assertNotInstanceOf(DecisionRequest::class, $event);
-        self::assertNotInstanceOf(Intent::class, $event);
+        yield 'DomainEvent' => [
+            new TaxonomyTestEvent(),
+            DomainEvent::class,
+            [DecisionRequest::class, Intent::class],
+        ];
+        yield 'DecisionRequest' => [
+            new TaxonomyTestDecisionRequest(),
+            DecisionRequest::class,
+            [DomainEvent::class, Intent::class],
+        ];
+        yield 'Intent' => [
+            new TaxonomyTestIntent(),
+            Intent::class,
+            [DomainEvent::class, DecisionRequest::class],
+        ];
     }
 
-    public function testADecisionRequestSatisfiesOnlyItsOwnType(): void
+    /**
+     * @param class-string $expectedType
+     * @param list<class-string> $excludedTypes
+     */
+    #[DataProvider('messages')]
+    public function testAMessageSatisfiesOnlyItsOwnType(object $message, string $expectedType, array $excludedTypes): void
     {
-        $request = new TaxonomyTestDecisionRequest();
+        self::assertInstanceOf($expectedType, $message);
 
-        self::assertInstanceOf(DecisionRequest::class, $request);
-        self::assertNotInstanceOf(DomainEvent::class, $request);
-        self::assertNotInstanceOf(Intent::class, $request);
-    }
-
-    public function testAnIntentSatisfiesOnlyItsOwnType(): void
-    {
-        $intent = new TaxonomyTestIntent();
-
-        self::assertInstanceOf(Intent::class, $intent);
-        self::assertNotInstanceOf(DomainEvent::class, $intent);
-        self::assertNotInstanceOf(DecisionRequest::class, $intent);
+        foreach ($excludedTypes as $excludedType) {
+            self::assertNotInstanceOf($excludedType, $message);
+        }
     }
 }
 

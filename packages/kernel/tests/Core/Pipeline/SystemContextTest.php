@@ -99,9 +99,24 @@ final class SystemContextTest extends TestCase
         self::assertSame([$first, $second, $third], $outQueue->drain());
     }
 
+    public function testRngIsDeterministicForTheSameStreamKeyAndDivergesOtherwise(): void
+    {
+        $a = $this->makeContext(tick: 10, systemId: 'aging', worldSeed: 777);
+        $b = $this->makeContext(tick: 10, systemId: 'aging', worldSeed: 777);
+        $differentSystem = $this->makeContext(tick: 10, systemId: 'training', worldSeed: 777);
+
+        self::assertSame($a->rng(entityId: 42)->nextUint32(), $b->rng(entityId: 42)->nextUint32());
+        self::assertNotSame(
+            $a->rng(entityId: 42)->nextUint32(),
+            $differentSystem->rng(entityId: 42)->nextUint32(),
+        );
+    }
+
     private function makeContext(
         int $tick = 1,
         int $systemIndex = 0,
+        string $systemId = 'test-system',
+        int $worldSeed = 1,
         ?WorldState $world = null,
         ?Scheduler $scheduler = null,
         ?OutQueue $outQueue = null,
@@ -110,6 +125,8 @@ final class SystemContextTest extends TestCase
         return new SystemContext(
             tick: $tick,
             systemIndex: $systemIndex,
+            systemId: $systemId,
+            worldSeed: $worldSeed,
             world: $world ?? new WorldState(),
             scheduler: $scheduler ?? new Scheduler(),
             outQueue: $outQueue ?? new OutQueue(),
