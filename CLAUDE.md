@@ -1,4 +1,4 @@
-# fm — simulation de monde persistant football
+# Flair — simulation de monde persistant football
 
 ## Pitch
 
@@ -52,7 +52,7 @@ Ce fichier est un **index et un aide-mémoire des règles chères à violer par 
 - **Aucun ORM dans `kernel`.** Doctrine autorisé uniquement côté projections/API.
 - **Symfony ou Laravel** pour `host`/`api`/`admin` — **jamais** dans `kernel`, qui doit rester exécutable dans un test unitaire nu.
 - **SSE**, pas WebSocket, pour le flux temps réel.
-- Namespace racine `Fm\`, PSR-4, PSR-12. **PHPStan niveau max obligatoire sur `kernel`.**
+- Namespace racine `Flair\`, PSR-4, PSR-12. **PHPStan niveau max obligatoire sur `kernel`.**
 - Monorepo Composer (path repositories) : `packages/{kernel,ruleset,worldgen,host,api,admin,game-web,harness}/`. Pas encore créé — voir « Où en est le projet ».
 
 ## Où en est le projet
