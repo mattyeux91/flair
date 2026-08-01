@@ -28,9 +28,11 @@ use Flair\Kernel\Core\Simulation\TickContext;
 use Flair\Kernel\Core\Support\SimDate;
 use Flair\Kernel\Football\AgingSystem;
 use Flair\Kernel\Football\Person;
+use Flair\Kernel\Football\PlayerMentalSkills;
+use Flair\Kernel\Football\PlayerPhysicalSkills;
+use Flair\Kernel\Football\PlayerPotentials;
 use Flair\Kernel\Football\PlayerRetired;
-use Flair\Kernel\Football\PlayerSkills;
-use Flair\Kernel\Football\Potential;
+use Flair\Kernel\Football\PlayerTechnicalSkills;
 
 /** @return array<string, int> nom -> entityId */
 function demoCreatePlayers(WorldState $world, int $atTick): array
@@ -49,23 +51,33 @@ function demoCreatePlayers(WorldState $world, int $atTick): array
         $birthDay = (int) round($atTick - $definition['age'] * 365);
 
         $world->components(Person::class)->set($entity, new Person($name, new SimDate($birthDay)));
-        $world->components(PlayerSkills::class)->set($entity, new PlayerSkills(
-            technique: $definition['skill'],
-            passing: $definition['skill'],
-            finishing: $definition['skill'],
+        $world->components(PlayerPhysicalSkills::class)->set($entity, new PlayerPhysicalSkills(
             pace: $definition['skill'],
             stamina: $definition['skill'],
             strength: $definition['skill'],
+            reflexes: $definition['skill'],
+        ));
+        $world->components(PlayerTechnicalSkills::class)->set($entity, new PlayerTechnicalSkills(
+            technique: $definition['skill'],
+            passing: $definition['skill'],
+            finishing: $definition['skill'],
             defending: $definition['skill'],
             positioning: $definition['skill'],
+            handling: $definition['skill'],
+            distribution: $definition['skill'],
+        ));
+        $world->components(PlayerMentalSkills::class)->set($entity, new PlayerMentalSkills(
             vision: $definition['skill'],
             composure: $definition['skill'],
             leadership: $definition['skill'],
             discipline: $definition['skill'],
+            command: $definition['skill'],
         ));
-        $world->components(Potential::class)->set($entity, new Potential(
+        $world->components(PlayerPotentials::class)->set($entity, new PlayerPotentials(
             ceiling: $definition['ceiling'],
-            peakAge: $definition['peakAge'],
+            physicalPeakAge: $definition['peakAge'],
+            technicalPeakAge: $definition['peakAge'] + 1,
+            mentalPeakAge: $definition['peakAge'] + 5,
             growthRate: 0.4,
             fragility: $definition['fragility'],
         ));
@@ -80,10 +92,10 @@ function demoCreatePlayers(WorldState $world, int $atTick): array
 function demoPrintSnapshot(WorldState $world, array $players): void
 {
     foreach ($players as $name => $entity) {
-        $skills = $world->components(PlayerSkills::class)->get($entity);
-        echo $skills === null
+        $technical = $world->components(PlayerTechnicalSkills::class)->get($entity);
+        echo $technical === null
             ? sprintf("  %-10s retraite\n", $name)
-            : sprintf("  %-10s technique=%d\n", $name, $skills->technique);
+            : sprintf("  %-10s technique=%d\n", $name, $technical->technique);
     }
 }
 

@@ -8,7 +8,7 @@ Le réflexe naturel est de modéliser `Joueur`, `Entraîneur`, `Président` comm
 
 Un joueur prend sa retraite, devient entraîneur adjoint, puis entraîneur principal, puis président. Un agent est aussi un ancien joueur. Un supporter devient actionnaire. En héritage, c'est ingérable (on ne change pas la classe d'un objet). En composition d'objets, ça devient un sac de nullables.
 
-En **ECS**, c'est trivial : on retire le composant `PlayerSkills`, on ajoute `CoachSkills`. L'entité, son identité, son historique et ses relations sont intacts.
+En **ECS**, c'est trivial : on retire les composants de compétences du joueur, on ajoute `CoachSkills`. L'entité, son identité, son historique et ses relations sont intacts.
 
 Les autres bénéfices tombent ensuite :
 
@@ -25,9 +25,9 @@ Les autres bénéfices tombent ensuite :
 
 C'est le point où l'ECS se trahit le plus souvent, y compris dans des schémas qui se déclarent ECS (le diagramme de `ressource.md` fait cohabiter `Entity → Player | Club | City` en héritage *et* des composants à côté — les deux sont incompatibles).
 
-> Une entité est **un entier**. Rien d'autre. « Joueur » n'est pas un type : c'est le nom informel qu'on donne à une entité qui porte `PlayerSkills` + `Contract` + `Fitness`.
+> Une entité est **un entier**. Rien d'autre. « Joueur » n'est pas un type : c'est le nom informel qu'on donne à une entité qui porte ses composants de compétences (`PlayerPhysicalSkills`, `PlayerTechnicalSkills`, `PlayerMentalSkills`, §5) + `Contract` + `Fitness`.
 
-Ce n'est pas du purisme. C'est exactement ce qui permet le cas qui a motivé le choix de l'ECS : quand un joueur devient entraîneur, on retire `PlayerSkills` et on ajoute `CoachSkills`. Avec un sous-type `Player`, il faudrait détruire l'entité et en recréer une — en perdant son identité, son historique de carrière et toutes ses relations. Avec l'ECS, tout est conservé, y compris les vingt ans de faits déjà journalisés à son sujet.
+Ce n'est pas du purisme. C'est exactement ce qui permet le cas qui a motivé le choix de l'ECS : quand un joueur devient entraîneur, on retire ses composants de compétences et on ajoute `CoachSkills`. Avec un sous-type `Player`, il faudrait détruire l'entité et en recréer une — en perdant son identité, son historique de carrière et toutes ses relations. Avec l'ECS, tout est conservé, y compris les vingt ans de faits déjà journalisés à son sujet.
 
 Conséquence pratique : `Player` n'existe que comme **archétype** — une liste de composants documentée qui sert au worldgen et aux requêtes, jamais comme classe.
 
@@ -104,7 +104,7 @@ final class ComponentStore
 | Entité | Composants principaux |
 |---|---|
 | **Personne** | `Person { name, birthDate, nationalities, homeCityId }`, `Personality`, `Reputation` |
-| ↳ en tant que joueur | `PlayerSkills`, `Potential` (caché), `PositionAffinity`, `Fitness`, `Form`, `Morale`, `InjuryState`, `Contract`, `CareerRecord` |
+| ↳ en tant que joueur | `PlayerPhysicalSkills`, `PlayerTechnicalSkills`, `PlayerMentalSkills`, `PlayerPotentials` (caché, §5), `PositionAffinity`, `Fitness`, `Form`, `Morale`, `InjuryState`, `Contract`, `CareerRecord` |
 | ↳ en tant qu'entraîneur | `CoachSkills`, `TacticalPreference`, `Role` |
 | ↳ en tant qu'agent | `AgentProfile { commissionRate, network, reputation }`, `ClientList` |
 | ↳ en tant que dirigeant | `ExecutiveProfile { ambition, patience, riskAppetite }`, `Role` |
@@ -164,15 +164,16 @@ C'est **la décision de modélisation la plus importante** pour rendre le jeu d'
 > Toute donnée « vraie » du monde a une contrepartie **perçue**, bruitée, propre à chaque observateur.
 
 ```php
-// La vérité — jamais exposée à un client
-final readonly class PlayerSkills {
+// La vérité — jamais exposée à un client (un des trois composants de
+// compétences, §5 ; les deux autres suivent le même principe)
+final readonly class PlayerTechnicalSkills {
     public function __construct(
-        public int $technique, public int $pace, public int $vision, /* ... */
+        public int $technique, public int $passing, public int $finishing, /* ... */
     ) {}
 }
-final readonly class Potential {
+final readonly class PlayerPotentials {
     public function __construct(
-        public int $ceiling, public int $peakAge, public float $growthRate,
+        public int $ceiling, public int $physicalPeakAge, /* ... un pic par categorie */ public float $growthRate,
     ) {}
 }
 
@@ -204,30 +205,48 @@ On ne stocke donc pas les estimations : on stocke `observationCount` et `scoutQu
 
 ---
 
-## 5. Les attributs des joueurs : peu et orthogonaux
+## 5. Les attributs des joueurs : peu, orthogonaux, groupés par comportement de vieillissement
 
-FM a ~250 attributs. **On en vise 10 à 12.** Raison brutale : on ne peut pas équilibrer un espace à 250 dimensions en solo, et le moteur de match n'en consomme qu'une poignée.
+FM a ~250 attributs. **On en vise 10 à 12** attributs de champ, plus un jeu réduit pour le gardien. Raison brutale : on ne peut pas équilibrer un espace à 250 dimensions en solo, et le moteur de match n'en consomme qu'une poignée.
 
-Proposition de base (joueurs de champ) :
+Les attributs sont répartis en **trois composants orthogonaux** (`PlayerPhysicalSkills`, `PlayerTechnicalSkills`, `PlayerMentalSkills`) plutôt qu'un seul bloc plat — pas pour le rangement, mais parce qu'un système les traite déjà différemment : le vieillissement (`14-` §2) fait culminer et décliner le physique avant le mental, à talent égal. Chaque catégorie a son propre âge de pic (individuel, `PlayerPotentials`) et sa propre pente de déclin post-pic (globale, `Ruleset\AgingBalance`).
+
+**Important : la répartition suit le comportement de vieillissement, pas le domaine métier.** Il n'existe pas de quatrième catégorie « gardien » — les attributs de gardien sont répartis dans les trois catégories ci-dessus selon leur nature (les réflexes vieillissent comme le physique, le geste comme la technique, l'autorité comme le mental), pas regroupés à part sous prétexte qu'ils partagent un poste.
+
+**Physique** (`PlayerPhysicalSkills`) :
+
+| Attribut | Consommé par |
+|---|---|
+| `pace` | transitions rapides, contre-attaque |
+| `stamina` | dégradation en fin de match, enchaînement |
+| `strength` | duels |
+| `reflexes` | arrêts réflexes du gardien |
+
+**Technique** (`PlayerTechnicalSkills`) :
 
 | Attribut | Consommé par |
 |---|---|
 | `technique` | conservation du ballon, dribble |
 | `passing` | transitions inter-zones |
 | `finishing` | conversion des tirs |
-| `pace` | transitions rapides, contre-attaque |
-| `stamina` | dégradation en fin de match, enchaînement |
-| `strength` | duels |
 | `defending` | interception, récupération |
 | `positioning` | probabilité d'être impliqué au bon endroit |
+| `handling` | conservation du ballon en sortie d'arrêt (gardien) |
+| `distribution` | relance du gardien |
+
+**Mental** (`PlayerMentalSkills`) :
+
+| Attribut | Consommé par |
+|---|---|
 | `vision` | création d'occasions à haute valeur |
 | `composure` | performance sous pression (fin de match, gros match) |
 | `leadership` | effets d'équipe, moral |
 | `discipline` | cartons, comportement hors terrain |
+| `command` | sorties aériennes, organisation de la défense (gardien) |
 
-Plus un jeu réduit pour les gardiens (`reflexes`, `handling`, `distribution`, `command`).
+> **Les quatre attributs de gardien (`reflexes`, `handling`, `distribution`, `command`) sont portés par tout joueur, pas seulement les gardiens titulaires.** Un joueur de champ appelé à garder les buts (exclusion ou blessure du gardien) joue avec ces attributs — généralement bas — au même titre que ses autres compétences. Ce n'est **pas** un archétype exclusif au sens de §1 (le joueur qui devient entraîneur, où ses composants de compétences cèdent la place à `CoachSkills`) : il n'y a pas de bascule, juste des attributs de plus que tout le monde porte, disséminés dans les trois catégories comme n'importe quel autre attribut.
 
-**Règle** : n'ajouter un attribut que si un système le lit *et* qu'il change une décision de jeu. Un attribut décoratif est une dette d'équilibrage.
+**Règle** : n'ajouter un attribut (ou une catégorie) que si un système le lit *et* qu'il change une décision de jeu ou un comportement — le vieillissement justifie déjà la catégorisation ci-dessus. Un attribut décoratif est une dette d'équilibrage.
 
 ---
 

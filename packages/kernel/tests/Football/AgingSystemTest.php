@@ -14,9 +14,11 @@ use Flair\Kernel\Core\Simulation\TickContext;
 use Flair\Kernel\Core\Support\SimDate;
 use Flair\Kernel\Football\AgingSystem;
 use Flair\Kernel\Football\Person;
+use Flair\Kernel\Football\PlayerMentalSkills;
+use Flair\Kernel\Football\PlayerPhysicalSkills;
+use Flair\Kernel\Football\PlayerPotentials;
 use Flair\Kernel\Football\PlayerRetired;
-use Flair\Kernel\Football\PlayerSkills;
-use Flair\Kernel\Football\Potential;
+use Flair\Kernel\Football\PlayerTechnicalSkills;
 use PHPUnit\Framework\TestCase;
 
 final class AgingSystemTest extends TestCase
@@ -31,9 +33,9 @@ final class AgingSystemTest extends TestCase
             $pipeline->tick($world, tick: $tick, worldSeed: 1, ruleset: $this->ruleset(), intents: []);
         }
 
-        $skills = $world->components(PlayerSkills::class)->get($entity);
-        self::assertNotNull($skills);
-        self::assertGreaterThan(40, $skills->technique);
+        $technical = $world->components(PlayerTechnicalSkills::class)->get($entity);
+        self::assertNotNull($technical);
+        self::assertGreaterThan(40, $technical->technique);
     }
 
     public function testAPlayerFarPastPeakAgeDeclinesOnAverage(): void
@@ -59,9 +61,56 @@ final class AgingSystemTest extends TestCase
             $pipeline->tick($world, tick: $tick, worldSeed: 1, ruleset: $ruleset, intents: []);
         }
 
-        $skills = $world->components(PlayerSkills::class)->get($entity);
-        self::assertNotNull($skills);
-        self::assertLessThan(80, $skills->technique);
+        $technical = $world->components(PlayerTechnicalSkills::class)->get($entity);
+        self::assertNotNull($technical);
+        self::assertLessThan(80, $technical->technique);
+    }
+
+    public function testEachCategoryDeclinesFromItsOwnPeakAge(): void
+    {
+        // Pic physique bas (16), pic mental haut (40) : a 30 ans, le
+        // physique est loin dans son declin tandis que le mental est
+        // encore en plateau de progression - la preuve que les trois
+        // categories ne partagent plus un seul age de pic.
+        $world = new WorldState();
+        $entity = $world->createEntity();
+        $birthDay = (int) round(1 - 30.0 * 365);
+
+        $world->components(Person::class)->set($entity, new Person('Joueur Test', new SimDate($birthDay)));
+        $world->components(PlayerPhysicalSkills::class)->set($entity, new PlayerPhysicalSkills(
+            pace: 70,
+            stamina: 70,
+            strength: 70,
+            reflexes: 70,
+        ));
+        $world->components(PlayerMentalSkills::class)->set($entity, new PlayerMentalSkills(
+            vision: 70,
+            composure: 70,
+            leadership: 70,
+            discipline: 70,
+            command: 70,
+        ));
+        $world->components(PlayerPotentials::class)->set($entity, new PlayerPotentials(
+            ceiling: 90,
+            physicalPeakAge: 16,
+            technicalPeakAge: 16,
+            mentalPeakAge: 40,
+            growthRate: 0.5,
+            fragility: 1.0,
+        ));
+
+        $ruleset = new Ruleset('test', new Balance(aging: new AgingBalance(retirementEligibleAge: 33.0)));
+        $pipeline = new Pipeline([new AgingSystem()]);
+        for ($tick = 1; $tick <= 900; $tick++) {
+            $pipeline->tick($world, tick: $tick, worldSeed: 1, ruleset: $ruleset, intents: []);
+        }
+
+        $physical = $world->components(PlayerPhysicalSkills::class)->get($entity);
+        $mental = $world->components(PlayerMentalSkills::class)->get($entity);
+        self::assertNotNull($physical);
+        self::assertNotNull($mental);
+        self::assertLessThan(70, $physical->pace);
+        self::assertGreaterThanOrEqual(70, $mental->vision);
     }
 
     public function testSameWorldSeedProducesTheSameOutcome(): void
@@ -80,8 +129,8 @@ final class AgingSystemTest extends TestCase
         }
 
         self::assertEquals(
-            $worldA->components(PlayerSkills::class)->get(1),
-            $worldB->components(PlayerSkills::class)->get(1),
+            $worldA->components(PlayerTechnicalSkills::class)->get(1),
+            $worldB->components(PlayerTechnicalSkills::class)->get(1),
         );
     }
 
@@ -100,15 +149,15 @@ final class AgingSystemTest extends TestCase
             $fastPipeline->tick($fastWorld, tick: $tick, worldSeed: 1, ruleset: $this->ruleset(5.0), intents: []);
         }
 
-        $normalSkills = $normalWorld->components(PlayerSkills::class)->get(1);
-        $fastSkills = $fastWorld->components(PlayerSkills::class)->get(1);
+        $normalSkills = $normalWorld->components(PlayerTechnicalSkills::class)->get(1);
+        $fastSkills = $fastWorld->components(PlayerTechnicalSkills::class)->get(1);
 
         self::assertNotNull($normalSkills);
         self::assertNotNull($fastSkills);
         self::assertGreaterThan($normalSkills->technique, $fastSkills->technique);
     }
 
-    public function testARetiredPlayerLosesPlayerSkillsAndPotentialAndEmitsAFact(): void
+    public function testARetiredPlayerLosesAllSkillComponentsAndPotentialsAndEmitsAFact(): void
     {
         $world = new WorldState();
         $entity = $this->createPlayer(
@@ -137,13 +186,15 @@ final class AgingSystemTest extends TestCase
                 }
             }
 
-            if ($world->components(PlayerSkills::class)->get($entity) === null) {
+            if ($world->components(PlayerPotentials::class)->get($entity) === null) {
                 break;
             }
         }
 
-        self::assertNull($world->components(PlayerSkills::class)->get($entity));
-        self::assertNull($world->components(Potential::class)->get($entity));
+        self::assertNull($world->components(PlayerPotentials::class)->get($entity));
+        self::assertNull($world->components(PlayerPhysicalSkills::class)->get($entity));
+        self::assertNull($world->components(PlayerTechnicalSkills::class)->get($entity));
+        self::assertNull($world->components(PlayerMentalSkills::class)->get($entity));
         self::assertCount(1, $retirementEvents);
         self::assertSame($entity, $retirementEvents[0]->playerId);
     }
@@ -161,23 +212,33 @@ final class AgingSystemTest extends TestCase
         $birthDay = (int) round(1 - $ageYears * 365);
 
         $world->components(Person::class)->set($entity, new Person('Joueur Test', new SimDate($birthDay)));
-        $world->components(PlayerSkills::class)->set($entity, new PlayerSkills(
-            technique: $currentSkill,
-            passing: $currentSkill,
-            finishing: $currentSkill,
+        $world->components(PlayerPhysicalSkills::class)->set($entity, new PlayerPhysicalSkills(
             pace: $currentSkill,
             stamina: $currentSkill,
             strength: $currentSkill,
+            reflexes: $currentSkill,
+        ));
+        $world->components(PlayerTechnicalSkills::class)->set($entity, new PlayerTechnicalSkills(
+            technique: $currentSkill,
+            passing: $currentSkill,
+            finishing: $currentSkill,
             defending: $currentSkill,
             positioning: $currentSkill,
+            handling: $currentSkill,
+            distribution: $currentSkill,
+        ));
+        $world->components(PlayerMentalSkills::class)->set($entity, new PlayerMentalSkills(
             vision: $currentSkill,
             composure: $currentSkill,
             leadership: $currentSkill,
             discipline: $currentSkill,
+            command: $currentSkill,
         ));
-        $world->components(Potential::class)->set($entity, new Potential(
+        $world->components(PlayerPotentials::class)->set($entity, new PlayerPotentials(
             ceiling: $ceiling,
-            peakAge: $peakAge,
+            physicalPeakAge: $peakAge,
+            technicalPeakAge: $peakAge,
+            mentalPeakAge: $peakAge,
             growthRate: $growthRate,
             fragility: $fragility,
         ));
