@@ -40,19 +40,18 @@ use Flair\Kernel\Football\Components\TrainingEffect;
  * les mutations de valeur, `removes()` les retraits, verifie
  * mecaniquement par `Football\PipelineInvariantsTest`.
  *
- * **Point d'extension `TrainingEffect`** : un futur `TrainingSystem`
- * (docs/14- §2, hors perimetre de ce lot) composera sa qualite
- * d'entrainement en ecrivant ce composant plus tot dans le pipeline, sans
- * jamais modifier cette classe (OCP) - lu ici avec un defaut neutre (1.0)
- * quand absent, ce qui est le cas de toute entite aujourd'hui puisque
- * rien ne l'ecrit encore. Le modificateur est deja borne `[0.5, 2.0]` par
- * son producteur (docs/14- §3 - un environnement ne doit jamais pouvoir
- * annuler ni decupler le potentiel) ; cette classe ne le re-clamp pas.
- * Post-pic (`ageFactor < 0`), le modificateur est applique par sa
- * **reciproque** : un environnement de qualite doit ralentir le declin,
- * pas l'accelerer - `1/x` est une bijection de `[0.5, 2.0]` sur lui-meme
- * (`1/0.5 = 2.0`, `1/2.0 = 0.5`), donc le resultat reste borne sans
- * re-clamp.
+ * **`TrainingEffect`** : ecrit par `TrainingSystem` (qualite d'environnement
+ * d'entrainement, `docs/14-` §2 - voir son docblock et celui de
+ * `TrainingEffect` pour le detail), lu ici avec un defaut neutre (1.0)
+ * quand absent (joueur sans club) - ouvert a l'extension sans modification
+ * (OCP), aucun changement necessaire dans cette classe pour l'accueillir.
+ * Le modificateur est deja borne `[0.5, 2.0]` par son producteur (docs/14-
+ * §3 - un environnement ne doit jamais pouvoir annuler ni decupler le
+ * potentiel) ; cette classe ne le re-clamp pas. Post-pic (`ageFactor < 0`),
+ * le modificateur est applique par sa **reciproque** : un environnement de
+ * qualite doit ralentir le declin, pas l'accelerer - `1/x` est une
+ * bijection de `[0.5, 2.0]` sur lui-meme (`1/0.5 = 2.0`, `1/2.0 = 0.5`),
+ * donc le resultat reste borne sans re-clamp.
  *
  * Les attributs de gardien (reflexes, captation, relance, autorite sur la
  * surface) ne forment **pas** une quatrieme categorie : ils sont repartis

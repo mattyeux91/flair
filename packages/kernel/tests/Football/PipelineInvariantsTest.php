@@ -7,6 +7,7 @@ namespace Flair\Kernel\Tests\Football;
 use Flair\Kernel\Core\Pipeline\System;
 use Flair\Kernel\Football\Systems\PlayerDevelopmentSystem;
 use Flair\Kernel\Football\Systems\RetirementSystem;
+use Flair\Kernel\Football\Systems\TrainingSystem;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -26,6 +27,7 @@ final class PipelineInvariantsTest extends TestCase
     private function pipeline(): array
     {
         return [
+            new TrainingSystem(),
             new RetirementSystem(),
             new PlayerDevelopmentSystem(),
         ];

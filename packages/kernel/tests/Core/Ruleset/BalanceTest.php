@@ -22,4 +22,18 @@ final class BalanceTest extends TestCase
 
         self::assertSame(1.5, $balance->developmentRate);
     }
+
+    public function testTrainingRateDefaultsToOne(): void
+    {
+        $balance = new Balance();
+
+        self::assertSame(1.0, $balance->trainingRate);
+    }
+
+    public function testTrainingRateRoundTripsWhenGivenExplicitly(): void
+    {
+        $balance = new Balance(trainingRate: 1.5);
+
+        self::assertSame(1.5, $balance->trainingRate);
+    }
 }

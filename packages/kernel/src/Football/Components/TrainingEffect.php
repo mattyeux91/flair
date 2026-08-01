@@ -5,18 +5,24 @@ declare(strict_types=1);
 namespace Flair\Kernel\Football\Components;
 
 /**
- * Point d'extension pour un futur systeme d'entrainement (docs/14- §2 :
- * modif = clamp(h(entrainement) x i(temps de jeu) x j(moral), 0.5, 2.0)).
- * Un seul champ : le produit deja compose et deja borne a [0.5, 2.0] par
- * qui que ce soit qui le produit - PlayerDevelopmentSystem ne recompose
- * rien, ne re-clamp rien, il consomme un multiplicateur pret a l'emploi
- * (docs/14- §3 - separer base et modificateurs, borner le produit).
+ * La qualite d'environnement d'entrainement d'un joueur - `h(entrainement)`
+ * uniquement (docs/14- §2 : modif = clamp(h × i(temps de jeu) × j(moral),
+ * 0.5, 2.0)), **pas** le produit complet. Ecrit par `Football\TrainingSystem`
+ * (installations du club) et lu par `Football\PlayerDevelopmentSystem` avec
+ * un defaut neutre (1.0) quand absent (joueur sans club).
  *
- * Absent aujourd'hui pour toute entite : aucun TrainingSystem n'existe
- * encore pour l'ecrire. PlayerDevelopmentSystem le lit avec un defaut
- * neutre (1.0) - ouvert a l'extension sans modification (OCP) : un futur
- * TrainingSystem composera en ecrivant ce composant plus tot dans le
- * pipeline, sans toucher PlayerDevelopmentSystem.
+ * `i`(temps de jeu) et `j`(moral) seront, le jour ou `MatchSystem` et un
+ * composant `Morale` existeront, des composants-facteurs **separes**
+ * (`PlayingTimeEffect`, `MoraleEffect` par ex.) - jamais fusionnes ici : un
+ * seul producteur par composant (docs/13- §2). `PlayerDevelopmentSystem`
+ * composera alors plusieurs facteurs au lieu d'un seul ; pas de
+ * generalisation de cette composition tant qu'un seul facteur existe
+ * (YAGNI).
+ *
+ * Un seul champ : deja borne `[0.5, 2.0]` par son producteur
+ * (`TrainingSystem`) - `PlayerDevelopmentSystem` ne recompose rien, ne
+ * re-clamp rien, il consomme un multiplicateur pret a l'emploi (docs/14- §3
+ * - separer base et modificateurs, borner le produit).
  */
 final readonly class TrainingEffect
 {
