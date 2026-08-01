@@ -8,6 +8,7 @@ use Flair\Kernel\Core\Pipeline\System;
 use Flair\Kernel\Football\Systems\PlayerDevelopmentSystem;
 use Flair\Kernel\Football\Systems\RetirementSystem;
 use Flair\Kernel\Football\Systems\TrainingSystem;
+use Flair\Kernel\Football\Systems\YouthIntakeSystem;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -27,6 +28,7 @@ final class PipelineInvariantsTest extends TestCase
     private function pipeline(): array
     {
         return [
+            new YouthIntakeSystem(),
             new TrainingSystem(),
             new RetirementSystem(),
             new PlayerDevelopmentSystem(),
@@ -69,6 +71,33 @@ final class PipelineInvariantsTest extends TestCase
         self::assertNotEmpty($removers);
     }
 
+    public function testAtMostOneSystemCreatesEachComponent(): void
+    {
+        $creators = [];
+        foreach ($this->pipeline() as $system) {
+            foreach ($system->creates() as $component) {
+                self::assertArrayNotHasKey($component, $creators, sprintf(
+                    '%s cree deja %s, %s ne peut pas le creer aussi',
+                    $creators[$component] ?? '',
+                    $component,
+                    $system->id(),
+                ));
+                $creators[$component] = $system->id();
+            }
+        }
+
+        self::assertNotEmpty($creators);
+    }
+
+    /**
+     * `creates()` est volontairement absent du controle de dependance
+     * inversee ci-dessous, alors que `writes()`/`removes()` y sont. Un
+     * createur ne pose ses composants que sur une entite qui n'existait pas
+     * quand le lecteur a itere : il ne peut donc pas invalider une lecture
+     * deja faite. Un joueur cree par un systeme place plus loin dans le
+     * pipeline est simplement pris en compte au tick suivant - exactement le
+     * decalage que l'OutQueue impose deja aux evenements (docs/13- §2).
+     */
     public function testNoSystemReadsAComponentWrittenOrRemovedLaterInThePipeline(): void
     {
         $systems = $this->pipeline();

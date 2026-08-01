@@ -12,9 +12,10 @@ namespace Flair\Kernel\Core\Ruleset;
  * (vieillissement, docs/14- §2), lu par Football\PlayerDevelopmentSystem.
  * `trainingRate` - multiplicateur global sur `h(entrainement)`, meme role
  * que `developmentRate` mais pour Football\TrainingSystem : calibrer sans
- * toucher au code. `retirement`/`playerDevelopment` regroupent les leviers
- * plus fins d'un seul systeme chacun (age de retraite... / forme de
- * g(age)...) - une classe dediee par systeme plutot que des scalaires ici
+ * toucher au code. `retirement`/`playerDevelopment`/`youthIntake`
+ * regroupent les leviers plus fins d'un seul systeme chacun (age de
+ * retraite... / forme de g(age)... / loi de talent d'une promotion...) -
+ * une classe dediee par systeme plutot que des scalaires ici
  * ou une classe partagee, pour qu'un systeme ne depende jamais des leviers
  * d'un autre (meme principe que `reads()`/`writes()` sur `System`,
  * `13-` §2), et pour ne pas melanger les sous-domaines a mesure que
@@ -29,6 +30,7 @@ final readonly class Balance
         public float $trainingRate = 1.0,
         public RetirementBalance $retirement = new RetirementBalance(),
         public PlayerDevelopmentBalance $playerDevelopment = new PlayerDevelopmentBalance(),
+        public YouthIntakeBalance $youthIntake = new YouthIntakeBalance(),
     ) {
     }
 }

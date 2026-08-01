@@ -35,9 +35,11 @@ use Flair\Kernel\Football\Components\PlayerPotentials;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
 use Flair\Kernel\Football\Components\SquadMembership;
 use Flair\Kernel\Football\Events\PlayerRetired;
+use Flair\Kernel\Football\Events\YouthPlayerPromoted;
 use Flair\Kernel\Football\Systems\PlayerDevelopmentSystem;
 use Flair\Kernel\Football\Systems\RetirementSystem;
 use Flair\Kernel\Football\Systems\TrainingSystem;
+use Flair\Kernel\Football\Systems\YouthIntakeSystem;
 
 /** @return array<string, int> nom -> entityId */
 function demoCreateClubs(WorldState $world): array
@@ -128,6 +130,28 @@ function demoPrintSnapshot(WorldState $world, array $players): void
     }
 }
 
+/**
+ * Le nom des joueurs suivis nominativement est fixe au demarrage ; les
+ * promotions de YouthIntakeSystem, elles, sont anonymes et nombreuses. On
+ * les agrege donc par club plutot que de les nommer, et on affiche la
+ * taille de la population active - c'est cette derniere qui dira si la
+ * boucle demographique (intake vs retraite) tient sur 40 ans.
+ *
+ * @param array<string, int> $clubs        nom -> entityId
+ * @param array<int, int>    $promotions   entityId du club -> promus cette annee
+ */
+function demoPrintPopulation(WorldState $world, array $clubs, array $promotions): void
+{
+    $active = count($world->components(PlayerPotentials::class)->entities());
+    $detail = [];
+
+    foreach ($clubs as $name => $clubId) {
+        $detail[] = sprintf('%s +%d', $name, $promotions[$clubId] ?? 0);
+    }
+
+    echo sprintf("  population active=%d | promus: %s\n", $active, implode(', ', $detail));
+}
+
 const DEMO_YEARS = 40;
 const DEMO_TICKS_PER_YEAR = 365;
 const DEMO_WORLD_SEED = 42;
@@ -136,8 +160,11 @@ $world = new WorldState();
 $clubs = demoCreateClubs($world);
 $players = demoCreatePlayers($world, atTick: 1, clubs: $clubs);
 
-$simulation = new Simulation(new Pipeline([new TrainingSystem(), new RetirementSystem(), new PlayerDevelopmentSystem()]));
+$simulation = new Simulation(new Pipeline([new YouthIntakeSystem(), new TrainingSystem(), new RetirementSystem(), new PlayerDevelopmentSystem()]));
 $ruleset = new Ruleset('demo', new Balance(developmentRate: 1.0));
+
+/** @var array<int, int> $promotions entityId du club -> promus cette annee */
+$promotions = [];
 
 echo "Tick 0 (depart) :\n";
 demoPrintSnapshot($world, $players);
@@ -154,12 +181,21 @@ for ($year = 1; $year <= DEMO_YEARS; $year++) {
 
         foreach ($result->events as $event) {
             if ($event instanceof PlayerRetired) {
-                $name = array_search($event->playerId, $players, true);
+                // Les joueurs promus par YouthIntakeSystem ne sont pas dans
+                // $players (fixe au demarrage) : on retombe sur leur EntityId.
+                $known = array_search($event->playerId, $players, true);
+                $name = $known === false ? "jeune #{$event->playerId}" : $known;
                 echo "  >> Fait: {$name} prend sa retraite a {$event->ageYears} ans (tick {$tick})\n";
+            }
+
+            if ($event instanceof YouthPlayerPromoted) {
+                $promotions[$event->clubId] = ($promotions[$event->clubId] ?? 0) + 1;
             }
         }
     }
 
     echo "Apres {$year} an(s) :\n";
     demoPrintSnapshot($world, $players);
+    demoPrintPopulation($world, $clubs, $promotions);
+    $promotions = [];
 }

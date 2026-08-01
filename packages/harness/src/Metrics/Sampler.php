@@ -18,6 +18,7 @@ use Flair\Kernel\Football\Events\PlayerRetired;
 use Flair\Kernel\Football\Systems\PlayerDevelopmentSystem;
 use Flair\Kernel\Football\Systems\RetirementSystem;
 use Flair\Kernel\Football\Systems\TrainingSystem;
+use Flair\Kernel\Football\Systems\YouthIntakeSystem;
 
 /**
  * Fait tourner la simulation du noyau sur une population deja construite,
@@ -25,16 +26,24 @@ use Flair\Kernel\Football\Systems\TrainingSystem;
  * d'annee simulee (pas a chaque tick - inutile pour des courbes annuelles,
  * couteux en memoire). Ne reimplemente aucune logique de vieillissement :
  * observe seulement ce que le pipeline football ecrit
- * (Flair\Kernel\Football\Systems\TrainingSystem,
+ * (Flair\Kernel\Football\Systems\YouthIntakeSystem,
+ * Flair\Kernel\Football\Systems\TrainingSystem,
  * Flair\Kernel\Football\Systems\RetirementSystem et
  * Flair\Kernel\Football\Systems\PlayerDevelopmentSystem). La population
- * synthetique du harness n'affecte aucun joueur a un club (pas de
- * `SquadMembership`) - `TrainingSystem` n'itere donc rien ici, comportement
- * inchange, `TrainingEffect` reste absent et `PlayerDevelopmentSystem`
- * applique son defaut neutre. `TrainingSystem` est tout de meme inclus
- * dans le pipeline construit ici pour que sa composition reste identique a
- * celle de `bin/demo.php` (l'ordre du pipeline est une donnee versionnee,
- * pas un detail local a un point d'entree, docs/13- §2).
+ * synthetique du harness ne cree aucun club et n'affecte aucun joueur a un
+ * club (pas de `Club`, pas de `SquadMembership`) : `TrainingSystem` comme
+ * `YouthIntakeSystem` n'iterent donc rien ici, comportement inchange -
+ * `TrainingEffect` reste absent et `PlayerDevelopmentSystem` applique son
+ * defaut neutre, aucune promotion ne vient s'ajouter a la cohorte observee.
+ * Les deux sont tout de meme inclus dans le pipeline construit ici pour que
+ * sa composition reste identique a celle de `bin/demo.php` (l'ordre du
+ * pipeline est une donnee versionnee, pas un detail local a un point
+ * d'entree, docs/13- §2).
+ *
+ * Consequence a garder en tete : cet outil mesure des **courbes de
+ * vieillissement d'une cohorte fermee**, pas la stationnarite de la pyramide
+ * des ages. Mesurer cette derniere demandera de generer des clubs ici, pour
+ * que `YouthIntakeSystem` ait de quoi produire - hors perimetre de ce lot.
  */
 final class Sampler
 {
@@ -43,7 +52,7 @@ final class Sampler
     /** @param list<int> $playerIds */
     public function run(WorldState $world, array $playerIds, int $years, int $worldSeed, Ruleset $ruleset): AggregateResult
     {
-        $simulation = new Simulation(new Pipeline([new TrainingSystem(), new RetirementSystem(), new PlayerDevelopmentSystem()]));
+        $simulation = new Simulation(new Pipeline([new YouthIntakeSystem(), new TrainingSystem(), new RetirementSystem(), new PlayerDevelopmentSystem()]));
 
         /** @var list<SkillSample> $samples */
         $samples = [];

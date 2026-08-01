@@ -69,6 +69,12 @@ final class RetirementSystem implements System
     }
 
     /** @return list<class-string> */
+    public function creates(): array
+    {
+        return [];
+    }
+
+    /** @return list<class-string> */
     public function subscribesTo(): array
     {
         return [];

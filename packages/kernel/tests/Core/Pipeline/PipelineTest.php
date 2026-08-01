@@ -223,6 +223,11 @@ final class PipelineTestRecordingSystem implements System
         return [];
     }
 
+    public function creates(): array
+    {
+        return [];
+    }
+
     public function subscribesTo(): array
     {
         return $this->subscribesTo;
