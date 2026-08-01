@@ -163,7 +163,6 @@ $openByDefault = ['Retraite' => true, 'Développement' => true];
         <label><input type="checkbox" name="category" value="technical" checked> Technique</label>
         <label><input type="checkbox" name="category" value="mental" checked> Mental</label>
         <label><input type="checkbox" id="toggle-band" checked> Bande p10-p90</label>
-        <label><input type="checkbox" id="toggle-chained" checked> Courbe corrigée (méthode delta)</label>
     </fieldset>
 
     <section id="charts"></section>

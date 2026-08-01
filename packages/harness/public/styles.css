@@ -147,10 +147,6 @@ svg.chart {
     background: var(--accent-2);
 }
 
-.tooltip-swatch.chained {
-    background: var(--fg);
-}
-
 .axis {
     fill: none;
     stroke: var(--muted);
@@ -184,11 +180,6 @@ svg.chart {
 .line.modified {
     stroke: var(--accent-2);
     stroke-dasharray: 6 4;
-}
-
-.line.chained {
-    stroke: var(--fg);
-    stroke-dasharray: 2 3;
 }
 
 .bar.baseline {

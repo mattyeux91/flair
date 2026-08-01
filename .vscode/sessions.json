@@ -12,29 +12,29 @@
         "icon": "terminal",
         "color": "terminal.ansiGreen",
         "commands": [
-          "cd kernel"
+          "cd packages/kernel"
         ]
       },
-        [
-          {
-            "name": "Terminal Harness",
-            "autoExecuteCommands": true,
-            "icon": "terminal",
-            "color": "terminal.ansiGreen",
-            "commands": [
-              "cd harness"
-            ]
-          },
-          {
-            "name": "Server Harness",
-            "autoExecuteCommands": true,
-            "icon": "server",
-            "color": "terminal.ansiRed",
-            "commands": [
-              "cd harness && php -S localhost:8791 -t public"
-            ]
+      [
+        {
+          "name": "Harness",
+          "autoExecuteCommands": true,
+          "icon": "terminal",
+          "color": "terminal.ansiGreen",
+          "commands": [
+            "cd packages/harness"
+          ]
+        },
+        {
+          "name": "Harness",
+          "autoExecuteCommands": true,
+          "icon": "server",
+          "color": "terminal.ansiRed",
+          "commands": [
+            "cd packages/harness && php -S localhost:8791 -t public"
+          ]
         }
-    ],
+      ],
       {
         "name": "GIT",
         "autoExecuteCommands": true,

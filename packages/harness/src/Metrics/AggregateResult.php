@@ -12,11 +12,27 @@ namespace Flair\Harness\Metrics;
  * Report/TextReport et Report/JsonSerializer rendent tous les deux la meme
  * structure.
  *
- * `curves` est une coupe transversale brute - biaisee par survie aux ages
- * avances (cf. DeltaCurveBuilder). `deltaCurves`/`chainedCurves` sont la
- * correction : deltas individuels d'annee en annee, chaines depuis une
- * ancre jeune. Les deux vues sont gardees, pas une seule - `curves` reste
- * utile aux ages jeunes bien peuples et pour montrer visuellement le biais.
+ * `curves` est une **coupe transversale** : la moyenne des joueurs vivants a
+ * chaque age, a un instant donne. C'est la seule vue publiee, et c'est
+ * volontaire.
+ *
+ * Une "courbe corrigee" par methode delta (deltas individuels d'annee en
+ * annee, chaines depuis une ancre jeune) a existe ici pour corriger le biais
+ * de survie aux ages avances. Elle a ete retiree : la methode suppose une
+ * **cohorte fermee**, hypothese cassee des que Football\YouthIntakeSystem a
+ * commence a injecter des joueurs en continu. Mesure a l'appui, elle
+ * culminait a ~81 points de competence pour un `ceiling` moyen de ~65 -
+ * arithmetiquement impossible, puisque Football\PlayerDevelopmentSystem fait
+ * converger une competence vers son `ceiling` sans jamais le depasser. Le
+ * biais qu'elle corrigeait (remontee illusoire en fin de courbe) ne se
+ * manifeste d'ailleurs pas au calibrage actuel : `curves` decroit
+ * monotonement de 24 a 35 ans.
+ *
+ * Une coupe transversale ne peut pas mentir de cette facon - elle est bornee
+ * par le `ceiling` mecaniquement. Contrepartie a connaitre en la lisant :
+ * elle melange les recrues fraiches aux joueurs installes, d'ou un creux a
+ * l'age d'arrivee des promotions. Ce n'est pas une erreur, c'est la
+ * composition reelle de la population.
  *
  * `populationByYear`/`finalAgeHistogram` sont calcules par Sampler (le seul
  * a suivre les promotions en cours de run) et simplement transportes ici -
@@ -28,18 +44,12 @@ final readonly class AggregateResult
     /**
      * @param array<string, array<int, array{mean: float, p10: float, p50: float, p90: float, count: int}>> $curves
      *   categorie -> age -> statistiques, trie par age croissant
-     * @param array<string, array<int, array{meanDelta: float, count: int}>> $deltaCurves
-     *   categorie -> age de depart de la transition -> delta annuel moyen
-     * @param array<string, array<int, float>> $chainedCurves
-     *   categorie -> age -> niveau reconstruit par chainage des deltas moyens
      * @param array<int, int> $retirementAgeHistogram age -> effectif, trie par age croissant
      * @param array<int, int> $populationByYear annee simulee -> effectif actif en fin d'annee
      * @param array<int, int> $finalAgeHistogram age -> effectif, population active de la derniere annee simulee
      */
     public function __construct(
         public array $curves,
-        public array $deltaCurves,
-        public array $chainedCurves,
         public array $retirementAgeHistogram,
         public array $populationByYear,
         public array $finalAgeHistogram,
@@ -74,12 +84,8 @@ final readonly class AggregateResult
             }
         }
 
-        $delta = DeltaCurveBuilder::build($samples);
-
         return new self(
             $curves,
-            $delta['deltaCurves'],
-            $delta['chainedCurves'],
             Stats::histogram($retirementAges, bucketWidth: 1),
             $populationByYear,
             $finalAgeHistogram,

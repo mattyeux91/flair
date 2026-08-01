@@ -80,10 +80,6 @@ function bandVisible() {
     return document.getElementById('toggle-band').checked;
 }
 
-function chainedVisible() {
-    return document.getElementById('toggle-chained').checked;
-}
-
 function renderAll() {
     if (!lastResponse) {
         return;
@@ -107,30 +103,15 @@ function renderAll() {
         heading.textContent = `${CATEGORY_LABELS[category]} — competence moyenne par age`;
         section.appendChild(heading);
 
-        if (isComparison) {
-            // En comparaison, les lignes superposees sont les courbes
-            // corrigees (chainedCurves), pas le p50 brut - sinon le biais de
-            // survie se melangerait a l'effet du parametre teste.
-            const baselineChained = lastResponse.baseline.chainedCurves[category] || {};
-            const modifiedChained = lastResponse.modified.chainedCurves[category] || {};
-            section.appendChild(renderCurveChart({
-                rawCurve: null,
-                chainedCurve: baselineChained,
-                modifiedChainedCurve: modifiedChained,
-                showBand: false,
-                showChained: true,
-            }));
-        } else {
-            const curve = lastResponse.baseline.curves[category] || {};
-            const chainedCurve = lastResponse.baseline.chainedCurves[category] || {};
-            section.appendChild(renderCurveChart({
-                rawCurve: curve,
-                chainedCurve,
-                modifiedChainedCurve: null,
-                showBand: bandVisible(),
-                showChained: chainedVisible(),
-            }));
-        }
+        // Une seule vue : la coupe transversale. La "courbe corrigee"
+        // (methode delta) a ete retiree - elle supposait une cohorte fermee,
+        // hypothese fausse depuis que YouthIntakeSystem injecte des joueurs
+        // en continu (cf. docblock AggregateResult cote PHP).
+        section.appendChild(renderCurveChart({
+            baselineCurve: lastResponse.baseline.curves[category] || {},
+            modifiedCurve: isComparison ? (lastResponse.modified.curves[category] || {}) : null,
+            showBand: !isComparison && bandVisible(),
+        }));
 
         chartsEl.appendChild(section);
     }
@@ -181,8 +162,7 @@ const EFFECT_SUMMARY_AGES = [20, 25, 30, 35];
 /**
  * Tableau chiffre baseline vs modifie - repond directement au critere de
  * sortie Phase 1 (docs/15- §4 : "voir l'effet chiffre en moins de 5
- * minutes"). Lit les courbes corrigees (chainedCurves, pas le p50 brut,
- * meme raison que dans renderCurveChart) a quelques ages de reference,
+ * minutes"). Lit la moyenne transversale a quelques ages de reference,
  * l'age moyen de retraite et l'effectif final - aucun nouveau calcul
  * serveur, tout est deja dans la reponse JSON.
  */
@@ -196,19 +176,19 @@ function renderEffectSummary(baseline, modified) {
     const rows = [];
 
     for (const category of CATEGORY_ORDER) {
-        const baselineChained = baseline.chainedCurves[category] || {};
-        const modifiedChained = modified.chainedCurves[category] || {};
+        const baselineCurve = baseline.curves[category] || {};
+        const modifiedCurve = modified.curves[category] || {};
         for (const age of EFFECT_SUMMARY_AGES) {
-            const baselineValue = baselineChained[age];
-            const modifiedValue = modifiedChained[age];
-            if (baselineValue === undefined || modifiedValue === undefined) {
+            const baselineStats = baselineCurve[age];
+            const modifiedStats = modifiedCurve[age];
+            if (baselineStats === undefined || modifiedStats === undefined) {
                 continue;
             }
             rows.push([
                 `${CATEGORY_LABELS[category]} à ${age} ans`,
-                baselineValue.toFixed(1),
-                modifiedValue.toFixed(1),
-                formatDelta(modifiedValue - baselineValue),
+                baselineStats.mean.toFixed(1),
+                modifiedStats.mean.toFixed(1),
+                formatDelta(modifiedStats.mean - baselineStats.mean),
             ]);
         }
     }
@@ -299,22 +279,24 @@ function scale(value, domainMin, domainMax, rangeMin, rangeMax) {
 }
 
 /**
- * rawCurve : coupe transversale brute (mean/p10/p50/p90/count par age) ou
- * null en mode comparaison. chainedCurve/modifiedChainedCurve : courbes
- * corrigees (methode delta, cf. DeltaCurveBuilder cote PHP) - age -> niveau.
+ * baselineCurve/modifiedCurve : coupes transversales
+ * (mean/p10/p50/p90/count par age) ; modifiedCurve est null hors comparaison.
+ *
+ * La ligne trace la **moyenne**, pas le p50, pour que le graphique et les
+ * tableaux (resume d'effet, rapport console) parlent de la meme statistique -
+ * la bande p10-p90 reste la vue distributionnelle autour d'elle.
  *
  * Retourne un wrapper (pas directement le svg) : le curseur au survol d'une
  * courbe a besoin d'une infobulle HTML positionnee en absolu par rapport a
  * ce conteneur.
  */
-function renderCurveChart({ rawCurve, chainedCurve, modifiedChainedCurve, showBand, showChained }) {
+function renderCurveChart({ baselineCurve, modifiedCurve, showBand }) {
     const wrapper = document.createElement('div');
     wrapper.className = 'chart-wrapper';
 
-    const rawAges = rawCurve ? Object.keys(rawCurve).map(Number) : [];
-    const chainedAges = Object.keys(chainedCurve || {}).map(Number);
-    const modifiedAges = Object.keys(modifiedChainedCurve || {}).map(Number);
-    const ages = [...new Set([...rawAges, ...chainedAges, ...modifiedAges])].sort((a, b) => a - b);
+    const baselineAges = Object.keys(baselineCurve || {}).map(Number);
+    const modifiedAges = Object.keys(modifiedCurve || {}).map(Number);
+    const ages = [...new Set([...baselineAges, ...modifiedAges])].sort((a, b) => a - b);
     const svg = createSvg();
     wrapper.appendChild(svg);
 
@@ -336,31 +318,27 @@ function renderCurveChart({ rawCurve, chainedCurve, modifiedChainedCurve, showBa
 
     const series = [];
 
-    if (rawCurve) {
-        const sortedRawAges = rawAges.sort((a, b) => a - b);
+    const meansOf = (curve, sortedAges) => {
+        const means = {};
+        sortedAges.forEach((age) => { means[age] = curve[age].mean; });
+        return means;
+    };
+
+    if (baselineCurve) {
+        const sorted = baselineAges.sort((a, b) => a - b);
         if (showBand) {
-            const bandPoints = sortedRawAges.map((age) => `${xOf(age)},${yOf(rawCurve[age].p90)}`)
-                .concat([...sortedRawAges].reverse().map((age) => `${xOf(age)},${yOf(rawCurve[age].p10)}`));
+            const bandPoints = sorted.map((age) => `${xOf(age)},${yOf(baselineCurve[age].p90)}`)
+                .concat([...sorted].reverse().map((age) => `${xOf(age)},${yOf(baselineCurve[age].p10)}`));
             appendPolygon(svg, bandPoints, 'band');
         }
-        appendPolyline(svg, sortedRawAges.map((age) => `${xOf(age)},${yOf(rawCurve[age].p50)}`), 'line baseline');
-
-        const p50 = {};
-        sortedRawAges.forEach((age) => { p50[age] = rawCurve[age].p50; });
-        series.push({ label: 'brut (p50)', className: 'baseline', values: p50 });
+        appendPolyline(svg, sorted.map((age) => `${xOf(age)},${yOf(baselineCurve[age].mean)}`), 'line baseline');
+        series.push({ label: modifiedCurve ? 'baseline' : 'moyenne', className: 'baseline', values: meansOf(baselineCurve, sorted) });
     }
 
-    if (showChained && chainedCurve) {
-        const sortedChainedAges = chainedAges.sort((a, b) => a - b);
-        const className = rawCurve ? 'line chained' : 'line baseline';
-        appendPolyline(svg, sortedChainedAges.map((age) => `${xOf(age)},${yOf(chainedCurve[age])}`), className);
-        series.push({ label: rawCurve ? 'corrige' : 'baseline', className: rawCurve ? 'chained' : 'baseline', values: chainedCurve });
-    }
-
-    if (modifiedChainedCurve) {
-        const sortedModifiedAges = modifiedAges.sort((a, b) => a - b);
-        appendPolyline(svg, sortedModifiedAges.map((age) => `${xOf(age)},${yOf(modifiedChainedCurve[age])}`), 'line modified');
-        series.push({ label: 'modifie', className: 'modified', values: modifiedChainedCurve });
+    if (modifiedCurve) {
+        const sorted = modifiedAges.sort((a, b) => a - b);
+        appendPolyline(svg, sorted.map((age) => `${xOf(age)},${yOf(modifiedCurve[age].mean)}`), 'line modified');
+        series.push({ label: 'modifie', className: 'modified', values: meansOf(modifiedCurve, sorted) });
     }
 
     attachCurveTooltip(svg, wrapper, ages, xOf, series);

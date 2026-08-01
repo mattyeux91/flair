@@ -21,7 +21,6 @@ final class TextReport
 
         foreach (self::CATEGORY_ORDER as $category) {
             $output .= $this->renderCurve($category, $result);
-            $output .= $this->renderChainedCurve($category, $result);
         }
 
         $output .= $this->renderPopulationByYear($result->populationByYear);
@@ -78,52 +77,45 @@ final class TextReport
     }
 
     /**
-     * Courbe corrigee (methode delta) : niveau reconstruit par chainage des
-     * deltas individuels moyens, immunise contre le biais de survie qui
-     * affecte renderCurve() aux ages avances (cf. docblock DeltaCurveBuilder).
-     * S'arrete naturellement ou les transitions manquent.
-     */
-    private function renderChainedCurve(string $category, AggregateResult $result): string
-    {
-        $label = self::CATEGORY_LABELS[$category] ?? $category;
-        $chained = $result->chainedCurves[$category] ?? [];
-        $deltas = $result->deltaCurves[$category] ?? [];
-
-        $output = "-- {$label} (courbe corrigee, methode delta) --\n";
-        $output .= sprintf("%5s  %8s  %5s\n", 'age', 'niveau', 'n');
-
-        foreach ($chained as $age => $value) {
-            $count = $deltas[$age]['count'] ?? null;
-            $output .= sprintf("%5d  %8.1f  %5s\n", $age, $value, $count !== null ? (string) $count : '-');
-        }
-
-        return $output . "\n";
-    }
-
-    /**
-     * Diffe les courbes corrigees (chainedCurves), pas la moyenne brute :
-     * comparer les moyennes brutes melangerait l'effet du parametre teste
-     * avec un eventuel changement de qui survit jusqu'a quel age.
+     * Diffe la moyenne transversale des deux runs. La comparaison portait
+     * avant sur une "courbe corrigee" par methode delta, retiree parce
+     * qu'elle produisait des niveaux impossibles des que la population a
+     * cesse d'etre une cohorte fermee (cf. docblock AggregateResult).
+     *
+     * L'appariement des graines fait le gros du travail que la correction
+     * pretendait faire : baseline et modifie partagent la meme population de
+     * depart et les memes flux RNG, donc a chaque age les deux colonnes
+     * portent sur des populations comparables et le `delta` isole l'effet du
+     * parametre teste. `n` est affiche pour que les ages faiblement peuples
+     * (au-dela de ~34 ans) se lisent comme du bruit, pas comme un signal.
      */
     private function renderCurveDelta(string $category, AggregateResult $baseline, AggregateResult $modified): string
     {
         $label = self::CATEGORY_LABELS[$category] ?? $category;
-        $baselineChained = $baseline->chainedCurves[$category] ?? [];
-        $modifiedChained = $modified->chainedCurves[$category] ?? [];
-        $ages = array_unique([...array_keys($baselineChained), ...array_keys($modifiedChained)]);
+        $baselineCurve = $baseline->curves[$category] ?? [];
+        $modifiedCurve = $modified->curves[$category] ?? [];
+        $ages = array_unique([...array_keys($baselineCurve), ...array_keys($modifiedCurve)]);
         sort($ages);
 
-        $output = "-- {$label} : delta de niveau corrige (modifie - baseline), par age --\n";
-        $output .= sprintf("%5s  %8s  %8s  %8s\n", 'age', 'baseline', 'modifie', 'delta');
+        $output = "-- {$label} : delta de niveau moyen (modifie - baseline), par age --\n";
+        $output .= sprintf("%5s  %8s  %8s  %8s  %7s  %7s\n", 'age', 'baseline', 'modifie', 'delta', 'n(base)', 'n(mod)');
 
         foreach ($ages as $age) {
-            $baselineValue = $baselineChained[$age] ?? null;
-            $modifiedValue = $modifiedChained[$age] ?? null;
-            if ($baselineValue === null || $modifiedValue === null) {
+            $baselineStats = $baselineCurve[$age] ?? null;
+            $modifiedStats = $modifiedCurve[$age] ?? null;
+            if ($baselineStats === null || $modifiedStats === null) {
                 continue;
             }
 
-            $output .= sprintf("%5d  %8.1f  %8.1f  %+8.1f\n", $age, $baselineValue, $modifiedValue, $modifiedValue - $baselineValue);
+            $output .= sprintf(
+                "%5d  %8.1f  %8.1f  %+8.1f  %7d  %7d\n",
+                $age,
+                $baselineStats['mean'],
+                $modifiedStats['mean'],
+                $modifiedStats['mean'] - $baselineStats['mean'],
+                $baselineStats['count'],
+                $modifiedStats['count'],
+            );
         }
 
         return $output . "\n";
