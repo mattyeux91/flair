@@ -18,7 +18,7 @@ final class AgingBalanceTest extends TestCase
         self::assertSame(0.15, $aging->retirementFragilityWeight);
         self::assertSame(23.0, $aging->growthPrimeAgeThreshold);
         self::assertSame(0.3, $aging->growthPlateauFactor);
-        self::assertSame(0.1, $aging->declineRatePerYear);
+        self::assertSame(1.0, $aging->declineRatePerYear);
         self::assertSame(2.0, $aging->physicalDeclineMultiplier);
         self::assertSame(1.0, $aging->technicalDeclineMultiplier);
         self::assertSame(0.5, $aging->mentalDeclineMultiplier);

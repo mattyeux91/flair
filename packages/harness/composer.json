@@ -1,0 +1,34 @@
+{
+    "name": "flair/harness",
+    "description": "Outil de simulation par lots pour calibrer les parametres du Ruleset : simule N joueurs sur N annees et agrege des distributions (courbes de competence par age, ages de retraite).",
+    "type": "project",
+    "license": "proprietary",
+    "require": {
+        "php": ">=8.3",
+        "flair/kernel": "@dev"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Flair\\Harness\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Flair\\Harness\\Tests\\": "tests/"
+        }
+    },
+    "repositories": [
+        {
+            "type": "path",
+            "url": "../kernel"
+        }
+    ],
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}

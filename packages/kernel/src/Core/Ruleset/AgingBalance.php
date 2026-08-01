@@ -36,7 +36,7 @@ final readonly class AgingBalance
         /** Valeur de g(age) entre `growthPrimeAgeThreshold` et le pic de la categorie - progression ralentie mais toujours positive. */
         public float $growthPlateauFactor = 0.3,
         /** Pente du declin post-pic : g(age) = -declineRatePerYear × (age - peakAge) une fois le pic de la categorie depasse. */
-        public float $declineRatePerYear = 0.1,
+        public float $declineRatePerYear = 1.0,
         /** Multiplicateur de `PlayerPotentials::$fragility` dans le declin post-pic de `PlayerPhysicalSkills` - la categorie qui s'erode le plus vite avec l'age. */
         public float $physicalDeclineMultiplier = 2.0,
         /** Multiplicateur de `PlayerPotentials::$fragility` dans le declin post-pic de `PlayerTechnicalSkills`. */
