@@ -1,0 +1,47 @@
+{
+  "$schema": "https://cdn.statically.io/gh/nguyenngoclongdev/cdn/main/schema/v11/terminal-keeper.json",
+  "theme": "tribe",
+  "active": "default",
+  "activateOnStartup": true,
+  "keepExistingTerminals": false,
+  "sessions": {
+    "default": [
+      {
+        "name": "Kernel",
+        "autoExecuteCommands": true,
+        "icon": "terminal",
+        "color": "terminal.ansiGreen",
+        "commands": [
+          "cd kernel"
+        ]
+      },
+        [
+          {
+            "name": "Terminal Harness",
+            "autoExecuteCommands": true,
+            "icon": "terminal",
+            "color": "terminal.ansiGreen",
+            "commands": [
+              "cd harness"
+            ]
+          },
+          {
+            "name": "Server Harness",
+            "autoExecuteCommands": true,
+            "icon": "server",
+            "color": "terminal.ansiRed",
+            "commands": [
+              "cd harness && php -S localhost:8791 -t public"
+            ]
+        }
+    ],
+      {
+        "name": "GIT",
+        "autoExecuteCommands": true,
+        "icon": "git-branch",
+        "color": "terminal.ansiYellow",
+        "commands": []
+      }
+    ]
+  }
+}

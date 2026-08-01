@@ -209,9 +209,40 @@ On ne stocke donc pas les estimations : on stocke `observationCount` et `scoutQu
 
 FM a ~250 attributs. **On en vise 10 à 12** attributs de champ, plus un jeu réduit pour le gardien. Raison brutale : on ne peut pas équilibrer un espace à 250 dimensions en solo, et le moteur de match n'en consomme qu'une poignée.
 
-Les attributs sont répartis en **trois composants orthogonaux** (`PlayerPhysicalSkills`, `PlayerTechnicalSkills`, `PlayerMentalSkills`) plutôt qu'un seul bloc plat — pas pour le rangement, mais parce qu'un système les traite déjà différemment : le vieillissement (`14-` §2) fait culminer et décliner le physique avant le mental, à talent égal. Chaque catégorie a son propre âge de pic (individuel, `PlayerPotentials`) et sa propre pente de déclin post-pic (globale, `Ruleset\AgingBalance`).
+Les attributs sont répartis en **trois composants orthogonaux** (`PlayerPhysicalSkills`, `PlayerTechnicalSkills`, `PlayerMentalSkills`) plutôt qu'un seul bloc plat — pas pour le rangement, mais parce qu'un système les traite déjà différemment : le vieillissement (`14-` §2) fait culminer et décliner le physique avant le mental, à talent égal. Chaque catégorie a son propre âge de pic (individuel, `PlayerPotentials`) et sa propre pente de déclin post-pic (globale, `Ruleset\PlayerDevelopmentBalance`).
 
 **Important : la répartition suit le comportement de vieillissement, pas le domaine métier.** Il n'existe pas de quatrième catégorie « gardien » — les attributs de gardien sont répartis dans les trois catégories ci-dessus selon leur nature (les réflexes vieillissent comme le physique, le geste comme la technique, l'autorité comme le mental), pas regroupés à part sous prétexte qu'ils partagent un poste.
+
+### L'échelle 1-100 : absolue et mondiale
+
+Tous les attributs, et le `ceiling` de `PlayerPotentials`, vivent sur une même échelle entière **1-100**, dont voici les points d'ancrage :
+
+| Valeur | Ce qu'elle décrit |
+|---|---|
+| 1-20 | plancher du modèle — pas le niveau d'un professionnel |
+| ~30 | professionnel du bas de la pyramide modélisée |
+| ~50 | professionnel **médian**, toutes divisions modélisées confondues |
+| ~70 | titulaire dans la meilleure division d'un pays fort |
+| ~85 | niveau international, titulaire d'un grand club — quelques pour cent de la population |
+| ~95 | une poignée de joueurs vivants à un instant donné |
+| 100 | asymptote, jamais atteinte |
+
+> **L'échelle est absolue et définie à l'échelle du monde entier. Elle n'est jamais relative à une division, à un pays, ni à la population du moment.**
+
+Quatre raisons, dont la première suffit :
+
+1. **Sinon, ajouter une division ou un pays re-signifie rétroactivement tous les nombres existants.** C'est exactement la classe de bug décrite en `14-` §1 pour le LOD du moteur de match : un changement de périmètre d'observation qui change l'histoire du monde. Une échelle relative rendrait incomparables deux joueurs de deux championnats — et un monde multi-pays est prévu (`15-` phase 6).
+2. **La promotion et la relégation deviendraient des rescalages.** Un joueur gagnerait dix points en descendant d'une division. Absurde, et impossible à raconter.
+3. **La perception (§4) suppose un référentiel partagé.** Ce qu'un observateur croit est une version bruitée de la vérité ; « ce joueur est à 70 » doit vouloir dire la même chose pour un recruteur français et pour un recruteur brésilien, sinon la couche de perception ne veut plus rien dire.
+4. **Le moteur de match L0 en dérive `attaque`/`défense`** (`14-` §1). C'est l'échelle absolue qui rend le contrat de calibration L0/L1 vérifiable d'un championnat à l'autre.
+
+### Corollaire : l'échelle est universelle, les distributions ne le sont pas
+
+C'est la moitié qu'on oublie. La distribution du talent **est une propriété d'une population**, pas de l'échelle. Un centre de formation de première division et un centre de quatrième division tirent sur la *même* échelle, mais dans des *tranches* différentes.
+
+Conséquence pratique sur le `Ruleset` : les bornes de `ceiling` de `YouthIntakeBalance` ne décrivent pas « le talent en général », elles décrivent **la tranche dans laquelle recrute un club donné**. Elles sont globales aujourd'hui parce qu'aucune notion de niveau (`tier`) ni de `Reputation` de club n'existe encore ; elles devront devenir fonction du club le jour où elle existera. En attendant, le monde de la Phase 0 étant **une seule première division** (`15-` §4), ces bornes doivent décrire une promotion de première division — pas la pyramide entière, dont le médian à ~50 serait bien trop bas pour cette population.
+
+Le corollaire du corollaire, à ne pas rater : une distribution qui donnerait 20 % de la population au-dessus de 85 ne serait pas « généreuse », elle **casserait la sémantique de l'échelle** — 85 ne voudrait plus dire « international ». La forme de la loi de talent (asymétrique à droite, queue rare, cf. §7) n'est pas un choix esthétique, c'est ce qui maintient les ancrages ci-dessus vrais.
 
 **Physique** (`PlayerPhysicalSkills`) :
 

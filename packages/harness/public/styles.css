@@ -219,3 +219,32 @@ svg.chart {
 .swatch.modified {
     background: var(--accent-2);
 }
+
+details {
+    margin-block: 8px;
+}
+
+details summary {
+    cursor: pointer;
+    color: var(--muted);
+    font-size: 0.9rem;
+    margin-bottom: 4px;
+}
+
+.effect-summary table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 0.9rem;
+}
+
+.effect-summary th,
+.effect-summary td {
+    text-align: left;
+    padding: 4px 12px 4px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.effect-summary th {
+    color: var(--muted);
+    font-weight: 600;
+}

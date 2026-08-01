@@ -6,15 +6,22 @@ namespace Flair\Harness\Metrics;
 
 /**
  * Sortie agregee d'une simulation : courbes de competence par categorie
- * (bucketees par age entier, avec bande de percentiles) et distribution des
- * ages de retraite. Independant du format de sortie - Report/TextReport et
- * Report/JsonSerializer rendent tous les deux la meme structure.
+ * (bucketees par age entier, avec bande de percentiles), distribution des
+ * ages de retraite, effectif actif par annee et pyramide des ages de la
+ * derniere annee simulee. Independant du format de sortie -
+ * Report/TextReport et Report/JsonSerializer rendent tous les deux la meme
+ * structure.
  *
  * `curves` est une coupe transversale brute - biaisee par survie aux ages
  * avances (cf. DeltaCurveBuilder). `deltaCurves`/`chainedCurves` sont la
  * correction : deltas individuels d'annee en annee, chaines depuis une
  * ancre jeune. Les deux vues sont gardees, pas une seule - `curves` reste
  * utile aux ages jeunes bien peuples et pour montrer visuellement le biais.
+ *
+ * `populationByYear`/`finalAgeHistogram` sont calcules par Sampler (le seul
+ * a suivre les promotions en cours de run) et simplement transportes ici -
+ * contrairement aux courbes, ils ne se derivent pas de `$samples` seul, qui
+ * ne porte pas trace des joueurs retraites ou promus.
  */
 final readonly class AggregateResult
 {
@@ -26,20 +33,26 @@ final readonly class AggregateResult
      * @param array<string, array<int, float>> $chainedCurves
      *   categorie -> age -> niveau reconstruit par chainage des deltas moyens
      * @param array<int, int> $retirementAgeHistogram age -> effectif, trie par age croissant
+     * @param array<int, int> $populationByYear annee simulee -> effectif actif en fin d'annee
+     * @param array<int, int> $finalAgeHistogram age -> effectif, population active de la derniere annee simulee
      */
     public function __construct(
         public array $curves,
         public array $deltaCurves,
         public array $chainedCurves,
         public array $retirementAgeHistogram,
+        public array $populationByYear,
+        public array $finalAgeHistogram,
     ) {
     }
 
     /**
      * @param list<SkillSample> $samples
      * @param list<int> $retirementAges
+     * @param array<int, int> $populationByYear
+     * @param array<int, int> $finalAgeHistogram
      */
-    public static function fromSamples(array $samples, array $retirementAges): self
+    public static function fromSamples(array $samples, array $retirementAges, array $populationByYear, array $finalAgeHistogram): self
     {
         $byCategoryThenAge = [];
         foreach ($samples as $sample) {
@@ -68,6 +81,8 @@ final readonly class AggregateResult
             $delta['deltaCurves'],
             $delta['chainedCurves'],
             Stats::histogram($retirementAges, bucketWidth: 1),
+            $populationByYear,
+            $finalAgeHistogram,
         );
     }
 }

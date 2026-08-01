@@ -13,12 +13,17 @@ use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
 use Flair\Kernel\Football\Components\PlayerPotentials;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
+use Flair\Kernel\Football\Components\SquadMembership;
 use Flair\Kernel\Football\Generation\PlayerFactory;
 
 /**
- * Construit la population initiale du harness : des joueurs deja en cours
- * de carriere (17-34 ans), la ou `YouthIntakeSystem` ne produit que des
- * recrues de 17 ans.
+ * Construit la population initiale du harness : des clubs synthetiques
+ * (Population\ClubFactory) et des joueurs deja en cours de carriere
+ * (17-34 ans), la ou `YouthIntakeSystem` ne produit que des recrues de 17
+ * ans. Chaque joueur recoit un `SquadMembership` (repartition round-robin
+ * sur les clubs crees) - sans ca, `Football\TrainingSystem` et
+ * `Football\YouthIntakeSystem` n'ont rien a lire ni ou promouvoir (cf.
+ * docblock ClubFactory).
  *
  * **Le potentiel est tire par `Kernel\Football\Generation\PlayerFactory`,
  * pas ici.** C'est la meme loi de talent que celle des promotions
@@ -38,35 +43,43 @@ use Flair\Kernel\Football\Generation\PlayerFactory;
  */
 final class PopulationFactory
 {
-    private const YOUNGEST_START_AGE = 17.0;
-    private const OLDEST_START_AGE = 34.0;
+    private const YOUNGEST_START_AGE = 14.0;
+    private const OLDEST_START_AGE = 17.0;
 
     public function __construct(
         private readonly PlayerFactory $players = new PlayerFactory(),
+        private readonly ClubFactory $clubs = new ClubFactory(),
     ) {
     }
 
-    /** @return list<int> identifiants des entites creees */
-    public function populate(WorldState $world, int $count, int $seed, int $atTick = 1, ?YouthIntakeBalance $talent = null): array
+    /** @return list<int> identifiants des entites joueur creees */
+    public function populate(WorldState $world, PopulationSpec $spec, int $atTick = 1, ?YouthIntakeBalance $talent = null): array
     {
-        $rng = new Rng($seed);
+        $rng = new Rng($spec->seed);
         $talent ??= new YouthIntakeBalance();
-        $playerIds = [];
 
-        for ($i = 0; $i < $count; $i++) {
-            $playerIds[] = $this->createPlayer($world, $rng, $atTick, $talent);
+        $clubIds = $spec->clubCount > 0 ? $this->clubs->create($world, $spec->clubCount, $spec->facilitiesQuality) : [];
+
+        $playerIds = [];
+        for ($i = 0; $i < $spec->playerCount; $i++) {
+            $clubId = $clubIds === [] ? null : $clubIds[$i % \count($clubIds)];
+            $playerIds[] = $this->createPlayer($world, $rng, $atTick, $talent, $clubId);
         }
 
         return $playerIds;
     }
 
-    private function createPlayer(WorldState $world, Rng $rng, int $atTick, YouthIntakeBalance $talent): int
+    private function createPlayer(WorldState $world, Rng $rng, int $atTick, YouthIntakeBalance $talent, ?int $clubId): int
     {
         $entity = $world->createEntity();
 
         $startAge = $this->uniform($rng, self::YOUNGEST_START_AGE, self::OLDEST_START_AGE);
         $birthDay = (int) round($atTick - $startAge * 365);
         $world->components(Person::class)->set($entity, new Person("Joueur {$entity}", new SimDate($birthDay)));
+
+        if ($clubId !== null) {
+            $world->components(SquadMembership::class)->set($entity, new SquadMembership($clubId));
+        }
 
         $potentials = $this->players->drawPotentials($rng, $talent);
         $world->components(PlayerPotentials::class)->set($entity, $potentials);

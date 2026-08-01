@@ -15,6 +15,7 @@ use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
 use Flair\Kernel\Football\Events\PlayerRetired;
+use Flair\Kernel\Football\Events\YouthPlayerPromoted;
 use Flair\Kernel\Football\Systems\PlayerDevelopmentSystem;
 use Flair\Kernel\Football\Systems\RetirementSystem;
 use Flair\Kernel\Football\Systems\TrainingSystem;
@@ -29,21 +30,16 @@ use Flair\Kernel\Football\Systems\YouthIntakeSystem;
  * (Flair\Kernel\Football\Systems\YouthIntakeSystem,
  * Flair\Kernel\Football\Systems\TrainingSystem,
  * Flair\Kernel\Football\Systems\RetirementSystem et
- * Flair\Kernel\Football\Systems\PlayerDevelopmentSystem). La population
- * synthetique du harness ne cree aucun club et n'affecte aucun joueur a un
- * club (pas de `Club`, pas de `SquadMembership`) : `TrainingSystem` comme
- * `YouthIntakeSystem` n'iterent donc rien ici, comportement inchange -
- * `TrainingEffect` reste absent et `PlayerDevelopmentSystem` applique son
- * defaut neutre, aucune promotion ne vient s'ajouter a la cohorte observee.
- * Les deux sont tout de meme inclus dans le pipeline construit ici pour que
- * sa composition reste identique a celle de `bin/demo.php` (l'ordre du
- * pipeline est une donnee versionnee, pas un detail local a un point
- * d'entree, docs/13- §2).
+ * Flair\Kernel\Football\Systems\PlayerDevelopmentSystem).
  *
- * Consequence a garder en tete : cet outil mesure des **courbes de
- * vieillissement d'une cohorte fermee**, pas la stationnarite de la pyramide
- * des ages. Mesurer cette derniere demandera de generer des clubs ici, pour
- * que `YouthIntakeSystem` ait de quoi produire - hors perimetre de ce lot.
+ * **La population echantillonnee n'est pas figee.** `$playerIds` n'est que
+ * le point de depart : `YouthIntakeSystem` cree de nouveaux joueurs en
+ * cours de run (si le monde contient des clubs - cf.
+ * Population\ClubFactory/PopulationFactory, qui les cree desormais), et ce
+ * Sampler les suit des leur promotion via `YouthPlayerPromoted`, symetrique
+ * du suivi deja en place pour `PlayerRetired`. Sans ce suivi, les joueurs
+ * promus en cours de route seraient invisibles des courbes - mesurer une
+ * cohorte fermee alors que le monde n'en est plus une.
  */
 final class Sampler
 {
@@ -60,6 +56,12 @@ final class Sampler
         $retirementAges = [];
         /** @var array<int, true> $retired */
         $retired = [];
+        /** @var array<int, true> $known joueurs initiaux + promus, jamais purge (la soustraction de $retired se fait a la lecture) */
+        $known = array_fill_keys($playerIds, true);
+        /** @var array<int, int> $populationByYear annee -> effectif actif en fin d'annee */
+        $populationByYear = [];
+        /** @var list<int> $finalAges ages (arrondis) des actifs a la derniere annee simulee, pour l'histogramme de pyramide */
+        $finalAges = [];
 
         for ($year = 1; $year <= $years; $year++) {
             for ($day = 1; $day <= self::TICKS_PER_YEAR; $day++) {
@@ -76,35 +78,44 @@ final class Sampler
                         $retired[$event->playerId] = true;
                         $retirementAges[] = $event->ageYears;
                     }
+
+                    if ($event instanceof YouthPlayerPromoted) {
+                        $known[$event->playerId] = true;
+                    }
                 }
             }
 
-            $this->sampleYearEnd($world, $playerIds, $retired, $year, $samples);
+            /** @var list<int> $activePlayerIds */
+            $activePlayerIds = array_keys(array_diff_key($known, $retired));
+            $populationByYear[$year] = \count($activePlayerIds);
+
+            $ages = $this->sampleYearEnd($world, $activePlayerIds, $year, $samples);
+            if ($year === $years) {
+                $finalAges = $ages;
+            }
         }
 
-        return AggregateResult::fromSamples($samples, $retirementAges);
+        return AggregateResult::fromSamples($samples, $retirementAges, $populationByYear, Stats::histogram($finalAges, bucketWidth: 1));
     }
 
     /**
-     * @param list<int> $playerIds
-     * @param array<int, true> $retired
+     * @param list<int> $activePlayerIds joueurs actifs (retraites deja exclus par l'appelant)
      * @param list<SkillSample> $samples
+     * @return list<int> ages (annees, arrondis) des joueurs effectivement echantillonnes
      */
-    private function sampleYearEnd(WorldState $world, array $playerIds, array $retired, int $year, array &$samples): void
+    private function sampleYearEnd(WorldState $world, array $activePlayerIds, int $year, array &$samples): array
     {
         $now = new SimDate($year * self::TICKS_PER_YEAR);
+        $ages = [];
 
-        foreach ($playerIds as $playerId) {
-            if (isset($retired[$playerId])) {
-                continue;
-            }
-
+        foreach ($activePlayerIds as $playerId) {
             $person = $world->components(Person::class)->get($playerId);
             if ($person === null) {
                 continue;
             }
 
             $ageYears = $now->yearsSince($person->birthDate);
+            $ages[] = (int) round($ageYears);
 
             $physical = $world->components(PlayerPhysicalSkills::class)->get($playerId);
             if ($physical !== null) {
@@ -128,6 +139,8 @@ final class Sampler
                 ]));
             }
         }
+
+        return $ages;
     }
 
     /** @param list<int> $values */

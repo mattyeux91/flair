@@ -7,6 +7,7 @@ namespace Flair\Harness\Comparison;
 use Flair\Harness\Metrics\AggregateResult;
 use Flair\Harness\Metrics\Sampler;
 use Flair\Harness\Population\PopulationFactory;
+use Flair\Harness\Population\PopulationSpec;
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Ruleset\Ruleset;
 
@@ -26,19 +27,19 @@ final class PairedSeedComparison
     }
 
     /** @return array{baseline: AggregateResult, modified: AggregateResult} */
-    public function compare(int $populationSize, int $years, int $seed, Ruleset $baseline, Ruleset $modified): array
+    public function compare(PopulationSpec $spec, Ruleset $baseline, Ruleset $modified): array
     {
         return [
-            'baseline' => $this->runOnce($populationSize, $years, $seed, $baseline),
-            'modified' => $this->runOnce($populationSize, $years, $seed, $modified),
+            'baseline' => $this->runOnce($spec, $baseline),
+            'modified' => $this->runOnce($spec, $modified),
         ];
     }
 
-    private function runOnce(int $populationSize, int $years, int $seed, Ruleset $ruleset): AggregateResult
+    private function runOnce(PopulationSpec $spec, Ruleset $ruleset): AggregateResult
     {
         $world = new WorldState();
-        $playerIds = $this->populationFactory->populate($world, $populationSize, $seed);
+        $playerIds = $this->populationFactory->populate($world, $spec);
 
-        return $this->sampler->run($world, $playerIds, $years, $seed, $ruleset);
+        return $this->sampler->run($world, $playerIds, $spec->years, $spec->seed, $ruleset);
     }
 }

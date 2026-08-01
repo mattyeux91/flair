@@ -19,6 +19,8 @@ final class JsonSerializer
      *     deltaCurves: array<string, array<int, array{meanDelta: float, count: int}>>,
      *     chainedCurves: array<string, array<int, float>>,
      *     retirementAgeHistogram: array<int, int>,
+     *     populationByYear: array<int, int>,
+     *     finalAgeHistogram: array<int, int>,
      * }
      */
     public static function toArray(AggregateResult $result): array
@@ -28,6 +30,8 @@ final class JsonSerializer
             'deltaCurves' => $result->deltaCurves,
             'chainedCurves' => $result->chainedCurves,
             'retirementAgeHistogram' => $result->retirementAgeHistogram,
+            'populationByYear' => $result->populationByYear,
+            'finalAgeHistogram' => $result->finalAgeHistogram,
         ];
     }
 }

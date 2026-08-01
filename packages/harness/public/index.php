@@ -8,9 +8,12 @@ use Flair\Harness\Comparison\PairedSeedComparison;
 use Flair\Harness\Comparison\RulesetOverride;
 use Flair\Harness\Metrics\Sampler;
 use Flair\Harness\Population\PopulationFactory;
+use Flair\Harness\Population\PopulationSpec;
 use Flair\Harness\Report\JsonSerializer;
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Ruleset\Ruleset;
+
+$baseline = new Ruleset('harness');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Content-Type: application/json');
@@ -18,33 +21,99 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     /** @var array<string, mixed> $input */
     $input = json_decode((string) file_get_contents('php://input'), true) ?? [];
 
-    $players = max(1, min(5000, (int) ($input['players'] ?? 200)));
-    $years = max(1, min(100, (int) ($input['years'] ?? 30)));
-    $seed = (int) ($input['seed'] ?? 42);
+    $spec = new PopulationSpec(
+        playerCount: max(1, min(5000, (int) ($input['players'] ?? 200))),
+        years: max(1, min(100, (int) ($input['years'] ?? 30))),
+        seed: (int) ($input['seed'] ?? 42),
+        clubCount: max(0, min(64, (int) ($input['clubs'] ?? 18))),
+        facilitiesQuality: (float) ($input['facilitiesQuality'] ?? 1.0),
+    );
 
-    $baseline = new Ruleset('harness');
-    $compareField = trim((string) ($input['compareField'] ?? ''));
-
-    if ($compareField !== '' && isset($input['compareValue']) && is_numeric($input['compareValue'])) {
-        $modified = RulesetOverride::agingField($baseline, $compareField, (float) $input['compareValue']);
-        $results = new PairedSeedComparison()->compare($players, $years, $seed, $baseline, $modified);
-
-        echo json_encode([
-            'baseline' => JsonSerializer::toArray($results['baseline']),
-            'modified' => JsonSerializer::toArray($results['modified']),
-        ]);
-        exit;
+    /** @var array<string, mixed> $rawOverrides */
+    $rawOverrides = \is_array($input['overrides'] ?? null) ? $input['overrides'] : [];
+    $overrides = [];
+    foreach ($rawOverrides as $field => $value) {
+        if (\is_string($field) && \in_array($field, RulesetOverride::ALL_FIELDS, strict: true) && is_numeric($value)) {
+            $overrides[$field] = (float) $value;
+        }
     }
 
-    $world = new WorldState();
-    $playerIds = new PopulationFactory()->populate($world, $players, $seed);
-    $result = new Sampler()->run($world, $playerIds, $years, $seed, $baseline);
+    try {
+        if ($overrides !== []) {
+            $modified = RulesetOverride::withFields($baseline, $overrides);
+            $results = new PairedSeedComparison()->compare($spec, $baseline, $modified);
 
-    echo json_encode(['baseline' => JsonSerializer::toArray($result)]);
+            echo json_encode([
+                'baseline' => JsonSerializer::toArray($results['baseline']),
+                'modified' => JsonSerializer::toArray($results['modified']),
+            ]);
+            exit;
+        }
+
+        $world = new WorldState();
+        $playerIds = new PopulationFactory()->populate($world, $spec);
+        $result = new Sampler()->run($world, $playerIds, $spec->years, $spec->seed, $baseline);
+
+        echo json_encode(['baseline' => JsonSerializer::toArray($result)]);
+    } catch (\InvalidArgumentException $e) {
+        http_response_code(400);
+        echo json_encode(['error' => $e->getMessage()]);
+    }
+
     exit;
 }
 
-$agingFields = RulesetOverride::AGING_FIELDS;
+/**
+ * Metadonnees d'affichage du panneau de calibration : un tuple explicite
+ * par champ de Balance (libelle FR, pas du <input>, valeur par defaut lue
+ * directement sur $baseline). Pas de boucle avec acces dynamique
+ * ($obj->$field) sur un nom de champ variable - chaque ligne nomme son
+ * champ en clair, meme esprit d'enumeration explicite que RulesetOverride.
+ *
+ * @var list<array{field: string, group: string, label: string, step: string, default: int|float}>
+ */
+$fieldMeta = [
+    ['field' => 'retirementEligibleAge', 'group' => 'Retraite', 'label' => "Âge d'éligibilité (années)", 'step' => '0.5', 'default' => $baseline->balance->retirement->retirementEligibleAge],
+    ['field' => 'retirementAgeWeight', 'group' => 'Retraite', 'label' => "Poids de l'âge dans la probabilité", 'step' => '0.01', 'default' => $baseline->balance->retirement->retirementAgeWeight],
+    ['field' => 'retirementFragilityWeight', 'group' => 'Retraite', 'label' => 'Poids de la fragilité', 'step' => '0.01', 'default' => $baseline->balance->retirement->retirementFragilityWeight],
+
+    ['field' => 'growthPrimeAgeThreshold', 'group' => 'Développement', 'label' => "Seuil d'âge de progression max (années)", 'step' => '0.5', 'default' => $baseline->balance->playerDevelopment->growthPrimeAgeThreshold],
+    ['field' => 'growthPlateauFactor', 'group' => 'Développement', 'label' => 'Facteur de plateau', 'step' => '0.01', 'default' => $baseline->balance->playerDevelopment->growthPlateauFactor],
+    ['field' => 'declineRatePerYear', 'group' => 'Développement', 'label' => 'Pente de déclin post-pic', 'step' => '0.01', 'default' => $baseline->balance->playerDevelopment->declineRatePerYear],
+    ['field' => 'physicalDeclineMultiplier', 'group' => 'Développement', 'label' => 'Multiplicateur déclin physique', 'step' => '0.1', 'default' => $baseline->balance->playerDevelopment->physicalDeclineMultiplier],
+    ['field' => 'technicalDeclineMultiplier', 'group' => 'Développement', 'label' => 'Multiplicateur déclin technique', 'step' => '0.1', 'default' => $baseline->balance->playerDevelopment->technicalDeclineMultiplier],
+    ['field' => 'mentalDeclineMultiplier', 'group' => 'Développement', 'label' => 'Multiplicateur déclin mental', 'step' => '0.1', 'default' => $baseline->balance->playerDevelopment->mentalDeclineMultiplier],
+
+    ['field' => 'intakeDayOfYear', 'group' => 'Formation des jeunes', 'label' => 'Jour de promotion (tick % 365)', 'step' => '1', 'default' => $baseline->balance->youthIntake->intakeDayOfYear],
+    ['field' => 'intakeAgeYears', 'group' => 'Formation des jeunes', 'label' => "Âge d'entrée pro (années)", 'step' => '0.5', 'default' => $baseline->balance->youthIntake->intakeAgeYears],
+    ['field' => 'baseIntakePerClub', 'group' => 'Formation des jeunes', 'label' => 'Promotions moyennes par club/saison', 'step' => '0.1', 'default' => $baseline->balance->youthIntake->baseIntakePerClub],
+    ['field' => 'ceilingMin', 'group' => 'Formation des jeunes', 'label' => 'Potentiel min (ceiling)', 'step' => '1', 'default' => $baseline->balance->youthIntake->ceilingMin],
+    ['field' => 'ceilingMax', 'group' => 'Formation des jeunes', 'label' => 'Potentiel max (ceiling)', 'step' => '1', 'default' => $baseline->balance->youthIntake->ceilingMax],
+    ['field' => 'talentSkew', 'group' => 'Formation des jeunes', 'label' => 'Asymétrie de la loi de talent (k)', 'step' => '1', 'default' => $baseline->balance->youthIntake->talentSkew],
+    ['field' => 'startingSkillRatio', 'group' => 'Formation des jeunes', 'label' => 'Ratio de compétence de départ', 'step' => '0.01', 'default' => $baseline->balance->youthIntake->startingSkillRatio],
+    ['field' => 'startingSkillJitter', 'group' => 'Formation des jeunes', 'label' => 'Bruit de compétence de départ', 'step' => '1', 'default' => $baseline->balance->youthIntake->startingSkillJitter],
+    ['field' => 'physicalPeakAgeMin', 'group' => 'Formation des jeunes', 'label' => 'Âge de pic physique min', 'step' => '1', 'default' => $baseline->balance->youthIntake->physicalPeakAgeMin],
+    ['field' => 'physicalPeakAgeMax', 'group' => 'Formation des jeunes', 'label' => 'Âge de pic physique max', 'step' => '1', 'default' => $baseline->balance->youthIntake->physicalPeakAgeMax],
+    ['field' => 'technicalPeakAgeMin', 'group' => 'Formation des jeunes', 'label' => 'Âge de pic technique min', 'step' => '1', 'default' => $baseline->balance->youthIntake->technicalPeakAgeMin],
+    ['field' => 'technicalPeakAgeMax', 'group' => 'Formation des jeunes', 'label' => 'Âge de pic technique max', 'step' => '1', 'default' => $baseline->balance->youthIntake->technicalPeakAgeMax],
+    ['field' => 'mentalPeakAgeMin', 'group' => 'Formation des jeunes', 'label' => 'Âge de pic mental min', 'step' => '1', 'default' => $baseline->balance->youthIntake->mentalPeakAgeMin],
+    ['field' => 'mentalPeakAgeMax', 'group' => 'Formation des jeunes', 'label' => 'Âge de pic mental max', 'step' => '1', 'default' => $baseline->balance->youthIntake->mentalPeakAgeMax],
+    ['field' => 'growthRateMin', 'group' => 'Formation des jeunes', 'label' => 'Vitesse de progression min', 'step' => '0.01', 'default' => $baseline->balance->youthIntake->growthRateMin],
+    ['field' => 'growthRateMax', 'group' => 'Formation des jeunes', 'label' => 'Vitesse de progression max', 'step' => '0.01', 'default' => $baseline->balance->youthIntake->growthRateMax],
+    ['field' => 'fragilityMin', 'group' => 'Formation des jeunes', 'label' => 'Fragilité min', 'step' => '0.01', 'default' => $baseline->balance->youthIntake->fragilityMin],
+    ['field' => 'fragilityMax', 'group' => 'Formation des jeunes', 'label' => 'Fragilité max', 'step' => '0.01', 'default' => $baseline->balance->youthIntake->fragilityMax],
+
+    ['field' => 'developmentRate', 'group' => 'Global', 'label' => 'Multiplicateur global de progression/déclin', 'step' => '0.05', 'default' => $baseline->balance->developmentRate],
+    ['field' => 'trainingRate', 'group' => 'Global', 'label' => "Multiplicateur global d'entraînement", 'step' => '0.05', 'default' => $baseline->balance->trainingRate],
+];
+
+$groupedFields = [];
+foreach ($fieldMeta as $meta) {
+    $groupedFields[$meta['group']][] = $meta;
+}
+
+/** Groupes deplies par defaut : ceux deja calibrables avant ce lot. Les deux autres (nouveaux, plus nombreux) restent replies. */
+$openByDefault = ['Retraite' => true, 'Développement' => true];
 ?>
 <!doctype html>
 <html lang="fr">
@@ -55,32 +124,36 @@ $agingFields = RulesetOverride::AGING_FIELDS;
 </head>
 <body>
     <header>
-        <h1>Harness de calibration — vieillissement</h1>
-        <p>Simule une population synthetique de joueurs et agrege des distributions (courbe de competence par age, ages de retraite) pour juger empiriquement de l'effet des parametres de vieillissement (<code>RetirementBalance</code>/<code>PlayerDevelopmentBalance</code>).</p>
+        <h1>Harness de calibration — vieillissement &amp; démographie</h1>
+        <p>Simule une population synthétique de joueurs (répartie sur des clubs synthétiques) et agrège des distributions (courbe de compétence par âge, âges de retraite, effectif actif par année, pyramide des âges) pour juger empiriquement de l'effet des paramètres de <code>Ruleset::$balance</code>.</p>
     </header>
 
     <form id="run-form">
         <fieldset>
             <legend>Population</legend>
             <label>Joueurs <input type="number" name="players" value="200" min="1" max="5000"></label>
-            <label>Annees simulees <input type="number" name="years" value="30" min="1" max="100"></label>
+            <label>Années simulées <input type="number" name="years" value="30" min="1" max="100"></label>
             <label>Graine <input type="number" name="seed" value="42"></label>
+            <label>Clubs synthétiques <input type="number" name="clubs" value="18" min="0" max="64"></label>
+            <label>Qualité moyenne des installations <input type="number" step="0.1" name="facilitiesQuality" value="1.0" min="0.1" max="3"></label>
         </fieldset>
 
         <fieldset>
-            <legend>Comparaison a graines appariees (optionnel)</legend>
-            <label>Champ de vieillissement a modifier
-                <select name="compareField">
-                    <option value="">— aucune comparaison —</option>
-                    <?php foreach ($agingFields as $field): ?>
-                        <option value="<?= htmlspecialchars($field) ?>"><?= htmlspecialchars($field) ?></option>
+            <legend>Calibration (optionnel — laisser un champ à sa valeur par défaut pour ne pas le faire varier)</legend>
+            <?php foreach (array_keys(RulesetOverride::GROUPS) as $groupLabel): ?>
+                <details<?= ($openByDefault[$groupLabel] ?? false) ? ' open' : '' ?>>
+                    <summary><?= htmlspecialchars($groupLabel) ?></summary>
+                    <?php foreach ($groupedFields[$groupLabel] ?? [] as $meta): ?>
+                        <label><?= htmlspecialchars($meta['label']) ?>
+                            <input type="number" step="<?= htmlspecialchars($meta['step']) ?>" name="override[<?= htmlspecialchars($meta['field']) ?>]" value="<?= htmlspecialchars((string) $meta['default']) ?>" data-default="<?= htmlspecialchars((string) $meta['default']) ?>">
+                        </label>
                     <?php endforeach; ?>
-                </select>
-            </label>
-            <label>Nouvelle valeur <input type="number" step="0.01" name="compareValue"></label>
+                </details>
+            <?php endforeach; ?>
         </fieldset>
 
         <button type="submit">Simuler</button>
+        <button type="reset">Réinitialiser</button>
         <span id="status"></span>
     </form>
 
@@ -90,7 +163,7 @@ $agingFields = RulesetOverride::AGING_FIELDS;
         <label><input type="checkbox" name="category" value="technical" checked> Technique</label>
         <label><input type="checkbox" name="category" value="mental" checked> Mental</label>
         <label><input type="checkbox" id="toggle-band" checked> Bande p10-p90</label>
-        <label><input type="checkbox" id="toggle-chained" checked> Courbe corrigee (methode delta)</label>
+        <label><input type="checkbox" id="toggle-chained" checked> Courbe corrigée (méthode delta)</label>
     </fieldset>
 
     <section id="charts"></section>

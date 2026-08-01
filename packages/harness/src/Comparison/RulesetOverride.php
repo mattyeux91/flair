@@ -8,32 +8,46 @@ use Flair\Kernel\Core\Ruleset\Balance;
 use Flair\Kernel\Core\Ruleset\PlayerDevelopmentBalance;
 use Flair\Kernel\Core\Ruleset\RetirementBalance;
 use Flair\Kernel\Core\Ruleset\Ruleset;
+use Flair\Kernel\Core\Ruleset\YouthIntakeBalance;
 
 /**
- * Construit un Ruleset qui ne differe d'un autre que par un seul champ de
- * calibration du vieillissement (`RetirementBalance` ou
- * `PlayerDevelopmentBalance`) - utilise par le CLI et la page web pour la
- * comparaison a graines appariees. Explicitement enumere plutot que via
- * reflection, dans le meme esprit que le reste du noyau (aucune
- * magie/reflection nulle part).
+ * Construit un Ruleset qui ne differe d'un autre que par un ensemble de
+ * champs de calibration (`Balance` racine, `RetirementBalance`,
+ * `PlayerDevelopmentBalance`, `YouthIntakeBalance`) - utilise par le CLI et
+ * la page web pour la comparaison a graines appariees. Explicitement
+ * enumere plutot que via reflection, dans le meme esprit que le reste du
+ * noyau (aucune magie/reflection nulle part).
  *
- * `AGING_FIELDS` reste un seul groupe cote CLI/web (le contrat
- * `--compare-field=retirementEligibleAge` ne change pas) meme si les 9
- * champs vivent desormais dans deux classes distinctes cote noyau -
- * `RETIREMENT_FIELDS`/`PLAYER_DEVELOPMENT_FIELDS` servent uniquement a
- * router en interne vers le bon sous-objet de `Balance`.
+ * `withFields()` applique N overrides en une seule passe - c'est ce qui
+ * permet a l'appelant de faire varier plusieurs champs a la fois (par
+ * exemple `trainingRate` et `retirementFragilityWeight` ensemble) plutot
+ * que la limite a un seul champ de la premiere version de cette classe.
+ * Validation fail-fast : un champ inconnu leve avant toute construction, pas
+ * d'application partielle.
+ *
+ * `YouthIntakeBalance` est le seul groupe qui melange des champs `int` et
+ * `float` - sous `declare(strict_types=1)`, passer un float a un parametre
+ * `int` leve un `TypeError`. Chaque champ est donc caste explicitement selon
+ * son type reel dans `YouthIntakeBalance`, jamais via une table de types
+ * generique.
  */
 final class RulesetOverride
 {
     /** @var list<string> */
-    private const array RETIREMENT_FIELDS = [
+    public const array GLOBAL_FIELDS = [
+        'developmentRate',
+        'trainingRate',
+    ];
+
+    /** @var list<string> */
+    public const array RETIREMENT_FIELDS = [
         'retirementEligibleAge',
         'retirementAgeWeight',
         'retirementFragilityWeight',
     ];
 
     /** @var list<string> */
-    private const array PLAYER_DEVELOPMENT_FIELDS = [
+    public const array PLAYER_DEVELOPMENT_FIELDS = [
         'growthPrimeAgeThreshold',
         'growthPlateauFactor',
         'declineRatePerYear',
@@ -43,63 +57,114 @@ final class RulesetOverride
     ];
 
     /** @var list<string> */
-    public const array AGING_FIELDS = [
-        'retirementEligibleAge',
-        'retirementAgeWeight',
-        'retirementFragilityWeight',
-        'growthPrimeAgeThreshold',
-        'growthPlateauFactor',
-        'declineRatePerYear',
-        'physicalDeclineMultiplier',
-        'technicalDeclineMultiplier',
-        'mentalDeclineMultiplier',
+    public const array YOUTH_INTAKE_FIELDS = [
+        'intakeDayOfYear',
+        'intakeAgeYears',
+        'baseIntakePerClub',
+        'ceilingMin',
+        'ceilingMax',
+        'talentSkew',
+        'startingSkillRatio',
+        'startingSkillJitter',
+        'physicalPeakAgeMin',
+        'physicalPeakAgeMax',
+        'technicalPeakAgeMin',
+        'technicalPeakAgeMax',
+        'mentalPeakAgeMin',
+        'mentalPeakAgeMax',
+        'growthRateMin',
+        'growthRateMax',
+        'fragilityMin',
+        'fragilityMax',
     ];
 
-    public static function agingField(Ruleset $base, string $field, float $value): Ruleset
+    /** @var list<string> */
+    public const array ALL_FIELDS = [
+        ...self::GLOBAL_FIELDS,
+        ...self::RETIREMENT_FIELDS,
+        ...self::PLAYER_DEVELOPMENT_FIELDS,
+        ...self::YOUTH_INTAKE_FIELDS,
+    ];
+
+    /**
+     * Groupement par libelle humain, dans l'ordre ou le panneau de
+     * calibration (web) doit les afficher - seul point de verite pour cet
+     * ordre, pour que le CLI puisse un jour l'utiliser aussi.
+     *
+     * @var array<string, list<string>>
+     */
+    public const array GROUPS = [
+        'Retraite' => self::RETIREMENT_FIELDS,
+        'Développement' => self::PLAYER_DEVELOPMENT_FIELDS,
+        'Formation des jeunes' => self::YOUTH_INTAKE_FIELDS,
+        'Global' => self::GLOBAL_FIELDS,
+    ];
+
+    /** @param array<string, float> $overrides nom de champ (n'importe quel groupe) -> nouvelle valeur */
+    public static function withFields(Ruleset $base, array $overrides): Ruleset
     {
-        if (\in_array($field, self::RETIREMENT_FIELDS, strict: true)) {
-            return self::withRetirementField($base, $field, $value);
+        foreach (array_keys($overrides) as $field) {
+            if (!\in_array($field, self::ALL_FIELDS, strict: true)) {
+                throw new \InvalidArgumentException("Champ de Balance inconnu : {$field}");
+            }
         }
 
-        if (\in_array($field, self::PLAYER_DEVELOPMENT_FIELDS, strict: true)) {
-            return self::withPlayerDevelopmentField($base, $field, $value);
-        }
-
-        throw new \InvalidArgumentException("Champ de vieillissement inconnu : {$field}");
-    }
-
-    private static function withRetirementField(Ruleset $base, string $field, float $value): Ruleset
-    {
-        $retirement = $base->balance->retirement;
+        $balance = $base->balance;
 
         return new Ruleset($base->version, new Balance(
-            developmentRate: $base->balance->developmentRate,
-            trainingRate: $base->balance->trainingRate,
-            retirement: new RetirementBalance(
-                retirementEligibleAge: $field === 'retirementEligibleAge' ? $value : $retirement->retirementEligibleAge,
-                retirementAgeWeight: $field === 'retirementAgeWeight' ? $value : $retirement->retirementAgeWeight,
-                retirementFragilityWeight: $field === 'retirementFragilityWeight' ? $value : $retirement->retirementFragilityWeight,
-            ),
-            playerDevelopment: $base->balance->playerDevelopment,
+            developmentRate: $overrides['developmentRate'] ?? $balance->developmentRate,
+            trainingRate: $overrides['trainingRate'] ?? $balance->trainingRate,
+            retirement: self::withRetirement($balance->retirement, $overrides),
+            playerDevelopment: self::withPlayerDevelopment($balance->playerDevelopment, $overrides),
+            youthIntake: self::withYouthIntake($balance->youthIntake, $overrides),
         ));
     }
 
-    private static function withPlayerDevelopmentField(Ruleset $base, string $field, float $value): Ruleset
+    /** @param array<string, float> $overrides */
+    private static function withRetirement(RetirementBalance $base, array $overrides): RetirementBalance
     {
-        $development = $base->balance->playerDevelopment;
+        return new RetirementBalance(
+            retirementEligibleAge: $overrides['retirementEligibleAge'] ?? $base->retirementEligibleAge,
+            retirementAgeWeight: $overrides['retirementAgeWeight'] ?? $base->retirementAgeWeight,
+            retirementFragilityWeight: $overrides['retirementFragilityWeight'] ?? $base->retirementFragilityWeight,
+        );
+    }
 
-        return new Ruleset($base->version, new Balance(
-            developmentRate: $base->balance->developmentRate,
-            trainingRate: $base->balance->trainingRate,
-            retirement: $base->balance->retirement,
-            playerDevelopment: new PlayerDevelopmentBalance(
-                growthPrimeAgeThreshold: $field === 'growthPrimeAgeThreshold' ? $value : $development->growthPrimeAgeThreshold,
-                growthPlateauFactor: $field === 'growthPlateauFactor' ? $value : $development->growthPlateauFactor,
-                declineRatePerYear: $field === 'declineRatePerYear' ? $value : $development->declineRatePerYear,
-                physicalDeclineMultiplier: $field === 'physicalDeclineMultiplier' ? $value : $development->physicalDeclineMultiplier,
-                technicalDeclineMultiplier: $field === 'technicalDeclineMultiplier' ? $value : $development->technicalDeclineMultiplier,
-                mentalDeclineMultiplier: $field === 'mentalDeclineMultiplier' ? $value : $development->mentalDeclineMultiplier,
-            ),
-        ));
+    /** @param array<string, float> $overrides */
+    private static function withPlayerDevelopment(PlayerDevelopmentBalance $base, array $overrides): PlayerDevelopmentBalance
+    {
+        return new PlayerDevelopmentBalance(
+            growthPrimeAgeThreshold: $overrides['growthPrimeAgeThreshold'] ?? $base->growthPrimeAgeThreshold,
+            growthPlateauFactor: $overrides['growthPlateauFactor'] ?? $base->growthPlateauFactor,
+            declineRatePerYear: $overrides['declineRatePerYear'] ?? $base->declineRatePerYear,
+            physicalDeclineMultiplier: $overrides['physicalDeclineMultiplier'] ?? $base->physicalDeclineMultiplier,
+            technicalDeclineMultiplier: $overrides['technicalDeclineMultiplier'] ?? $base->technicalDeclineMultiplier,
+            mentalDeclineMultiplier: $overrides['mentalDeclineMultiplier'] ?? $base->mentalDeclineMultiplier,
+        );
+    }
+
+    /** @param array<string, float> $overrides */
+    private static function withYouthIntake(YouthIntakeBalance $base, array $overrides): YouthIntakeBalance
+    {
+        return new YouthIntakeBalance(
+            intakeDayOfYear: isset($overrides['intakeDayOfYear']) ? (int) round($overrides['intakeDayOfYear']) : $base->intakeDayOfYear,
+            intakeAgeYears: $overrides['intakeAgeYears'] ?? $base->intakeAgeYears,
+            baseIntakePerClub: $overrides['baseIntakePerClub'] ?? $base->baseIntakePerClub,
+            ceilingMin: isset($overrides['ceilingMin']) ? (int) round($overrides['ceilingMin']) : $base->ceilingMin,
+            ceilingMax: isset($overrides['ceilingMax']) ? (int) round($overrides['ceilingMax']) : $base->ceilingMax,
+            talentSkew: isset($overrides['talentSkew']) ? (int) round($overrides['talentSkew']) : $base->talentSkew,
+            startingSkillRatio: $overrides['startingSkillRatio'] ?? $base->startingSkillRatio,
+            startingSkillJitter: isset($overrides['startingSkillJitter']) ? (int) round($overrides['startingSkillJitter']) : $base->startingSkillJitter,
+            physicalPeakAgeMin: isset($overrides['physicalPeakAgeMin']) ? (int) round($overrides['physicalPeakAgeMin']) : $base->physicalPeakAgeMin,
+            physicalPeakAgeMax: isset($overrides['physicalPeakAgeMax']) ? (int) round($overrides['physicalPeakAgeMax']) : $base->physicalPeakAgeMax,
+            technicalPeakAgeMin: isset($overrides['technicalPeakAgeMin']) ? (int) round($overrides['technicalPeakAgeMin']) : $base->technicalPeakAgeMin,
+            technicalPeakAgeMax: isset($overrides['technicalPeakAgeMax']) ? (int) round($overrides['technicalPeakAgeMax']) : $base->technicalPeakAgeMax,
+            mentalPeakAgeMin: isset($overrides['mentalPeakAgeMin']) ? (int) round($overrides['mentalPeakAgeMin']) : $base->mentalPeakAgeMin,
+            mentalPeakAgeMax: isset($overrides['mentalPeakAgeMax']) ? (int) round($overrides['mentalPeakAgeMax']) : $base->mentalPeakAgeMax,
+            growthRateMin: $overrides['growthRateMin'] ?? $base->growthRateMin,
+            growthRateMax: $overrides['growthRateMax'] ?? $base->growthRateMax,
+            fragilityMin: $overrides['fragilityMin'] ?? $base->fragilityMin,
+            fragilityMax: $overrides['fragilityMax'] ?? $base->fragilityMax,
+        );
     }
 }

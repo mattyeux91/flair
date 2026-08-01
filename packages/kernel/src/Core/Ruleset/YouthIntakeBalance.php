@@ -58,8 +58,28 @@ final readonly class YouthIntakeBalance
         public float $intakeAgeYears = 17.0,
         /** Nombre moyen de joueurs promus par club et par saison, avant modulation par `Facilities::$quality`. Le resultat fractionnaire est arrondi stochastiquement, pour que l'esperance reste exacte malgre des cohortes entieres. */
         public float $baseIntakePerClub = 1.2,
-        /** Bornes du `ceiling` tire pour un jeune (docs/12- §5, echelle 0-100 des competences). */
-        public int $ceilingMin = 35,
+        /**
+         * Bornes du `ceiling` tire pour un jeune, sur l'echelle **absolue et
+         * mondiale** 1-100 de docs/12- §5 (~50 = professionnel median toutes
+         * divisions confondues, ~70 = titulaire de premiere division, ~85 =
+         * international, ~95 = une poignee de joueurs vivants).
+         *
+         * Ces bornes ne decrivent pas "le talent en general" mais **la
+         * tranche dans laquelle recrute un club donne** (12- §5, corollaire).
+         * Elles sont globales tant qu'aucune notion de niveau de division ni
+         * de `Reputation` de club n'existe ; le monde de la Phase 0 etant une
+         * seule premiere division (docs/15- §4), elles decrivent donc une
+         * promotion de premiere division - pas la pyramide entiere, dont le
+         * median a ~50 serait trop bas pour cette population.
+         *
+         * Avec `talentSkew = 3`, `[55, 95]` donne : moyenne ~65, mediane ~63,
+         * p90 ~76, et **~1,6 % au-dessus de 85**. Ce dernier chiffre est le
+         * garde-fou a surveiller en calibrant : une distribution qui mettrait
+         * 20 % de la population au-dessus de 85 ne serait pas "genereuse",
+         * elle casserait la semantique de l'echelle - 85 cesserait de vouloir
+         * dire "international".
+         */
+        public int $ceilingMin = 55,
         public int $ceilingMax = 95,
         /**
          * Asymetrie de la loi de talent : `k` dans `min(U_1..U_k)`, qui suit
