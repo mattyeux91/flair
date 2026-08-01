@@ -12,7 +12,7 @@ use Flair\Kernel\Core\Messaging\Scheduler;
 use Flair\Kernel\Core\Pipeline\Pipeline;
 use Flair\Kernel\Core\Pipeline\System;
 use Flair\Kernel\Core\Pipeline\SystemContext;
-use Flair\Kernel\Core\Ruleset;
+use Flair\Kernel\Core\Ruleset\Ruleset;
 use PHPUnit\Framework\TestCase;
 
 final class PipelineTest extends TestCase

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Flair\Kernel\Core\Simulation;
 
 use Flair\Kernel\Core\Messaging\Intent;
-use Flair\Kernel\Core\Ruleset;
+use Flair\Kernel\Core\Ruleset\Ruleset;
 
 /**
  * Les entrees d'un tick (docs/11-architecture-generale.md §1) : tout ce dont
