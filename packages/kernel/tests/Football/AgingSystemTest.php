@@ -6,6 +6,7 @@ namespace Flair\Kernel\Tests\Football;
 
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Pipeline\Pipeline;
+use Flair\Kernel\Core\Ruleset\AgingBalance;
 use Flair\Kernel\Core\Ruleset\Balance;
 use Flair\Kernel\Core\Ruleset\Ruleset;
 use Flair\Kernel\Core\Simulation\Simulation;
@@ -38,8 +39,9 @@ final class AgingSystemTest extends TestCase
     public function testAPlayerFarPastPeakAgeDeclinesOnAverage(): void
     {
         // peakAge volontairement bas (15) pour amplifier g(age) et obtenir
-        // un signal de declin net en peu de ticks, tout en restant sous
-        // l'age d'eligibilite a la retraite (33) pour isoler ce comportement.
+        // un signal de declin net en peu de ticks, tout en restant sous un
+        // age d'eligibilite a la retraite releve explicitement (33) pour
+        // isoler ce comportement du risque de retraite.
         $world = new WorldState();
         $entity = $this->createPlayer(
             $world,
@@ -50,9 +52,11 @@ final class AgingSystemTest extends TestCase
             fragility: 1.0,
         );
 
+        $ruleset = new Ruleset('test', new Balance(aging: new AgingBalance(retirementEligibleAge: 33.0)));
+
         $pipeline = new Pipeline([new AgingSystem()]);
         for ($tick = 1; $tick <= 900; $tick++) {
-            $pipeline->tick($world, tick: $tick, worldSeed: 1, ruleset: $this->ruleset(), intents: []);
+            $pipeline->tick($world, tick: $tick, worldSeed: 1, ruleset: $ruleset, intents: []);
         }
 
         $skills = $world->components(PlayerSkills::class)->get($entity);

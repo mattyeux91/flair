@@ -36,8 +36,8 @@ use Flair\Kernel\Football\Potential;
 function demoCreatePlayers(WorldState $world, int $atTick): array
 {
     $definitions = [
-        'Wonderkid' => ['age' => 17.0, 'skill' => 55, 'ceiling' => 88, 'peakAge' => 27, 'fragility' => 0.5],
-        'Prime' => ['age' => 25.0, 'skill' => 75, 'ceiling' => 80, 'peakAge' => 27, 'fragility' => 0.4],
+        'Wonderkid' => ['age' => 17.0, 'skill' => 55, 'ceiling' => 88, 'peakAge' => 27, 'fragility' => 0.2],
+        'Prime2' => ['age' => 25.0, 'skill' => 75, 'ceiling' => 80, 'peakAge' => 27, 'fragility' => 0.4],
         'Veteran' => ['age' => 34.0, 'skill' => 70, 'ceiling' => 75, 'peakAge' => 27, 'fragility' => 0.9],
         'Veteran2' => ['age' => 34.0, 'skill' => 70, 'ceiling' => 75, 'peakAge' => 27, 'fragility' => 0.9],
     ];
