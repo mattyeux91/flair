@@ -62,9 +62,11 @@ Chaque phase a un **critère de sortie mesurable**. On ne passe pas à la suivan
 
 C'est la phase la plus importante du projet. Si elle échoue, rien d'autre n'a d'intérêt.
 
+> **Mesuré empiriquement le 2026-08-02** (`packages/harness/bin/aggregate.php`, seeds 42 et 7, 500 joueurs / 18 clubs) : le critère "20 saisons" tel qu'écrit est trop court pour une population initiale de 500 joueurs répartie sur tout l'éventail d'âges (`Harness\Population\PopulationFactory`) — elle n'est pas encore à l'équilibre d'âge à l'année 20 (effectif encore en décroissance transitoire de 459 à ~320). Deux options pour rendre le critère opérationnel : (a) partir d'une population déjà à l'équilibre d'âge (nécessiterait un mode de génération dédié, hors périmètre actuel), ou (b) mesurer sur une fenêtre de 30-40 saisons avec une population initiale large. On retient (b). Résultat sur 40 saisons : effectif stationnaire ~313-329 joueurs dès l'année ~13 (confirmé sur deux graines indépendantes), répartition domicile/nul/extérieur 41.8%/29.6%/28.6% (proche du réel), scores les plus fréquents 1-1/0-0/1-0/2-1 dans un ordre réaliste. Sur 19 saisons (seed 42) : 11 champions différents sur 18 clubs (deux clubs à 4 titres chacun, aucun quasi-monopole). **Phase 0 est close sur cette base.**
+
 ### Phase 1 — Le harness d'équilibrage *(≈ 2 semaines)*
 
-1 000 saisons sans tête, métriques de santé du monde (Gini, inflation, rotation du sommet), rapport automatique, test de régression en CI. Test de déterminisme (même graine → même hash de l'état **et** de la séquence d'événements).
+1 000 saisons sans tête, métriques de santé du monde (Gini des titres, rotation du top 5 — le Gini des revenus et l'inflation ne sont mesurables qu'à partir de la Phase 2, une fois l'économie et le grand livre monétaire codés, cf. §4 Phase 2 et `14-` §6/§7), rapport automatique, test de régression en CI. Test de déterminisme (même graine → même hash de l'état **et** de la séquence d'événements).
 
 Deux ajouts qui font la valeur de cette phase :
 
@@ -72,6 +74,10 @@ Deux ajouts qui font la valeur de cette phase :
 - **Métriques de graphe d'événements** — volume par type, profondeur, entités sur-modifiées, croissance des files (`16-` §6). Une boucle non amortie ne se voit pas dans les métriques métier ; elle se voit ici.
 
 > **Critère de sortie :** modifier une valeur de `ruleset.balance` et **voir l'effet chiffré** sur la santé du monde en moins de 5 minutes.
+
+> **Mesuré empiriquement le 2026-08-02** (`packages/harness/bin/aggregate.php`, seed 42, 500 joueurs / 18 clubs / 40 saisons) : run baseline seul ~56s ; comparaison à graines appariées complète (baseline + `--set trainingRate=1.5` + delta chiffré Gini/rotation) ~1min49s — sous la barre des 5 minutes avec large marge. Gini des titres 0.298 → 0.346 et rotation du top 5 63.7% → 62.1% entre baseline et modifié, effet lisible directement dans le rapport texte. Les briques prévues sont toutes en place : Gini des titres + rotation du top 5 (`CompetitiveBalance`), graphe d'événements opt-in (`EventGraphCollector`), test de déterminisme état+séquence d'événements (`DeterministicRunTest`), CI à deux jobs (`kernel` puis `harness`, suite `Regression` incluse). **Phase 1 est close sur cette base.**
+>
+> En parallèle (prérequis Phase 5, §2) : le prototype papier/CLI `prototype/agent-loop/` a confirmé que la tension commission/satisfaction/réputation est un vrai dilemme (styles de jeu divergents sur 3 graines, cf. son README) — la question qu'il devait trancher est tranchée. Conservé tel quel, en l'état de prototype, sans promotion en document de conception ni suppression.
 
 À partir d'ici tu pilotes au lieu de deviner. C'est ton avantage sur un studio.
 

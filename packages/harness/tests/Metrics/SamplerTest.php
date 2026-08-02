@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flair\Harness\Tests\Metrics;
 
+use Flair\Harness\Metrics\EventGraphCollector;
 use Flair\Harness\Metrics\Sampler;
 use Flair\Harness\Population\PopulationFactory;
 use Flair\Harness\Population\PopulationSpec;
@@ -101,6 +102,30 @@ final class SamplerTest extends TestCase
         self::assertSame(range(1, $years - 1), array_column($result->seasonHistory, 'season'));
     }
 
+    /**
+     * Garde-fou d'integration : EventGraphCollector::tally() est appele
+     * apres chaque step() (cf. Sampler::run()), donc son total sur tout le
+     * run doit correspondre exactement au nombre d'evenements reellement
+     * observes par ce test en reproduisant la meme boucle.
+     */
+    public function testEventGraphCollectorTalliesEveryEmittedEvent(): void
+    {
+        $ruleset = new Ruleset('test');
+        $spec = new PopulationSpec(playerCount: 60, years: 5, seed: 42, clubCount: 6);
+
+        $world = new WorldState();
+        $playerIds = (new PopulationFactory())->populate($world, $spec);
+        $eventGraph = new EventGraphCollector();
+        (new Sampler())->run($world, $playerIds, $spec->years, $spec->seed, $ruleset, $eventGraph);
+
+        $snapshot = $eventGraph->snapshot();
+
+        self::assertGreaterThan(0, $snapshot->totalEvents);
+        self::assertSame($snapshot->totalEvents, array_sum($snapshot->volumeByType));
+        self::assertCount($spec->years, $snapshot->schedulerBacklogByYear);
+        self::assertSame(range(1, $spec->years), array_column($snapshot->schedulerBacklogByYear, 'year'));
+    }
+
     public function testNoMatchesAreSimulatedWithoutClubs(): void
     {
         $ruleset = new Ruleset('test');
@@ -196,9 +221,9 @@ final class SamplerTest extends TestCase
             $parts[] = sprintf(
                 '%d:%d:%d:%d',
                 $playerId,
-                $technical?->technique ?? -1,
-                $physical?->pace ?? -1,
-                $mental?->vision ?? -1,
+                $technical->technique ?? -1,
+                $physical->pace ?? -1,
+                $mental->vision ?? -1,
             );
         }
 

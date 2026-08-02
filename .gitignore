@@ -1,5 +1,6 @@
 /vendor/
 /packages/*/vendor/
+/.vscode/
 composer.lock
 .phpunit.cache/
 .phpunit.result.cache

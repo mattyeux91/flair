@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  kernel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+      - run: composer install --no-interaction
+        working-directory: packages/kernel
+      - run: vendor/bin/phpunit
+        working-directory: packages/kernel
+      - run: vendor/bin/phpstan analyse
+        working-directory: packages/kernel
+
+  harness:
+    runs-on: ubuntu-latest
+    needs: kernel
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+      - run: composer install --no-interaction
+        working-directory: packages/harness
+      - run: vendor/bin/phpunit
+        working-directory: packages/harness
+      - run: vendor/bin/phpstan analyse
+        working-directory: packages/harness
+      - run: vendor/bin/phpunit --testsuite Regression
+        working-directory: packages/harness

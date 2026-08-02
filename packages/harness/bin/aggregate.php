@@ -37,6 +37,7 @@ require __DIR__ . '/../vendor/autoload.php';
 
 use Flair\Harness\Comparison\PairedSeedComparison;
 use Flair\Harness\Comparison\RulesetOverride;
+use Flair\Harness\Metrics\EventGraphCollector;
 use Flair\Harness\Metrics\Sampler;
 use Flair\Harness\Population\PopulationFactory;
 use Flair\Harness\Population\PopulationSpec;
@@ -44,7 +45,7 @@ use Flair\Harness\Report\TextReport;
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Ruleset\Ruleset;
 
-$options = getopt('', ['players:', 'years:', 'seed:', 'clubs:', 'facilities-quality:', 'set:']);
+$options = getopt('', ['players:', 'years:', 'seed:', 'clubs:', 'facilities-quality:', 'set:', 'event-graph']);
 
 $spec = new PopulationSpec(
     playerCount: (int) ($options['players'] ?? 500),
@@ -67,7 +68,8 @@ if (!\is_array($rawSet)) {
 $overrides = [];
 foreach ($rawSet as $entry) {
     if (!\is_string($entry) || !str_contains($entry, '=')) {
-        fwrite(STDERR, "Format invalide pour --set (attendu champ=valeur) : {$entry}\n");
+        $entryLabel = \is_scalar($entry) ? (string) $entry : json_encode($entry);
+        fwrite(STDERR, "Format invalide pour --set (attendu champ=valeur) : {$entryLabel}\n");
         exit(1);
     }
 
@@ -95,8 +97,13 @@ if ($overrides !== []) {
     exit(0);
 }
 
+$eventGraph = array_key_exists('event-graph', $options) ? new EventGraphCollector() : null;
+
 $world = new WorldState();
 $playerIds = (new PopulationFactory())->populate($world, $spec);
-$result = (new Sampler())->run($world, $playerIds, $spec->years, $spec->seed, $baselineRuleset);
+$result = (new Sampler())->run($world, $playerIds, $spec->years, $spec->seed, $baselineRuleset, $eventGraph);
 
 echo $report->render($result);
+if ($eventGraph !== null) {
+    echo $report->renderEventGraph($eventGraph->snapshot());
+}

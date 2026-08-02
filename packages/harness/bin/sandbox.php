@@ -58,7 +58,8 @@ if (!\is_array($rawSet)) {
 $overrides = [];
 foreach ($rawSet as $entry) {
     if (!\is_string($entry) || !str_contains($entry, '=')) {
-        fwrite(STDERR, "Format invalide pour --set (attendu champ=valeur) : {$entry}\n");
+        $entryLabel = \is_scalar($entry) ? (string) $entry : json_encode($entry);
+        fwrite(STDERR, "Format invalide pour --set (attendu champ=valeur) : {$entryLabel}\n");
         exit(1);
     }
 
