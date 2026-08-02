@@ -4,30 +4,22 @@ declare(strict_types=1);
 
 namespace Flair\Harness\Metrics;
 
+use Flair\Harness\Simulation\PipelineFactory;
+use Flair\Harness\Support\WorldInspector;
 use Flair\Kernel\Core\Ecs\WorldState;
-use Flair\Kernel\Core\Pipeline\Pipeline;
 use Flair\Kernel\Core\Ruleset\Ruleset;
 use Flair\Kernel\Core\Simulation\Simulation;
 use Flair\Kernel\Core\Simulation\TickContext;
 use Flair\Kernel\Core\Support\SimDate;
-use Flair\Kernel\Football\Components\Club;
 use Flair\Kernel\Football\Components\Fixture;
 use Flair\Kernel\Football\Components\Person;
 use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
-use Flair\Kernel\Football\Components\Standings;
 use Flair\Kernel\Football\Events\MatchPlayed;
 use Flair\Kernel\Football\Events\PlayerRetired;
 use Flair\Kernel\Football\Events\SeasonStarted;
 use Flair\Kernel\Football\Events\YouthPlayerPromoted;
-use Flair\Kernel\Football\Systems\CalendarSystem;
-use Flair\Kernel\Football\Systems\CompetitionSystem;
-use Flair\Kernel\Football\Systems\MatchSystem;
-use Flair\Kernel\Football\Systems\PlayerDevelopmentSystem;
-use Flair\Kernel\Football\Systems\RetirementSystem;
-use Flair\Kernel\Football\Systems\TrainingSystem;
-use Flair\Kernel\Football\Systems\YouthIntakeSystem;
 
 /**
  * Fait tourner la simulation du noyau sur une population deja construite,
@@ -106,17 +98,9 @@ final class Sampler
     /** @param list<int> $playerIds */
     public function run(WorldState $world, array $playerIds, int $years, int $worldSeed, Ruleset $ruleset): AggregateResult
     {
-        $simulation = new Simulation(new Pipeline([
-            new YouthIntakeSystem(),
-            new TrainingSystem(),
-            new RetirementSystem(),
-            new PlayerDevelopmentSystem(),
-            new CalendarSystem(),
-            new MatchSystem(),
-            new CompetitionSystem(),
-        ]));
+        $simulation = new Simulation(PipelineFactory::build());
 
-        $clubNames = $this->clubNames($world);
+        $clubNames = WorldInspector::clubNames($world);
 
         /** @var list<SkillSample> $samples */
         $samples = [];
@@ -167,7 +151,7 @@ final class Sampler
                         if ($seasonsStarted > 1) {
                             $seasonHistory[] = [
                                 'season' => $seasonsStarted - 1,
-                                'standings' => $this->standingsSnapshot($world, $event->competitionId, $clubNames),
+                                'standings' => WorldInspector::standingsSnapshot($world, $event->competitionId, $clubNames),
                                 'matches' => $currentSeasonMatches,
                             ];
                         }
@@ -261,17 +245,6 @@ final class Sampler
         return $ages;
     }
 
-    /** @return array<int, string> clubId -> nom */
-    private function clubNames(WorldState $world): array
-    {
-        $names = [];
-        foreach ($world->components(Club::class)->entities() as $clubId) {
-            $names[$clubId] = $world->components(Club::class)->get($clubId)?->name ?? "Club #{$clubId}";
-        }
-
-        return $names;
-    }
-
     /**
      * @param array{homeWin: int, draw: int, awayWin: int} $distribution
      * @return array{homeWin: int, draw: int, awayWin: int}
@@ -296,45 +269,6 @@ final class Sampler
         }
 
         return "{$homeGoals}-{$awayGoals}";
-    }
-
-    /**
-     * Instantane de `Standings` pour une competition donnee, appele depuis
-     * la boucle d'evenements au moment precis ou il porte encore le
-     * classement final de la saison qui vient de se terminer (cf. docblock
-     * de classe - le reset par `Football\CompetitionSystem` n'arrive que
-     * le tick suivant). `$competitionId` vient directement de l'evenement
-     * `SeasonStarted` qui declenche l'appel, jamais requete separement.
-     *
-     * @param array<int, string> $clubNames
-     * @return list<array{clubId: int, clubName: string, played: int, won: int, drawn: int, lost: int, goalsFor: int, goalsAgainst: int, points: int}>
-     */
-    private function standingsSnapshot(WorldState $world, int $competitionId, array $clubNames): array
-    {
-        $standings = $world->components(Standings::class)->get($competitionId);
-        if ($standings === null) {
-            return [];
-        }
-
-        $rows = [];
-        foreach ($standings->entries as $entry) {
-            $rows[] = [
-                'clubId' => $entry->clubId,
-                'clubName' => $clubNames[$entry->clubId] ?? "Club #{$entry->clubId}",
-                'played' => $entry->played,
-                'won' => $entry->won,
-                'drawn' => $entry->drawn,
-                'lost' => $entry->lost,
-                'goalsFor' => $entry->goalsFor,
-                'goalsAgainst' => $entry->goalsAgainst,
-                'points' => $entry->points,
-            ];
-        }
-
-        usort($rows, static fn (array $a, array $b): int => $b['points'] <=> $a['points']
-            ?: ($b['goalsFor'] - $b['goalsAgainst']) <=> ($a['goalsFor'] - $a['goalsAgainst']));
-
-        return $rows;
     }
 
     /** @param list<int> $values */
