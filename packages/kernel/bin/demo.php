@@ -29,7 +29,9 @@ use Flair\Kernel\Core\Simulation\TickContext;
 use Flair\Kernel\Core\Support\SimDate;
 use Flair\Kernel\Football\Components\Club;
 use Flair\Kernel\Football\Components\Competition;
+use Flair\Kernel\Football\Components\Contract;
 use Flair\Kernel\Football\Components\Facilities;
+use Flair\Kernel\Football\Components\Finances;
 use Flair\Kernel\Football\Components\Person;
 use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
@@ -41,6 +43,7 @@ use Flair\Kernel\Football\Events\PlayerRetired;
 use Flair\Kernel\Football\Events\YouthPlayerPromoted;
 use Flair\Kernel\Football\Systems\CalendarSystem;
 use Flair\Kernel\Football\Systems\CompetitionSystem;
+use Flair\Kernel\Football\Systems\FinanceSystem;
 use Flair\Kernel\Football\Systems\MatchSystem;
 use Flair\Kernel\Football\Systems\PlayerDevelopmentSystem;
 use Flair\Kernel\Football\Systems\RetirementSystem;
@@ -54,6 +57,9 @@ function demoCreateCompetition(WorldState $world): int
 
     return $competition;
 }
+
+const DEMO_STARTING_BALANCE_CENTS = 10_000_000;
+const DEMO_WAGE_PER_WEEK_CENTS = 50_000;
 
 /** @return array<string, int> nom -> entityId */
 function demoCreateClubs(WorldState $world): array
@@ -69,6 +75,7 @@ function demoCreateClubs(WorldState $world): array
         $club = $world->createEntity();
         $world->components(Club::class)->set($club, new Club($name));
         $world->components(Facilities::class)->set($club, new Facilities($quality));
+        $world->components(Finances::class)->set($club, new Finances(DEMO_STARTING_BALANCE_CENTS));
         $clubs[$name] = $club;
     }
 
@@ -93,6 +100,7 @@ function demoCreatePlayers(WorldState $world, int $atTick, array $clubs): array
     foreach ($definitions as $name => $definition) {
         $entity = $world->createEntity();
         $birthDay = (int) round($atTick - $definition['age'] * 365);
+        $clubId = $clubs[$definition['club']];
 
         $world->components(Person::class)->set($entity, new Person($name, new SimDate($birthDay)));
         $world->components(PlayerPhysicalSkills::class)->set($entity, new PlayerPhysicalSkills(
@@ -125,7 +133,8 @@ function demoCreatePlayers(WorldState $world, int $atTick, array $clubs): array
             growthRate: 0.4,
             fragility: $definition['fragility'],
         ));
-        $world->components(SquadMembership::class)->set($entity, new SquadMembership($clubs[$definition['club']]));
+        $world->components(SquadMembership::class)->set($entity, new SquadMembership($clubId));
+        $world->components(Contract::class)->set($entity, new Contract($clubId, DEMO_WAGE_PER_WEEK_CENTS));
 
         $players[$name] = $entity;
     }
@@ -193,6 +202,17 @@ function demoPrintStandings(WorldState $world, int $competitionId, array $clubs)
     }
 }
 
+/** @param array<string, int> $clubs nom -> entityId */
+function demoPrintFinances(WorldState $world, array $clubs): void
+{
+    echo "  finances :\n";
+    foreach ($clubs as $name => $clubId) {
+        $finances = $world->components(Finances::class)->get($clubId);
+        $balance = $finances === null ? 'n/a' : number_format($finances->balanceCents / 100, 2, ',', ' ') . ' EUR';
+        echo sprintf("    %-14s solde=%s\n", $name, $balance);
+    }
+}
+
 const DEMO_YEARS = 40;
 const DEMO_TICKS_PER_YEAR = 365;
 const DEMO_WORLD_SEED = 42;
@@ -206,6 +226,7 @@ $simulation = new Simulation(new Pipeline([
     new YouthIntakeSystem(),
     new TrainingSystem(),
     new RetirementSystem(),
+    new FinanceSystem(),
     new PlayerDevelopmentSystem(),
     new CalendarSystem(),
     new MatchSystem(),
@@ -254,5 +275,6 @@ for ($year = 1; $year <= DEMO_YEARS; $year++) {
     demoPrintSnapshot($world, $players);
     demoPrintPopulation($world, $clubs, $promotions);
     demoPrintStandings($world, $competition, $clubs);
+    demoPrintFinances($world, $clubs);
     $promotions = [];
 }

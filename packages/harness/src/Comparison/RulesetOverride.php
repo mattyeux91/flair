@@ -7,6 +7,7 @@ namespace Flair\Harness\Comparison;
 use Flair\Kernel\Core\Ruleset\Balance;
 use Flair\Kernel\Core\Ruleset\CalendarBalance;
 use Flair\Kernel\Core\Ruleset\CompetitionBalance;
+use Flair\Kernel\Core\Ruleset\FinanceBalance;
 use Flair\Kernel\Core\Ruleset\MatchBalance;
 use Flair\Kernel\Core\Ruleset\PlayerDevelopmentBalance;
 use Flair\Kernel\Core\Ruleset\RetirementBalance;
@@ -80,6 +81,7 @@ final class RulesetOverride
         'growthRateMax',
         'fragilityMin',
         'fragilityMax',
+        'basePlayerWagePerWeekCents',
     ];
 
     /** @var list<string> */
@@ -104,6 +106,12 @@ final class RulesetOverride
     ];
 
     /** @var list<string> */
+    public const array FINANCE_FIELDS = [
+        'clubIncomePerSeasonCents',
+        'wagePaymentDayOfWeek',
+    ];
+
+    /** @var list<string> */
     public const array ALL_FIELDS = [
         ...self::GLOBAL_FIELDS,
         ...self::RETIREMENT_FIELDS,
@@ -112,6 +120,7 @@ final class RulesetOverride
         ...self::CALENDAR_FIELDS,
         ...self::MATCH_FIELDS,
         ...self::COMPETITION_FIELDS,
+        ...self::FINANCE_FIELDS,
     ];
 
     /**
@@ -128,6 +137,7 @@ final class RulesetOverride
         'Calendrier' => self::CALENDAR_FIELDS,
         'Match' => self::MATCH_FIELDS,
         'Classement' => self::COMPETITION_FIELDS,
+        'Finances' => self::FINANCE_FIELDS,
         'Global' => self::GLOBAL_FIELDS,
     ];
 
@@ -173,6 +183,7 @@ final class RulesetOverride
             calendar: self::withCalendar($balance->calendar, $overrides),
             match: self::withMatch($balance->match, $overrides),
             competition: self::withCompetition($balance->competition, $overrides),
+            finance: self::withFinance($balance->finance, $overrides),
         ));
     }
 
@@ -221,6 +232,7 @@ final class RulesetOverride
             growthRateMax: $overrides['growthRateMax'] ?? $base->growthRateMax,
             fragilityMin: $overrides['fragilityMin'] ?? $base->fragilityMin,
             fragilityMax: $overrides['fragilityMax'] ?? $base->fragilityMax,
+            basePlayerWagePerWeekCents: isset($overrides['basePlayerWagePerWeekCents']) ? (int) round($overrides['basePlayerWagePerWeekCents']) : $base->basePlayerWagePerWeekCents,
         );
     }
 
@@ -251,6 +263,15 @@ final class RulesetOverride
         return new CompetitionBalance(
             pointsForWin: isset($overrides['pointsForWin']) ? (int) round($overrides['pointsForWin']) : $base->pointsForWin,
             pointsForDraw: isset($overrides['pointsForDraw']) ? (int) round($overrides['pointsForDraw']) : $base->pointsForDraw,
+        );
+    }
+
+    /** @param array<string, float> $overrides */
+    private static function withFinance(FinanceBalance $base, array $overrides): FinanceBalance
+    {
+        return new FinanceBalance(
+            clubIncomePerSeasonCents: isset($overrides['clubIncomePerSeasonCents']) ? (int) round($overrides['clubIncomePerSeasonCents']) : $base->clubIncomePerSeasonCents,
+            wagePaymentDayOfWeek: isset($overrides['wagePaymentDayOfWeek']) ? (int) round($overrides['wagePaymentDayOfWeek']) : $base->wagePaymentDayOfWeek,
         );
     }
 }

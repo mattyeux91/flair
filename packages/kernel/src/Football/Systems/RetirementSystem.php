@@ -10,6 +10,7 @@ use Flair\Kernel\Core\Pipeline\SystemContext;
 use Flair\Kernel\Core\Ruleset\RetirementBalance;
 use Flair\Kernel\Core\Support\Rng;
 use Flair\Kernel\Core\Support\SimDate;
+use Flair\Kernel\Football\Components\Contract;
 use Flair\Kernel\Football\Components\Person;
 use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
@@ -27,9 +28,14 @@ use Flair\Kernel\Football\Events\PlayerRetired;
  * (`PlayerPhysicalSkills`/`PlayerTechnicalSkills`/`PlayerMentalSkills`) et
  * `PlayerPotentials` sont retires (12- §1 - un archetype se change en
  * retirant des composants, pas en detruisant l'entite), et un Fait
- * `PlayerRetired` est emis (irreversible, 16- §2).
+ * `PlayerRetired` est emis (irreversible, 16- §2). `Contract` est retire
+ * avec eux (Phase 2) : un joueur retraite n'a plus d'obligation salariale,
+ * meme si `SquadMembership` persiste (limite pre-existante, hors perimetre
+ * de ce lot) - `Football\FinanceSystem` s'appuie sur cette absence pour
+ * arreter de le payer, meme convention "skip via null-check" que
+ * `TrainingSystem`.
  *
- * Seul systeme qui `remove()` ces quatre composants : distinct de
+ * Seul systeme qui `remove()` ces cinq composants : distinct de
  * `PlayerDevelopmentSystem`, qui les `set()` mais ne les retire jamais.
  * Cette separation evite qu'un meme systeme cumule deux responsabilites
  * non liees (SRP) et rend l'invariant "un seul remover par composant"
@@ -65,6 +71,7 @@ final class RetirementSystem implements System
             PlayerPhysicalSkills::class,
             PlayerTechnicalSkills::class,
             PlayerMentalSkills::class,
+            Contract::class,
         ];
     }
 
@@ -105,6 +112,7 @@ final class RetirementSystem implements System
                 $ctx->components(PlayerPhysicalSkills::class)->remove($entityId);
                 $ctx->components(PlayerTechnicalSkills::class)->remove($entityId);
                 $ctx->components(PlayerMentalSkills::class)->remove($entityId);
+                $ctx->components(Contract::class)->remove($entityId);
                 $ctx->emit(new PlayerRetired($entityId, (int) $ageYears), entityId: $entityId);
             }
         }

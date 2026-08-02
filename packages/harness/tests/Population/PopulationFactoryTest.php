@@ -7,18 +7,21 @@ namespace Flair\Harness\Tests\Population;
 use Flair\Harness\Population\PopulationFactory;
 use Flair\Harness\Population\PopulationSpec;
 use Flair\Kernel\Core\Ecs\WorldState;
+use Flair\Kernel\Core\Ruleset\YouthIntakeBalance;
 use Flair\Kernel\Football\Components\Club;
 use Flair\Kernel\Football\Components\Competition;
+use Flair\Kernel\Football\Components\Contract;
 use Flair\Kernel\Football\Components\Facilities;
+use Flair\Kernel\Football\Components\Finances;
 use Flair\Kernel\Football\Components\SquadMembership;
 use PHPUnit\Framework\TestCase;
 
 final class PopulationFactoryTest extends TestCase
 {
-    public function testCreatesTheRequestedNumberOfClubsWithFacilities(): void
+    public function testCreatesTheRequestedNumberOfClubsWithFacilitiesAndAStartingBalance(): void
     {
         $world = new WorldState();
-        $spec = new PopulationSpec(playerCount: 20, years: 1, seed: 1, clubCount: 4, facilitiesQuality: 1.3);
+        $spec = new PopulationSpec(playerCount: 20, years: 1, seed: 1, clubCount: 4, facilitiesQuality: 1.3, startingBalanceCents: 7_500_000);
 
         (new PopulationFactory())->populate($world, $spec);
 
@@ -27,6 +30,31 @@ final class PopulationFactoryTest extends TestCase
 
         foreach ($clubIds as $clubId) {
             self::assertSame(1.3, $world->components(Facilities::class)->get($clubId)?->quality);
+            self::assertSame(7_500_000, $world->components(Finances::class)->get($clubId)?->balanceCents);
+        }
+    }
+
+    /**
+     * Sans Contract, Football\FinanceSystem n'a aucun salaire a verser pour
+     * ce joueur (cf. docblock Football\Components\Contract) - meme trou que
+     * SquadMembership avant ce lot pour TrainingSystem/YouthIntakeSystem.
+     */
+    public function testAssignsAContractMatchingSquadMembershipToEveryClubbedPlayer(): void
+    {
+        $world = new WorldState();
+        $spec = new PopulationSpec(playerCount: 9, years: 1, seed: 1, clubCount: 3);
+        $talent = new YouthIntakeBalance();
+
+        $playerIds = (new PopulationFactory())->populate($world, $spec, atTick: 1, talent: $talent);
+
+        foreach ($playerIds as $playerId) {
+            $membership = $world->components(SquadMembership::class)->get($playerId);
+            $contract = $world->components(Contract::class)->get($playerId);
+
+            self::assertNotNull($membership);
+            self::assertNotNull($contract);
+            self::assertSame($membership->clubId, $contract->clubId);
+            self::assertSame($talent->basePlayerWagePerWeekCents, $contract->wagePerWeekCents);
         }
     }
 
@@ -67,6 +95,7 @@ final class PopulationFactoryTest extends TestCase
         self::assertSame([], $world->components(Club::class)->entities());
         foreach ($playerIds as $playerId) {
             self::assertNull($world->components(SquadMembership::class)->get($playerId));
+            self::assertNull($world->components(Contract::class)->get($playerId));
         }
     }
 

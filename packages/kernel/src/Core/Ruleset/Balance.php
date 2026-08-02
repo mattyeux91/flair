@@ -21,6 +21,7 @@ namespace Flair\Kernel\Core\Ruleset;
  * leviers d'un autre (meme principe que `reads()`/`writes()` sur `System`,
  * `13-` §2), et pour ne pas melanger les sous-domaines a mesure que
  * d'autres systemes (blessures, marche...) rejoindront `Balance`.
+ * `finance` rejoint cette liste avec la Phase 2 (docs/15- §4).
  */
 final readonly class Balance
 {
@@ -35,6 +36,7 @@ final readonly class Balance
         public CalendarBalance $calendar = new CalendarBalance(),
         public MatchBalance $match = new MatchBalance(),
         public CompetitionBalance $competition = new CompetitionBalance(),
+        public FinanceBalance $finance = new FinanceBalance(),
     ) {
     }
 }

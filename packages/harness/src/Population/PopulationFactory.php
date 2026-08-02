@@ -8,6 +8,7 @@ use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Ruleset\YouthIntakeBalance;
 use Flair\Kernel\Core\Support\Rng;
 use Flair\Kernel\Core\Support\SimDate;
+use Flair\Kernel\Football\Components\Contract;
 use Flair\Kernel\Football\Components\Person;
 use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
@@ -70,7 +71,7 @@ final class PopulationFactory
         $rng = new Rng($spec->seed);
         $talent ??= new YouthIntakeBalance();
 
-        $clubIds = $spec->clubCount > 0 ? $this->clubs->create($world, $spec->clubCount, $spec->facilitiesQuality) : [];
+        $clubIds = $spec->clubCount > 0 ? $this->clubs->create($world, $spec->clubCount, $spec->facilitiesQuality, $spec->startingBalanceCents) : [];
         if ($clubIds !== []) {
             $this->competitions->create($world);
         }
@@ -94,6 +95,7 @@ final class PopulationFactory
 
         if ($clubId !== null) {
             $world->components(SquadMembership::class)->set($entity, new SquadMembership($clubId));
+            $world->components(Contract::class)->set($entity, new Contract($clubId, $talent->basePlayerWagePerWeekCents));
         }
 
         $potentials = $this->players->drawPotentials($rng, $talent);

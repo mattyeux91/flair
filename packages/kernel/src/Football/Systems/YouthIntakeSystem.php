@@ -11,6 +11,7 @@ use Flair\Kernel\Core\Ruleset\YouthIntakeBalance;
 use Flair\Kernel\Core\Support\Rng;
 use Flair\Kernel\Core\Support\SimDate;
 use Flair\Kernel\Football\Components\Club;
+use Flair\Kernel\Football\Components\Contract;
 use Flair\Kernel\Football\Components\Facilities;
 use Flair\Kernel\Football\Components\Person;
 use Flair\Kernel\Football\Components\PlayerMentalSkills;
@@ -116,6 +117,7 @@ final class YouthIntakeSystem implements System
             PlayerTechnicalSkills::class,
             PlayerMentalSkills::class,
             SquadMembership::class,
+            Contract::class,
         ];
     }
 
@@ -185,6 +187,7 @@ final class YouthIntakeSystem implements System
         $ctx->components(PlayerTechnicalSkills::class)->set($playerId, $blueprint->technical);
         $ctx->components(PlayerMentalSkills::class)->set($playerId, $blueprint->mental);
         $ctx->components(SquadMembership::class)->set($playerId, new SquadMembership($clubId));
+        $ctx->components(Contract::class)->set($playerId, new Contract($clubId, $intake->basePlayerWagePerWeekCents));
 
         $ctx->emit(new YouthPlayerPromoted($playerId, $clubId), entityId: $playerId);
     }

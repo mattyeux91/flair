@@ -125,6 +125,8 @@ final readonly class YouthIntakeBalance
         /** Bornes du tirage uniforme de `PlayerPotentials::$fragility` (0-1), lue par RetirementSystem comme par PlayerDevelopmentSystem. */
         public float $fragilityMin = 0.1,
         public float $fragilityMax = 0.9,
+        /** Salaire hebdomadaire (centimes) du `Contract` attribue a un jeune tout juste promu. Vit ici plutot que dans `FinanceBalance` : c'est ce systeme qui cree le `Contract`, et un systeme ne depend jamais des leviers d'un autre (meme regle documentee sur `Balance`). Meme valeur de reference que `Harness\Population\PopulationFactory` applique aux joueurs du genesis, pour ne pas faire diverger les deux populations. */
+        public int $basePlayerWagePerWeekCents = 50_000,
     ) {
     }
 }
