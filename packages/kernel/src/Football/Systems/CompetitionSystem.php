@@ -13,6 +13,7 @@ use Flair\Kernel\Football\Components\Standings;
 use Flair\Kernel\Football\Components\StandingsEntry;
 use Flair\Kernel\Football\Events\FixtureKickoff;
 use Flair\Kernel\Football\Events\SeasonConcluded;
+use Flair\Kernel\Football\Events\SeasonEnded;
 use Flair\Kernel\Football\Events\SeasonStarted;
 
 /**
@@ -20,17 +21,20 @@ use Flair\Kernel\Football\Events\SeasonStarted;
  * periodique. Seul writer de `Standings` (docs/12- §3 : porte par l'entite
  * competition elle-meme).
  *
- * ## Deux evenements, deux canaux
+ * ## Trois evenements
  *
+ * - `SeasonEnded` (programme par `Football\CalendarSystem` au lendemain de
+ *   la derniere journee) : le classement est complet et definitif, ce
+ *   systeme le trie et emet `Football\Events\SeasonConcluded` avec le
+ *   classement final. Ne touche pas `Standings` - la table doit survivre
+ *   jusqu'a la saison suivante, `Harness\Metrics\Sampler` va l'y lire.
+ *   Voir le docblock de `SeasonConcluded` pour la raison pour laquelle le
+ *   classement voyage dans le payload plutot que d'etre relu depuis
+ *   `Standings` par son consommateur.
  * - `SeasonStarted` (emis par `Football\CalendarSystem` a la generation du
  *   calendrier, canal 2) remet `Standings` a vide pour la competition
  *   concernee - pas besoin d'une resolution le jour meme, le premier match
- *   de la saison arrive de toute facon plusieurs jours plus tard. Cette
- *   remise a zero *est* la cloture de la saison precedente : c'est donc ici,
- *   et seulement ici, qu'est emis `Football\Events\SeasonConcluded` avec le
- *   classement final (canal 2 lui aussi). Voir le docblock de cet evenement
- *   pour la raison pour laquelle le classement voyage dans le payload plutot
- *   que d'etre relu depuis `Standings` par son consommateur.
+ *   de la saison arrive de toute facon plusieurs jours plus tard.
  * - `FixtureKickoff` (le meme evenement que `Football\MatchSystem`, canal 1
  *   au sens de docs/13- §2 : "un match joue doit alimenter le classement du
  *   jour") : lit `MatchResult`, deja ecrit par `MatchSystem` plus tot dans
@@ -97,19 +101,25 @@ final class CompetitionSystem implements System
     {
         return [
             FixtureKickoff::class,
+            SeasonEnded::class,
             SeasonStarted::class,
         ];
     }
 
     public function handle(DomainEvent $event, SystemContext $ctx): void
     {
-        if ($event instanceof SeasonStarted) {
-            $concluded = $ctx->components(Standings::class)->get($event->competitionId) ?? new Standings();
+        if ($event instanceof SeasonEnded) {
+            $final = $ctx->components(Standings::class)->get($event->competitionId) ?? new Standings();
 
             $ctx->emit(
-                new SeasonConcluded($event->competitionId, self::rank($concluded)),
+                new SeasonConcluded($event->competitionId, self::rank($final)),
                 entityId: $event->competitionId,
             );
+
+            return;
+        }
+
+        if ($event instanceof SeasonStarted) {
             $ctx->components(Standings::class)->set($event->competitionId, new Standings());
 
             return;

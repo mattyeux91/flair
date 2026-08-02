@@ -12,6 +12,7 @@ use Flair\Kernel\Football\Components\Club;
 use Flair\Kernel\Football\Components\Competition;
 use Flair\Kernel\Football\Components\Fixture;
 use Flair\Kernel\Football\Events\FixtureKickoff;
+use Flair\Kernel\Football\Events\SeasonEnded;
 use Flair\Kernel\Football\Events\SeasonStarted;
 
 /**
@@ -138,6 +139,33 @@ final class CalendarSystem implements System
         }
 
         $ctx->emit(new SeasonStarted($competitionId), entityId: $competitionId);
+        $ctx->schedule(
+            new SeasonEnded($competitionId),
+            atTick: $this->seasonEndTick($ctx->tick, $matchday, $calendar),
+            entityId: $competitionId,
+        );
+    }
+
+    /**
+     * Le lendemain de la derniere journee : `$matchdayCount` journees ont ete
+     * programmees, la derniere porte l'indice `$matchdayCount - 1`. Le "+1"
+     * n'est pas cosmetique - au tick de la derniere journee,
+     * `Football\CompetitionSystem` traite les `FixtureKickoff` du jour et le
+     * classement n'est complet qu'a la fin de ce tick.
+     *
+     * Une competition sans aucune journee (moins de deux clubs, cf.
+     * `roundRobin()`) se termine des le lendemain de sa generation, plutot
+     * que de ne jamais se terminer : le seul consommateur en aval est le
+     * versement des revenus, et un monde degenere ne doit pas priver ses
+     * clubs de recettes en silence.
+     */
+    private function seasonEndTick(int $tick, int $matchdayCount, CalendarBalance $calendar): int
+    {
+        if ($matchdayCount === 0) {
+            return $tick + 1;
+        }
+
+        return $tick + $calendar->firstMatchdayOffsetDays + ($matchdayCount - 1) * $calendar->matchdayIntervalDays + 1;
     }
 
     /** @param list<array{home:int, away:int}> $pairs */

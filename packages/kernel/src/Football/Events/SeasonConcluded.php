@@ -8,9 +8,12 @@ use Flair\Kernel\Core\Messaging\DomainEvent;
 
 /**
  * La saison d'une competition est terminee, et voici son classement final :
- * emis par `Football\CompetitionSystem` (canal 2) au moment precis ou il
- * remet `Standings` a vide sur `SeasonStarted` - cette remise a zero *est*
- * la cloture de la saison precedente.
+ * emis par `Football\CompetitionSystem` (canal 2) en reaction a
+ * `Football\Events\SeasonEnded`, au lendemain de la derniere journee. Ce
+ * detour par deux evenements a une raison : `CalendarSystem` sait *quand* une
+ * saison finit (il a planifie toutes ses journees) mais ne connait pas le
+ * classement ; `CompetitionSystem` connait le classement mais pas le
+ * calendrier. Chacun emet donc ce qu'il sait.
  *
  * Un Fait au sens de docs/16-evenements-et-cascades.md §2, contrairement aux
  * mouvements comptables de routine que `Football\FinanceSystem` ne journalise

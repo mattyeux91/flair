@@ -13,6 +13,7 @@ use Flair\Kernel\Football\Components\MatchResult;
 use Flair\Kernel\Football\Components\Standings;
 use Flair\Kernel\Football\Events\FixtureKickoff;
 use Flair\Kernel\Football\Events\SeasonConcluded;
+use Flair\Kernel\Football\Events\SeasonEnded;
 use Flair\Kernel\Football\Events\SeasonStarted;
 use Flair\Kernel\Football\Systems\CompetitionSystem;
 use PHPUnit\Framework\TestCase;
@@ -109,7 +110,7 @@ final class CompetitionSystemTest extends TestCase
         self::assertSame([], $standings->entries);
     }
 
-    public function testSeasonStartedEmitsTheConcludedSeasonRankingBeforeWipingTheTable(): void
+    public function testSeasonEndedEmitsTheFinalRankingWithoutWipingTheTable(): void
     {
         $world = new WorldState();
         // 30 marque 4 buts et en prend 1, 10 en marque 2 et en prend 0 : le
@@ -118,12 +119,15 @@ final class CompetitionSystemTest extends TestCase
         $this->playMatch($world, home: 30, away: 20, homeGoals: 4, awayGoals: 1, atTick: 6);
         $this->playMatch($world, home: 30, away: 10, homeGoals: 0, awayGoals: 0, atTick: 7);
 
-        $concluded = $this->startNewSeason($world, atTick: 10);
+        $concluded = $this->endSeason($world, atTick: 10);
 
         self::assertSame(self::COMPETITION_ID, $concluded->competitionId);
         // 30 : 4 pts, +3 ; 10 : 4 pts, +2 ; 20 : 0 pt.
         self::assertSame([30, 10, 20], $concluded->finalRanking);
-        self::assertSame([], $world->components(Standings::class)->get(self::COMPETITION_ID)?->entries);
+
+        // La table survit a la fin de saison : Harness\Metrics\Sampler l'y
+        // lit pour son historique, et seul SeasonStarted la remet a zero.
+        self::assertCount(3, $world->components(Standings::class)->get(self::COMPETITION_ID)->entries ?? []);
     }
 
     /**
@@ -139,7 +143,7 @@ final class CompetitionSystemTest extends TestCase
         $this->playMatch($world, home: 20, away: 30, homeGoals: 1, awayGoals: 0, atTick: 5);
         $this->playMatch($world, home: 10, away: 40, homeGoals: 1, awayGoals: 0, atTick: 6);
 
-        $concluded = $this->startNewSeason($world, atTick: 10);
+        $concluded = $this->endSeason($world, atTick: 10);
 
         self::assertSame([10, 20, 30, 40], $concluded->finalRanking);
     }
@@ -148,19 +152,19 @@ final class CompetitionSystemTest extends TestCase
     {
         $world = new WorldState();
 
-        $concluded = $this->startNewSeason($world, atTick: 10);
+        $concluded = $this->endSeason($world, atTick: 10);
 
         self::assertSame([], $concluded->finalRanking);
     }
 
     /**
-     * Fait tourner le tick de debut de saison et renvoie le `SeasonConcluded`
+     * Fait tourner le tick de fin de saison et renvoie le `SeasonConcluded`
      * emis, en verifiant qu'il y en a exactement un.
      */
-    private function startNewSeason(WorldState $world, int $atTick): SeasonConcluded
+    private function endSeason(WorldState $world, int $atTick): SeasonConcluded
     {
         $world->scheduler()->schedule(
-            new SeasonStarted(self::COMPETITION_ID),
+            new SeasonEnded(self::COMPETITION_ID),
             atTick: $atTick,
             systemIndex: 0,
             entityId: self::COMPETITION_ID,
