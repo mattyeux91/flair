@@ -16,6 +16,7 @@ use Flair\Kernel\Football\Components\Person;
 use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
+use Flair\Kernel\Football\Components\SeasonIncome;
 use Flair\Kernel\Football\Events\MatchPlayed;
 use Flair\Kernel\Football\Events\PlayerRetired;
 use Flair\Kernel\Football\Events\SeasonStarted;
@@ -125,6 +126,8 @@ final class Sampler
         /** @var list<array{season: int, standings: list<array{clubId: int, clubName: string, played: int, won: int, drawn: int, lost: int, goalsFor: int, goalsAgainst: int, points: int}>, matches: list<array{matchday: int, homeClub: string, awayClub: string, homeGoals: int, awayGoals: int}>}> $seasonHistory une entree par saison achevee (cf. docblock de classe) */
         $seasonHistory = [];
         $seasonsStarted = 0;
+        /** @var array<string, int> $cumulativeIncomeByClub nom de club -> total des revenus de saison percus sur le run */
+        $cumulativeIncomeByClub = [];
 
         for ($year = 1; $year <= $years; $year++) {
             for ($day = 1; $day <= self::TICKS_PER_YEAR; $day++) {
@@ -184,6 +187,7 @@ final class Sampler
             $activePlayerIds = array_keys(array_diff_key($known, $retired));
             $populationByYear[$year] = \count($activePlayerIds);
             $eventGraph?->recordQueueDepth($year, $world);
+            $cumulativeIncomeByClub = $this->accumulateSeasonIncome($world, $clubNames, $cumulativeIncomeByClub);
 
             $ages = $this->sampleYearEnd($world, $activePlayerIds, $year, $samples);
             if ($year === $years) {
@@ -200,7 +204,41 @@ final class Sampler
             $matchResultDistribution,
             $scorelineFrequency,
             $seasonHistory,
+            $cumulativeIncomeByClub,
         );
+    }
+
+    /**
+     * Cumule le `SeasonIncome` de chaque club, une fois par annee simulee.
+     *
+     * Une lecture annuelle suffit a n'en manquer aucun et a n'en compter
+     * aucun deux fois : `Football\CalendarSystem` ne demarre qu'une saison
+     * par annee (`tick % 365 === seasonStartDayOfYear`), donc le composant ne
+     * prend qu'une valeur par annee. Pas de suivi evenementiel ici :
+     * `SeasonConcluded` est observable dans `$result->events`, mais le credit
+     * correspondant n'est ecrit qu'au tick **suivant** (canal 2, docs/13-
+     * §2) - le lire au moment de l'evenement donnerait la saison d'avant.
+     *
+     * Le cumul, plutot que la derniere saison seule : c'est la mesure du
+     * "Gini des revenus" de docs/14- §7, et un instantane d'une seule saison
+     * serait bien plus bruite. Cumuler impose en revanche de lire un
+     * **flux** (`SeasonIncome`) et non le stock `Finances`, qui melange les
+     * revenus aux salaires verses et derive vers le negatif.
+     *
+     * @param array<int, string> $clubNames
+     * @param array<string, int> $cumulative
+     * @return array<string, int>
+     */
+    private function accumulateSeasonIncome(WorldState $world, array $clubNames, array $cumulative): array
+    {
+        $store = $world->components(SeasonIncome::class);
+
+        foreach ($store->entities() as $clubId) {
+            $name = $clubNames[$clubId] ?? "Club #{$clubId}";
+            $cumulative[$name] = ($cumulative[$name] ?? 0) + ($store->get($clubId)->cents ?? 0);
+        }
+
+        return $cumulative;
     }
 
     /**

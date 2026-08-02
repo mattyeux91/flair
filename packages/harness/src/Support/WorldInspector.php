@@ -10,6 +10,7 @@ use Flair\Kernel\Football\Components\Competition;
 use Flair\Kernel\Football\Components\Contract;
 use Flair\Kernel\Football\Components\Facilities;
 use Flair\Kernel\Football\Components\Finances;
+use Flair\Kernel\Football\Components\SeasonIncome;
 use Flair\Kernel\Football\Components\Person;
 use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
@@ -158,7 +159,7 @@ final class WorldInspector
      * SquadMembership - pas d'index inverse cote club, cf. son docblock).
      * `null` si aucun composant `Club` n'existe pour cet id.
      *
-     * @return array{id: int, name: string, facilitiesQuality: float|null, balanceCents: int|null, roster: list<int>}|null
+     * @return array{id: int, name: string, facilitiesQuality: float|null, balanceCents: int|null, seasonIncomeCents: int|null, roster: list<int>}|null
      */
     public static function club(WorldState $world, int $clubId): ?array
     {
@@ -169,6 +170,7 @@ final class WorldInspector
 
         $facilities = $world->components(Facilities::class)->get($clubId);
         $finances = $world->components(Finances::class)->get($clubId);
+        $seasonIncome = $world->components(SeasonIncome::class)->get($clubId);
 
         $roster = [];
         foreach ($world->components(SquadMembership::class)->entities() as $playerId) {
@@ -182,6 +184,7 @@ final class WorldInspector
             'name' => $club->name,
             'facilitiesQuality' => $facilities?->quality,
             'balanceCents' => $finances?->balanceCents,
+            'seasonIncomeCents' => $seasonIncome?->cents,
             'roster' => $roster,
         ];
     }

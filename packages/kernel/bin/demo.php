@@ -32,6 +32,7 @@ use Flair\Kernel\Football\Components\Competition;
 use Flair\Kernel\Football\Components\Contract;
 use Flair\Kernel\Football\Components\Facilities;
 use Flair\Kernel\Football\Components\Finances;
+use Flair\Kernel\Football\Components\SeasonIncome;
 use Flair\Kernel\Football\Components\Person;
 use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
@@ -209,7 +210,9 @@ function demoPrintFinances(WorldState $world, array $clubs): void
     foreach ($clubs as $name => $clubId) {
         $finances = $world->components(Finances::class)->get($clubId);
         $balance = $finances === null ? 'n/a' : number_format($finances->balanceCents / 100, 2, ',', ' ') . ' EUR';
-        echo sprintf("    %-14s solde=%s\n", $name, $balance);
+        $income = $world->components(SeasonIncome::class)->get($clubId);
+        $earned = $income === null ? 'n/a' : number_format($income->cents / 100, 2, ',', ' ') . ' EUR';
+        echo sprintf("    %-14s solde=%s  revenu de saison=%s\n", $name, $balance, $earned);
     }
 }
 

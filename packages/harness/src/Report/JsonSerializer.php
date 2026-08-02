@@ -24,7 +24,8 @@ final class JsonSerializer
      *     matchResultDistribution: array{homeWin: int, draw: int, awayWin: int},
      *     scorelineFrequency: array<string, int>,
      *     seasonHistory: list<array{season: int, standings: list<array{clubId: int, clubName: string, played: int, won: int, drawn: int, lost: int, goalsFor: int, goalsAgainst: int, points: int}>, matches: list<array{matchday: int, homeClub: string, awayClub: string, homeGoals: int, awayGoals: int}>}>,
-     *     competitiveBalance: array{titlesByClub: array<string, int>, giniOfTitles: float, topFiveTurnoverRate: float|null, distinctChampions: int, seasonsMeasured: int},
+     *     cumulativeIncomeByClub: array<string, int>,
+     *     competitiveBalance: array{titlesByClub: array<string, int>, giniOfTitles: float, giniOfRevenues: float, topFiveTurnoverRate: float|null, distinctChampions: int, seasonsMeasured: int},
      * }
      */
     public static function toArray(AggregateResult $result): array
@@ -38,7 +39,8 @@ final class JsonSerializer
             'matchResultDistribution' => $result->matchResultDistribution,
             'scorelineFrequency' => $result->scorelineFrequency,
             'seasonHistory' => $result->seasonHistory,
-            'competitiveBalance' => CompetitiveBalance::toArray(CompetitiveBalance::analyze($result->seasonHistory)),
+            'cumulativeIncomeByClub' => $result->cumulativeIncomeByClub,
+            'competitiveBalance' => CompetitiveBalance::toArray(CompetitiveBalance::analyze($result->seasonHistory, $result->cumulativeIncomeByClub)),
         ];
     }
 }

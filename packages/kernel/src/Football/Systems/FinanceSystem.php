@@ -9,13 +9,15 @@ use Flair\Kernel\Core\Pipeline\System;
 use Flair\Kernel\Core\Pipeline\SystemContext;
 use Flair\Kernel\Football\Components\Contract;
 use Flair\Kernel\Football\Components\Finances;
-use Flair\Kernel\Football\Events\SeasonStarted;
+use Flair\Kernel\Football\Components\SeasonIncome;
+use Flair\Kernel\Football\Events\SeasonConcluded;
 use Flair\Kernel\Football\Singletons\MonetaryMass;
 
 /**
  * Le grand livre monetaire (docs/14-algorithmes.md §6, docs/15-roadmap.md §4
- * Phase 2) : une injection (revenu de club periodique) et un puits
- * (salaires), tous deux plats et sans RNG dans ce premier lot.
+ * Phase 2) : une injection (l'enveloppe des droits TV, repartie entre les
+ * clubs en fin de saison) et un puits (salaires), sans RNG ni variance
+ * aleatoire - tout ce qui differencie deux clubs vient de leur classement.
  *
  * ## Un seul systeme, pas deux
  *
@@ -29,14 +31,64 @@ use Flair\Kernel\Football\Singletons\MonetaryMass;
  * reunit donc les deux mouvements, reactif pour l'un, periodique pour
  * l'autre.
  *
- * ## Reactif sur `SeasonStarted`, pas un jour-de-l'annee invente
+ * ## Reactif sur `SeasonConcluded`, pas un jour-de-l'annee invente
  *
- * Le revenu de saison reagit a `SeasonStarted` (emis par
- * `Football\CalendarSystem`) plutot que de deriver son propre
+ * Le revenu de saison reagit a `Football\Events\SeasonConcluded` (emis par
+ * `Football\CompetitionSystem`) plutot que de deriver son propre
  * `tick % 365` : reutilise le decoupage en saisons deja porte par le
  * calendrier au lieu d'en inventer un second. Aucun besoin du canal 1 ici
  * (docs/13- §2) - le credit n'a pas a etre visible le jour meme par un
  * autre systeme.
+ *
+ * Ce systeme ne lit **jamais** `Standings`, et ne le peut pas : son writer
+ * `CompetitionSystem` est place plus loin dans le pipeline, ce que
+ * `Football\PipelineInvariantsTest` interdit de lire (dependance inversee).
+ * Le classement final arrive donc par le payload de l'evenement, ce qui a
+ * l'avantage collateral de rendre ce systeme indifferent a la forme de
+ * `Standings`.
+ *
+ * ## La repartition
+ *
+ * L'enveloppe totale vaut `clubIncomePerSeasonCents x nombre de clubs` -
+ * elle ne depend donc pas du classement, seule sa **repartition** en depend
+ * (docs/14- §7, "partage des droits TV" comme levier d'equilibre
+ * competitif) :
+ *
+ * ```
+ * meritPool  = round(pot x meritShare)
+ * equalPool  = pot - meritPool          (somme exacte, aucune derive)
+ * poids(rang) = N - rang                (rang 0-indexe : 1er -> N, dernier -> 1)
+ * part(club)  = equalPool/N + meritPool x poids / (N(N+1)/2)
+ * ```
+ *
+ * Ponderation lineaire (l'echelle de merite de la Premier League), sans
+ * parametre de courbure : un seul levier a la fois tant que le harness n'a
+ * pas mesure l'effet de celui-la. A `meritShare = 0` (le defaut) chaque club
+ * touche exactement `clubIncomePerSeasonCents` - strictement le comportement
+ * plat d'avant ce lot, division entiere exacte comprise.
+ *
+ * `meritShare` est clampe a [0, 1] ici plutot que valide a la construction du
+ * `Ruleset` : au-dela de 1, `equalPool` deviendrait negatif et le monde
+ * injecterait de l'argent negatif chez les derniers du classement. La
+ * conservation monetaire resterait vraie (le bookkeeping suit les montants
+ * reels), mais le monde n'aurait plus de sens - un clamp est plus sur qu'une
+ * exception dans un noyau qui doit tourner 1 000 saisons sans surveillance.
+ *
+ * **Le reste des divisions entieres n'est pas injecte** : `pot` est un
+ * plafond, pas une quantite a epuiser. `MonetaryMass` accumule les montants
+ * **reellement credites**, jamais le `pot` theorique - c'est ce qui garde
+ * l'invariant de conservation vrai par construction plutot que par
+ * arrondi chanceux.
+ *
+ * **Un classement vide annule la part au merite**, quel que soit
+ * `meritShare` : la premiere saison d'un monde n'a aucun match joue, donc
+ * rien a recompenser. Sans ce cas particulier, les clubs seraient ordonnes
+ * par `clubId` faute de mieux et le plus petit identifiant du monde toucherait
+ * plusieurs fois le revenu du plus grand - une hierarchie arbitraire gravee a
+ * la creation du monde, que le harness mesurerait ensuite comme une vraie
+ * inegalite. Un classement **partiel** reste en revanche honore : un club qui
+ * n'a joue aucun match n'a merite aucune prime, il passe en fin de
+ * classement.
  *
  * ## Position dans le pipeline
  *
@@ -69,7 +121,7 @@ use Flair\Kernel\Football\Singletons\MonetaryMass;
  * ## Limite connue, non corrigee dans ce lot
  *
  * Ce systeme credite tous les clubs portant `Finances` a chaque
- * `SeasonStarted`, sans distinguer de competition - correct tant qu'une
+ * `SeasonConcluded`, sans distinguer de competition - correct tant qu'une
  * seule competition existe (Phase 0/1). Si une deuxieme competition demarre
  * sa saison le meme tick, chaque club serait credite deux fois : meme
  * limite, deja documentee, que `Football\CalendarSystem` aujourd'hui. A
@@ -97,6 +149,7 @@ final class FinanceSystem implements System
     {
         return [
             Finances::class,
+            SeasonIncome::class,
             MonetaryMass::class,
         ];
     }
@@ -117,32 +170,86 @@ final class FinanceSystem implements System
     public function subscribesTo(): array
     {
         return [
-            SeasonStarted::class,
+            SeasonConcluded::class,
         ];
     }
 
     public function handle(DomainEvent $event, SystemContext $ctx): void
     {
-        if (!$event instanceof SeasonStarted) {
+        if (!$event instanceof SeasonConcluded) {
             return;
         }
 
         $finance = $ctx->ruleset()->balance->finance;
+        $clubIds = $ctx->components(Finances::class)->entities();
+        $clubCount = \count($clubIds);
+
+        if ($clubCount === 0) {
+            return;
+        }
+
+        $meritShare = $event->finalRanking === [] ? 0.0 : max(0.0, min(1.0, $finance->meritShare));
+        $pot = $finance->clubIncomePerSeasonCents * $clubCount;
+        $meritPool = (int) round($pot * $meritShare);
+        $equalPool = $pot - $meritPool;
+
+        $equalShare = intdiv($equalPool, $clubCount);
+        $totalWeight = intdiv($clubCount * ($clubCount + 1), 2);
+
         $injected = 0;
 
-        foreach ($ctx->components(Finances::class)->entities() as $clubId) {
+        foreach (self::orderByRank($clubIds, $event->finalRanking) as $rank => $clubId) {
             $finances = $ctx->components(Finances::class)->get($clubId);
 
             if ($finances === null) {
                 continue;
             }
 
-            $ctx->components(Finances::class)->set($clubId, new Finances($finances->balanceCents + $finance->clubIncomePerSeasonCents));
-            $injected += $finance->clubIncomePerSeasonCents;
+            $income = $equalShare + intdiv($meritPool * ($clubCount - $rank), $totalWeight);
+
+            $ctx->components(Finances::class)->set($clubId, new Finances($finances->balanceCents + $income));
+            $ctx->components(SeasonIncome::class)->set($clubId, new SeasonIncome($income));
+            $injected += $income;
         }
 
         $mass = $ctx->singleton(MonetaryMass::class) ?? new MonetaryMass();
         $ctx->setSingleton(new MonetaryMass($mass->totalInjectionsCents + $injected, $mass->totalSinksCents));
+    }
+
+    /**
+     * Les clubs a crediter, du premier au dernier : ceux du classement final
+     * d'abord, dans son ordre, puis ceux qui n'y figurent pas (club sans
+     * aucun match joue, premiere saison d'un monde) par `clubId` croissant.
+     *
+     * Cet ordre n'est pas celui de `ComponentStore::entities()`, et c'est
+     * assume : c'est un ordre **total et deterministe** derive du payload
+     * d'un Fait, pas l'ordre d'insertion d'une Map que docs/12- §2 proscrit.
+     * `$ranking` peut contenir des clubs qui ne portent plus `Finances` - ils
+     * sont ignores plutot que de decaler les rangs suivants.
+     *
+     * @param list<int> $clubIds trie par clubId croissant
+     * @param list<int> $ranking classement final, du premier au dernier
+     * @return list<int>
+     */
+    private static function orderByRank(array $clubIds, array $ranking): array
+    {
+        $remaining = array_fill_keys($clubIds, true);
+        $ordered = [];
+
+        foreach ($ranking as $clubId) {
+            if (isset($remaining[$clubId])) {
+                $ordered[] = $clubId;
+                unset($remaining[$clubId]);
+            }
+        }
+
+        foreach ($clubIds as $clubId) {
+            if (isset($remaining[$clubId])) {
+                $ordered[] = $clubId;
+            }
+        }
+
+        return $ordered;
     }
 
     public function update(SystemContext $ctx): void

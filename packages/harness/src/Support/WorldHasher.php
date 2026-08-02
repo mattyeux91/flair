@@ -18,6 +18,7 @@ use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
 use Flair\Kernel\Football\Components\PlayerPotentials;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
+use Flair\Kernel\Football\Components\SeasonIncome;
 use Flair\Kernel\Football\Components\SquadMembership;
 use Flair\Kernel\Football\Components\Standings;
 use Flair\Kernel\Football\Components\TrainingEffect;
@@ -64,6 +65,7 @@ final class WorldHasher
         Club::class,
         Facilities::class,
         Finances::class,
+        SeasonIncome::class,
         Contract::class,
         Competition::class,
         Standings::class,

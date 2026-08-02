@@ -108,6 +108,7 @@ final class RulesetOverride
     /** @var list<string> */
     public const array FINANCE_FIELDS = [
         'clubIncomePerSeasonCents',
+        'meritShare',
         'wagePaymentDayOfWeek',
     ];
 
@@ -271,6 +272,7 @@ final class RulesetOverride
     {
         return new FinanceBalance(
             clubIncomePerSeasonCents: isset($overrides['clubIncomePerSeasonCents']) ? (int) round($overrides['clubIncomePerSeasonCents']) : $base->clubIncomePerSeasonCents,
+            meritShare: $overrides['meritShare'] ?? $base->meritShare,
             wagePaymentDayOfWeek: isset($overrides['wagePaymentDayOfWeek']) ? (int) round($overrides['wagePaymentDayOfWeek']) : $base->wagePaymentDayOfWeek,
         );
     }

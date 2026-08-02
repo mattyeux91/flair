@@ -39,7 +39,7 @@ final class TextReport
         $output .= $this->renderStandings($lastSeason['standings'] ?? [], "Classement ({$seasonLabel})");
         $output .= $this->renderRecentMatches($lastSeason['matches'] ?? [], "Matchs de la {$seasonLabel}");
 
-        $output .= $this->renderCompetitiveBalance(CompetitiveBalance::analyze($result->seasonHistory));
+        $output .= $this->renderCompetitiveBalance(CompetitiveBalance::analyze($result->seasonHistory, $result->cumulativeIncomeByClub));
 
         return $output;
     }
@@ -75,9 +75,9 @@ final class TextReport
         $output .= $this->renderRecentMatches($modifiedSeason['matches'] ?? [], 'Matchs recents, modifie' . ($modifiedSeason !== null ? " (saison {$modifiedSeason['season']})" : ''));
 
         $output .= "-- Equilibre competitif, baseline --\n";
-        $output .= $this->renderCompetitiveBalance(CompetitiveBalance::analyze($baseline->seasonHistory));
+        $output .= $this->renderCompetitiveBalance(CompetitiveBalance::analyze($baseline->seasonHistory, $baseline->cumulativeIncomeByClub));
         $output .= "-- Equilibre competitif, modifie --\n";
-        $output .= $this->renderCompetitiveBalance(CompetitiveBalance::analyze($modified->seasonHistory));
+        $output .= $this->renderCompetitiveBalance(CompetitiveBalance::analyze($modified->seasonHistory, $modified->cumulativeIncomeByClub));
 
         return $output;
     }
@@ -323,6 +323,7 @@ final class TextReport
 
         $output .= sprintf("Champions distincts : %d\n", $balance->distinctChampions);
         $output .= sprintf("Gini des titres : %.3f (0 = egalite parfaite, 1 = monopole)\n", $balance->giniOfTitles);
+        $output .= sprintf("Gini des revenus : %.3f (0 = tous le meme revenu, 1 = un club encaisse tout)\n", $balance->giniOfRevenues);
         $output .= $balance->topFiveTurnoverRate !== null
             ? sprintf("Rotation du top 5 : %.1f%%\n", $balance->topFiveTurnoverRate * 100)
             : "Rotation du top 5 : donnees insuffisantes (moins de 2 saisons)\n";

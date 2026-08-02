@@ -18,7 +18,8 @@ use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
 use Flair\Kernel\Football\Components\PlayerPotentials;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
-use Flair\Kernel\Football\Events\SeasonStarted;
+use Flair\Kernel\Football\Components\SeasonIncome;
+use Flair\Kernel\Football\Events\SeasonConcluded;
 use Flair\Kernel\Football\Singletons\MonetaryMass;
 use Flair\Kernel\Football\Systems\FinanceSystem;
 use Flair\Kernel\Football\Systems\RetirementSystem;
@@ -26,18 +27,12 @@ use PHPUnit\Framework\TestCase;
 
 final class FinanceSystemTest extends TestCase
 {
-    public function testSeasonStartedCreditsEveryClubWithFinancesAndUpdatesMonetaryMass(): void
+    public function testSeasonConcludedCreditsEveryClubWithFinancesAndUpdatesMonetaryMass(): void
     {
         $world = new WorldState();
         $club = $this->createClub($world, balanceCents: 1_000_000);
 
-        $world->scheduler()->schedule(
-            new SeasonStarted(competitionId: 1),
-            atTick: 5,
-            systemIndex: 0,
-            entityId: 1,
-            seq: 0,
-        );
+        $this->concludeSeason($world, ranking: [$club], atTick: 5);
 
         $pipeline = new Pipeline([new FinanceSystem()]);
         $pipeline->tick($world, tick: 5, worldSeed: 1, ruleset: $this->ruleset(), intents: []);
@@ -50,6 +45,121 @@ final class FinanceSystemTest extends TestCase
         self::assertNotNull($mass);
         self::assertSame(70_000_000, $mass->totalInjectionsCents);
         self::assertSame(0, $mass->totalSinksCents);
+    }
+
+    /**
+     * Le defaut `meritShare = 0.0` doit reproduire *exactement* le
+     * comportement plat d'avant la repartition, division entiere comprise -
+     * c'est ce qui garantit qu'introduire ce levier n'a pas deplace le monde
+     * par defaut, et donc que les mesures des Phases 0/1 restent valides.
+     */
+    public function testTheDefaultMeritShareGivesEveryClubTheSameIncomeWhateverItsRank(): void
+    {
+        $world = new WorldState();
+        $clubs = $this->createClubs($world, count: 4);
+
+        $this->concludeSeason($world, ranking: array_reverse($clubs), atTick: 5);
+        $this->runFinanceTick($world, tick: 5, finance: new FinanceBalance());
+
+        foreach ($clubs as $club) {
+            self::assertSame(70_000_000, $world->components(SeasonIncome::class)->get($club)?->cents);
+        }
+    }
+
+    public function testMeritShareRewardsTheTopOfTheTableAtTheExpenseOfTheBottom(): void
+    {
+        $world = new WorldState();
+        [$first, $second, $third] = $this->createClubs($world, count: 3);
+
+        // Classement volontairement inverse de l'ordre des identifiants : ce
+        // qui decide de la part est le rang, jamais l'ordre d'iteration du
+        // ComponentStore.
+        $this->concludeSeason($world, ranking: [$third, $second, $first], atTick: 5);
+        $this->runFinanceTick($world, tick: 5, finance: new FinanceBalance(meritShare: 1.0));
+
+        // pot = 70M x 3 = 210M, meritPool = 210M, poids 3/2/1 sur un total de 6.
+        self::assertSame(105_000_000, $world->components(SeasonIncome::class)->get($third)?->cents);
+        self::assertSame(70_000_000, $world->components(SeasonIncome::class)->get($second)?->cents);
+        self::assertSame(35_000_000, $world->components(SeasonIncome::class)->get($first)?->cents);
+    }
+
+    /**
+     * Premiere saison d'un monde : aucun match joue, donc aucun classement.
+     * Le fallback doit rester une part egale, jamais une exception ni un
+     * club privilegie par son identifiant.
+     */
+    public function testAnEmptyRankingFallsBackToAnEqualShare(): void
+    {
+        $world = new WorldState();
+        $clubs = $this->createClubs($world, count: 4);
+
+        $this->concludeSeason($world, ranking: [], atTick: 5);
+        $this->runFinanceTick($world, tick: 5, finance: new FinanceBalance(meritShare: 1.0));
+
+        $incomes = array_map(
+            fn (int $club): ?int => $world->components(SeasonIncome::class)->get($club)?->cents,
+            $clubs,
+        );
+
+        self::assertSame([70_000_000, 70_000_000, 70_000_000, 70_000_000], $incomes);
+    }
+
+    /**
+     * L'enveloppe est un **plafond** : les restes de division entiere ne
+     * sont pas injectes. Ce que `MonetaryMass` comptabilise doit etre la
+     * somme des credits reels, jamais le pot theorique - sans quoi
+     * `Harness\Tests\Regression\MonetaryConservationTest` verrait diverger la
+     * masse monetaire et le solde des clubs.
+     */
+    public function testTheIntegerRemainderIsNotInjectedAndMonetaryMassTracksWhatWasActuallyCredited(): void
+    {
+        $world = new WorldState();
+        $clubs = $this->createClubs($world, count: 4, balanceCents: 0);
+
+        $this->concludeSeason($world, ranking: $clubs, atTick: 5);
+        $this->runFinanceTick($world, tick: 5, finance: new FinanceBalance(
+            clubIncomePerSeasonCents: 100,
+            meritShare: 0.33,
+        ));
+
+        // pot = 400, meritPool = round(132) = 132, equalPool = 268 (67/club),
+        // poids 4/3/2/1 sur un total de 10 -> 52/39/26/13.
+        $incomes = array_map(
+            fn (int $club): int => $world->components(SeasonIncome::class)->get($club)->cents ?? 0,
+            $clubs,
+        );
+        self::assertSame([119, 106, 93, 80], $incomes);
+
+        $credited = array_sum($incomes);
+        self::assertSame(398, $credited);
+        self::assertLessThan(400, $credited, 'le pot est un plafond, pas une quantite a epuiser');
+
+        $balances = array_map(
+            fn (int $club): int => $world->components(Finances::class)->get($club)->balanceCents ?? 0,
+            $clubs,
+        );
+        self::assertSame($credited, array_sum($balances));
+        self::assertSame($credited, $world->singleton(MonetaryMass::class)?->totalInjectionsCents);
+    }
+
+    /**
+     * Une valeur hors bornes rendrait `equalPool` negatif, donc le dernier du
+     * classement debiteur d'un revenu. Clampe plutot que rejete : le noyau
+     * doit tourner 1 000 saisons sans surveillance.
+     */
+    public function testAMeritShareAboveOneIsClampedRatherThanProducingNegativeIncome(): void
+    {
+        $world = new WorldState();
+        $clubs = $this->createClubs($world, count: 3);
+
+        $this->concludeSeason($world, ranking: $clubs, atTick: 5);
+        $this->runFinanceTick($world, tick: 5, finance: new FinanceBalance(meritShare: 2.5));
+
+        foreach ($clubs as $club) {
+            self::assertGreaterThan(0, $world->components(SeasonIncome::class)->get($club)?->cents);
+        }
+
+        self::assertSame(35_000_000, $world->components(SeasonIncome::class)->get($clubs[2])?->cents);
     }
 
     public function testWagesAreDeductedOnThePaymentDayAndUpdateMonetaryMass(): void
@@ -86,13 +196,7 @@ final class FinanceSystemTest extends TestCase
         $world->components(Club::class)->set($clubWithoutFinances, new Club('Sans tresorerie'));
         $this->createContractedPlayer($world, $clubWithoutFinances, wagePerWeekCents: 50_000);
 
-        $world->scheduler()->schedule(
-            new SeasonStarted(competitionId: 1),
-            atTick: 7,
-            systemIndex: 0,
-            entityId: 1,
-            seq: 0,
-        );
+        $this->concludeSeason($world, ranking: [$clubWithoutFinances], atTick: 7);
 
         $pipeline = new Pipeline([new FinanceSystem()]);
         $pipeline->tick($world, tick: 7, worldSeed: 1, ruleset: $this->ruleset(), intents: []);
@@ -132,6 +236,47 @@ final class FinanceSystemTest extends TestCase
 
         $balanceAfter = $world->components(Finances::class)->get($club)?->balanceCents;
         self::assertSame($balanceAtRetirement, $balanceAfter);
+    }
+
+    /**
+     * Place un `SeasonConcluded` dans le Scheduler pour qu'il soit draine au
+     * tick voulu - le Pipeline calcule son lot d'evenements entrants avant
+     * qu'aucun systeme ne tourne, donc emettre depuis le test ne suffirait
+     * pas.
+     *
+     * @param list<int> $ranking
+     */
+    private function concludeSeason(WorldState $world, array $ranking, int $atTick): void
+    {
+        $world->scheduler()->schedule(
+            new SeasonConcluded(competitionId: 1, finalRanking: $ranking),
+            atTick: $atTick,
+            systemIndex: 0,
+            entityId: 1,
+            seq: 0,
+        );
+    }
+
+    private function runFinanceTick(WorldState $world, int $tick, FinanceBalance $finance): void
+    {
+        (new Pipeline([new FinanceSystem()]))->tick(
+            $world,
+            tick: $tick,
+            worldSeed: 1,
+            ruleset: new Ruleset('test', new Balance(finance: $finance)),
+            intents: [],
+        );
+    }
+
+    /** @return list<int> identifiants croissants */
+    private function createClubs(WorldState $world, int $count, int $balanceCents = 0): array
+    {
+        $clubs = [];
+        for ($i = 0; $i < $count; $i++) {
+            $clubs[] = $this->createClub($world, $balanceCents);
+        }
+
+        return $clubs;
     }
 
     private function createClub(WorldState $world, int $balanceCents): int
