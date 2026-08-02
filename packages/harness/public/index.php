@@ -19,15 +19,25 @@ $baseline = new Ruleset('harness');
  * Bornes de taille du POST web, distinctes de celles du CLI
  * (`bin/aggregate.php`, sans plafond) : le kernel est un simulateur PHP pur,
  * sans JIT ni cache d'octets particulier, et une requete HTTP synchrone doit
- * rester dans un budget humainement raisonnable. Mesure empiriquement (pas
- * de regulateur ici, juste un constat) : 1200 joueurs/35 ans, sans override,
- * tourne en ~100s en PHP interprete (~200s pour une comparaison a graines
- * appariees, qui execute deux fois la simulation) - sous le plafond de
- * MAX_EXECUTION_TIME_SECONDS ci-dessous avec de la marge. Au-dela, utiliser
- * le CLI, qui n'a pas cette contrainte de requete/reponse.
+ * rester dans un budget humainement raisonnable.
+ *
+ * `MAX_CLUBS` a ete resserre de 64 a 32 en ajoutant la simulation de match
+ * (Football\CalendarSystem/MatchSystem/CompetitionSystem) au pipeline du
+ * Sampler : le cout d'un match scanne tout l'effectif d'un club pour
+ * calculer ses ratings (MatchSystem::ratings(), non optimise, hors
+ * perimetre de ce lot cote kernel), et ce cout croit avec le **carre** du
+ * nombre de clubs (le nombre de matchs par saison est proportionnel a
+ * clubCount²). Mesure empiriquement : 1200 joueurs/35 ans sans override,
+ * qui tournait en ~100s avant ce lot, tournait a 64 clubs en ~227s
+ * (~454s pour une comparaison a graines appariees, qui execute deux fois la
+ * simulation) - largement au-dela de MAX_EXECUTION_TIME_SECONDS. A 32 clubs,
+ * une comparaison complete tourne en ~202s, sous le plafond avec une marge
+ * comparable a celle d'avant ce lot. Au-dela de ces bornes, utiliser le CLI,
+ * qui n'a pas cette contrainte de requete/reponse.
  */
 const MAX_PLAYERS = 1200;
 const MAX_YEARS = 35;
+const MAX_CLUBS = 32;
 
 /**
  * Filet de securite, pas la strategie principale : les bornes ci-dessus sont
@@ -48,7 +58,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         playerCount: max(1, min(MAX_PLAYERS, (int) ($input['players'] ?? 200))),
         years: max(1, min(MAX_YEARS, (int) ($input['years'] ?? 30))),
         seed: (int) ($input['seed'] ?? 42),
-        clubCount: max(0, min(64, (int) ($input['clubs'] ?? 18))),
+        clubCount: max(0, min(MAX_CLUBS, (int) ($input['clubs'] ?? 18))),
         facilitiesQuality: (float) ($input['facilitiesQuality'] ?? 1.0),
     );
 
@@ -135,6 +145,18 @@ $fieldMeta = [
 
     ['field' => 'developmentRate', 'group' => 'Global', 'label' => 'Multiplicateur global de progression/déclin', 'step' => '0.05', 'default' => $baseline->balance->developmentRate],
     ['field' => 'trainingRate', 'group' => 'Global', 'label' => "Multiplicateur global d'entraînement", 'step' => '0.05', 'default' => $baseline->balance->trainingRate],
+
+    ['field' => 'seasonStartDayOfYear', 'group' => 'Calendrier', 'label' => "Jour de génération de la saison (tick % 365)", 'step' => '1', 'default' => $baseline->balance->calendar->seasonStartDayOfYear],
+    ['field' => 'firstMatchdayOffsetDays', 'group' => 'Calendrier', 'label' => 'Délai avant le coup d\'envoi (jours)', 'step' => '1', 'default' => $baseline->balance->calendar->firstMatchdayOffsetDays],
+    ['field' => 'matchdayIntervalDays', 'group' => 'Calendrier', 'label' => 'Espacement entre journées (jours)', 'step' => '1', 'default' => $baseline->balance->calendar->matchdayIntervalDays],
+
+    ['field' => 'homeAdvantage', 'group' => 'Match', 'label' => "Avantage du terrain (exposant)", 'step' => '0.05', 'default' => $baseline->balance->match->homeAdvantage],
+    ['field' => 'strengthScale', 'group' => 'Match', 'label' => "Échelle de force (diviseur de l'écart de rating)", 'step' => '1', 'default' => $baseline->balance->match->strengthScale],
+    ['field' => 'lowScoreCorrelation', 'group' => 'Match', 'label' => 'Corrélation Dixon-Coles (ρ, scores faibles)', 'step' => '0.01', 'default' => $baseline->balance->match->lowScoreCorrelation],
+    ['field' => 'maxSimulatedGoals', 'group' => 'Match', 'label' => 'Plafond de buts simulés par équipe', 'step' => '1', 'default' => $baseline->balance->match->maxSimulatedGoals],
+
+    ['field' => 'pointsForWin', 'group' => 'Classement', 'label' => 'Points pour une victoire', 'step' => '1', 'default' => $baseline->balance->competition->pointsForWin],
+    ['field' => 'pointsForDraw', 'group' => 'Classement', 'label' => 'Points pour un match nul', 'step' => '1', 'default' => $baseline->balance->competition->pointsForDraw],
 ];
 
 $groupedFields = [];
@@ -149,13 +171,13 @@ $openByDefault = ['Retraite' => true, 'Développement' => true];
 <html lang="fr">
 <head>
     <meta charset="utf-8">
-    <title>Flair — Harness de calibration (vieillissement)</title>
+    <title>Flair — Harness de calibration</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <header>
-        <h1>Harness de calibration — vieillissement &amp; démographie</h1>
-        <p>Simule une population synthétique de joueurs (répartie sur des clubs synthétiques) et agrège des distributions (courbe de compétence par âge, âges de retraite, effectif actif par année, pyramide des âges) pour juger empiriquement de l'effet des paramètres de <code>Ruleset::$balance</code>.</p>
+        <h1>Harness de calibration — vieillissement, démographie &amp; matchs</h1>
+        <p>Simule une population synthétique de joueurs (répartie sur des clubs synthétiques regroupés dans une compétition) et agrège des distributions (courbe de compétence par âge, âges de retraite, effectif actif par année, pyramide des âges, buts par match, répartition des résultats, classement) pour juger empiriquement de l'effet des paramètres de <code>Ruleset::$balance</code>.</p>
     </header>
 
     <form id="run-form">
@@ -164,7 +186,7 @@ $openByDefault = ['Retraite' => true, 'Développement' => true];
             <label>Joueurs <input type="number" name="players" value="200" min="1" max="<?= MAX_PLAYERS ?>"></label>
             <label>Années simulées <input type="number" name="years" value="30" min="1" max="<?= MAX_YEARS ?>"></label>
             <label>Graine <input type="number" name="seed" value="42"></label>
-            <label>Clubs synthétiques <input type="number" name="clubs" value="18" min="0" max="64"></label>
+            <label>Clubs synthétiques <input type="number" name="clubs" value="18" min="0" max="<?= MAX_CLUBS ?>"></label>
             <label>Qualité moyenne des installations <input type="number" step="0.1" name="facilitiesQuality" value="1.0" min="0.1" max="3"></label>
         </fieldset>
 
@@ -202,6 +224,7 @@ $openByDefault = ['Retraite' => true, 'Développement' => true];
         <label><input type="checkbox" name="category" value="technical" checked> Technique</label>
         <label><input type="checkbox" name="category" value="mental" checked> Mental</label>
         <label><input type="checkbox" id="toggle-band" checked> Bande p10-p90</label>
+        <label>Saison <select id="season-select"></select></label>
     </fieldset>
 
     <section id="charts"></section>

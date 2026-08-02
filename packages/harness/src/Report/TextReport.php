@@ -27,6 +27,15 @@ final class TextReport
         $output .= $this->renderHistogram($result->finalAgeHistogram, 'Pyramide des ages (derniere annee simulee)', 'aucun joueur actif observe');
         $output .= $this->renderHistogram($result->retirementAgeHistogram, 'Distribution des ages de retraite', 'aucune retraite observee');
 
+        $output .= $this->renderHistogram($result->goalsPerMatchHistogram, 'Distribution des buts par match', 'aucun match observe');
+        $output .= $this->renderMatchResultDistribution($result->matchResultDistribution);
+        $output .= $this->renderScorelineFrequency($result->scorelineFrequency);
+
+        $lastSeason = $this->lastSeason($result->seasonHistory);
+        $seasonLabel = $lastSeason !== null ? "saison {$lastSeason['season']}" : 'derniere saison';
+        $output .= $this->renderStandings($lastSeason['standings'] ?? [], "Classement ({$seasonLabel})");
+        $output .= $this->renderRecentMatches($lastSeason['matches'] ?? [], "Matchs de la {$seasonLabel}");
+
         return $output;
     }
 
@@ -49,6 +58,16 @@ final class TextReport
         $output .= $this->renderHistogram($baseline->retirementAgeHistogram, 'Distribution des ages de retraite', 'aucune retraite observee');
         $output .= "-- Ages de retraite (modifie) --\n";
         $output .= $this->renderHistogram($modified->retirementAgeHistogram, 'Distribution des ages de retraite', 'aucune retraite observee');
+
+        $output .= $this->renderGoalsPerMatchDelta($baseline->goalsPerMatchHistogram, $modified->goalsPerMatchHistogram);
+        $output .= $this->renderMatchResultDistributionDelta($baseline->matchResultDistribution, $modified->matchResultDistribution);
+
+        $baselineSeason = $this->lastSeason($baseline->seasonHistory);
+        $modifiedSeason = $this->lastSeason($modified->seasonHistory);
+        $output .= $this->renderStandings($baselineSeason['standings'] ?? [], 'Classement, baseline' . ($baselineSeason !== null ? " (saison {$baselineSeason['season']})" : ''));
+        $output .= $this->renderStandings($modifiedSeason['standings'] ?? [], 'Classement, modifie' . ($modifiedSeason !== null ? " (saison {$modifiedSeason['season']})" : ''));
+        $output .= $this->renderRecentMatches($baselineSeason['matches'] ?? [], 'Matchs recents, baseline' . ($baselineSeason !== null ? " (saison {$baselineSeason['season']})" : ''));
+        $output .= $this->renderRecentMatches($modifiedSeason['matches'] ?? [], 'Matchs recents, modifie' . ($modifiedSeason !== null ? " (saison {$modifiedSeason['season']})" : ''));
 
         return $output;
     }
@@ -179,5 +198,160 @@ final class TextReport
         }
 
         return $output . "\n";
+    }
+
+    /** @param array{homeWin: int, draw: int, awayWin: int} $distribution */
+    private function renderMatchResultDistribution(array $distribution): string
+    {
+        $total = $distribution['homeWin'] + $distribution['draw'] + $distribution['awayWin'];
+        if ($total === 0) {
+            return "Repartition des resultats : aucun match observe.\n\n";
+        }
+
+        $output = "-- Repartition des resultats --\n";
+        foreach (['homeWin' => 'Domicile', 'draw' => 'Nul', 'awayWin' => 'Exterieur'] as $key => $label) {
+            $count = $distribution[$key];
+            $output .= sprintf("%-10s  %6d  %5.1f%%\n", $label, $count, $count / $total * 100);
+        }
+
+        return $output . "\n";
+    }
+
+    /**
+     * @param array{homeWin: int, draw: int, awayWin: int} $baseline
+     * @param array{homeWin: int, draw: int, awayWin: int} $modified
+     */
+    private function renderMatchResultDistributionDelta(array $baseline, array $modified): string
+    {
+        $baselineTotal = $baseline['homeWin'] + $baseline['draw'] + $baseline['awayWin'];
+        $modifiedTotal = $modified['homeWin'] + $modified['draw'] + $modified['awayWin'];
+        if ($baselineTotal === 0 || $modifiedTotal === 0) {
+            return "Repartition des resultats : donnees insuffisantes.\n\n";
+        }
+
+        $output = "-- Repartition des resultats : baseline vs modifie --\n";
+        $output .= sprintf("%-10s  %8s  %8s  %8s\n", '', 'baseline', 'modifie', 'delta');
+
+        foreach (['homeWin' => 'Domicile', 'draw' => 'Nul', 'awayWin' => 'Exterieur'] as $key => $label) {
+            $baselinePct = $baseline[$key] / $baselineTotal * 100;
+            $modifiedPct = $modified[$key] / $modifiedTotal * 100;
+            $output .= sprintf("%-10s  %7.1f%%  %7.1f%%  %+7.1f%%\n", $label, $baselinePct, $modifiedPct, $modifiedPct - $baselinePct);
+        }
+
+        return $output . "\n";
+    }
+
+    /** @param array<int, int> $histogram buts totaux -> nombre de matchs */
+    private function renderScorelineFrequency(array $histogram): string
+    {
+        if ($histogram === []) {
+            return "Scores exacts : aucun match observe.\n\n";
+        }
+
+        $frequency = $histogram;
+        arsort($frequency);
+
+        $output = "-- Scores exacts (tries par frequence) --\n";
+        foreach ($frequency as $score => $count) {
+            $output .= sprintf("%-8s  %6d\n", $score, $count);
+        }
+
+        return $output . "\n";
+    }
+
+    /**
+     * @param list<array{season: int, standings: list<array{clubId: int, clubName: string, played: int, won: int, drawn: int, lost: int, goalsFor: int, goalsAgainst: int, points: int}>, matches: list<array{matchday: int, homeClub: string, awayClub: string, homeGoals: int, awayGoals: int}>}> $seasonHistory
+     * @return array{season: int, standings: list<array{clubId: int, clubName: string, played: int, won: int, drawn: int, lost: int, goalsFor: int, goalsAgainst: int, points: int}>, matches: list<array{matchday: int, homeClub: string, awayClub: string, homeGoals: int, awayGoals: int}>}|null
+     */
+    private function lastSeason(array $seasonHistory): ?array
+    {
+        return $seasonHistory === [] ? null : $seasonHistory[array_key_last($seasonHistory)];
+    }
+
+    /**
+     * @param list<array{clubId: int, clubName: string, played: int, won: int, drawn: int, lost: int, goalsFor: int, goalsAgainst: int, points: int}> $standings deja trie par Sampler
+     */
+    private function renderStandings(array $standings, string $title = 'Classement (derniere saison)'): string
+    {
+        if ($standings === []) {
+            return "{$title} : aucune donnee.\n\n";
+        }
+
+        $output = "-- {$title} --\n";
+        $output .= sprintf("%-24s  %3s  %3s  %3s  %3s  %5s  %5s  %4s\n", 'club', 'J', 'G', 'N', 'P', 'BP', 'BC', 'Pts');
+
+        foreach ($standings as $row) {
+            $output .= sprintf(
+                "%-24s  %3d  %3d  %3d  %3d  %5d  %5d  %4d\n",
+                $row['clubName'],
+                $row['played'],
+                $row['won'],
+                $row['drawn'],
+                $row['lost'],
+                $row['goalsFor'],
+                $row['goalsAgainst'],
+                $row['points'],
+            );
+        }
+
+        return $output . "\n";
+    }
+
+    /**
+     * @param list<array{matchday: int, homeClub: string, awayClub: string, homeGoals: int, awayGoals: int}> $matches
+     */
+    private function renderRecentMatches(array $matches, string $title = 'Matchs de la derniere saison'): string
+    {
+        if ($matches === []) {
+            return "{$title} : aucune donnee.\n\n";
+        }
+
+        $output = "-- {$title} --\n";
+        foreach ($matches as $match) {
+            $output .= sprintf(
+                "J%-3d  %-20s %d - %d %s\n",
+                $match['matchday'],
+                $match['homeClub'],
+                $match['homeGoals'],
+                $match['awayGoals'],
+                $match['awayClub'],
+            );
+        }
+
+        return $output . "\n";
+    }
+
+    /**
+     * @param array<int, int> $baselineHistogram buts totaux -> nombre de matchs
+     * @param array<int, int> $modifiedHistogram buts totaux -> nombre de matchs
+     */
+    private function renderGoalsPerMatchDelta(array $baselineHistogram, array $modifiedHistogram): string
+    {
+        $baselineMean = $this->weightedMean($baselineHistogram);
+        $modifiedMean = $this->weightedMean($modifiedHistogram);
+        if ($baselineMean === null || $modifiedMean === null) {
+            return "Buts par match (moyenne) : donnees insuffisantes.\n\n";
+        }
+
+        $output = "-- Buts par match (moyenne) : baseline vs modifie --\n";
+        $output .= sprintf("baseline=%.2f  modifie=%.2f  delta=%+.2f\n", $baselineMean, $modifiedMean, $modifiedMean - $baselineMean);
+
+        return $output . "\n";
+    }
+
+    /** @param array<int, int> $histogram valeur -> effectif */
+    private function weightedMean(array $histogram): ?float
+    {
+        $total = array_sum($histogram);
+        if ($total === 0) {
+            return null;
+        }
+
+        $weighted = 0;
+        foreach ($histogram as $value => $count) {
+            $weighted += $value * $count;
+        }
+
+        return $weighted / $total;
     }
 }

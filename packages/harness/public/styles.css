@@ -222,20 +222,20 @@ details summary {
     margin-bottom: 4px;
 }
 
-.effect-summary table {
+.chart-block table {
     border-collapse: collapse;
     width: 100%;
     font-size: 0.9rem;
 }
 
-.effect-summary th,
-.effect-summary td {
+.chart-block th,
+.chart-block td {
     text-align: left;
     padding: 4px 12px 4px 0;
     border-bottom: 1px solid var(--border);
 }
 
-.effect-summary th {
+.chart-block th {
     color: var(--muted);
     font-weight: 600;
 }

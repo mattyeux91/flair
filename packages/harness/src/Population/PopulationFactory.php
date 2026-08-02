@@ -18,12 +18,19 @@ use Flair\Kernel\Football\Generation\PlayerFactory;
 
 /**
  * Construit la population initiale du harness : des clubs synthetiques
- * (Population\ClubFactory) et des joueurs deja en cours de carriere
- * (17-34 ans), la ou `YouthIntakeSystem` ne produit que des recrues de 17
- * ans. Chaque joueur recoit un `SquadMembership` (repartition round-robin
- * sur les clubs crees) - sans ca, `Football\TrainingSystem` et
- * `Football\YouthIntakeSystem` n'ont rien a lire ni ou promouvoir (cf.
- * docblock ClubFactory).
+ * (Population\ClubFactory), une competition synthetique qui les regroupe
+ * (Population\CompetitionFactory - sans elle, `Football\CalendarSystem` n'a
+ * aucun calendrier a generer meme si des clubs existent) et des joueurs deja
+ * en cours de carriere (17-34 ans), la ou `YouthIntakeSystem` ne produit que
+ * des recrues de 17 ans. Chaque joueur recoit un `SquadMembership`
+ * (repartition round-robin sur les clubs crees) - sans ca,
+ * `Football\TrainingSystem` et `Football\YouthIntakeSystem` n'ont rien a
+ * lire ni ou promouvoir (cf. docblock ClubFactory).
+ *
+ * La competition n'est creee que si `$spec->clubCount > 0` - meme condition
+ * que les clubs eux-memes, pas un nouveau flag sur `PopulationSpec` : une
+ * competition sans le moindre club n'a aucun sens et `CalendarSystem`
+ * degenererait de toute facon en zero fixture.
  *
  * **Le potentiel est tire par `Kernel\Football\Generation\PlayerFactory`,
  * pas ici.** C'est la meme loi de talent que celle des promotions
@@ -53,6 +60,7 @@ final class PopulationFactory
     public function __construct(
         private readonly PlayerFactory $players = new PlayerFactory(),
         private readonly ClubFactory $clubs = new ClubFactory(),
+        private readonly CompetitionFactory $competitions = new CompetitionFactory(),
     ) {
     }
 
@@ -63,6 +71,9 @@ final class PopulationFactory
         $talent ??= new YouthIntakeBalance();
 
         $clubIds = $spec->clubCount > 0 ? $this->clubs->create($world, $spec->clubCount, $spec->facilitiesQuality) : [];
+        if ($clubIds !== []) {
+            $this->competitions->create($world);
+        }
 
         $playerIds = [];
         for ($i = 0; $i < $spec->playerCount; $i++) {

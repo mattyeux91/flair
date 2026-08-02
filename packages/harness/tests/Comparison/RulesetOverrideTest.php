@@ -91,6 +91,46 @@ final class RulesetOverrideTest extends TestCase
         self::assertSame(200, $modified->balance->youthIntake->intakeDayOfYear);
     }
 
+    public function testAppliesOverridesAcrossTheThreeNewGroups(): void
+    {
+        $base = new Ruleset('test');
+
+        $modified = RulesetOverride::withFields($base, [
+            'matchdayIntervalDays' => 10.0,
+            'homeAdvantage' => 0.4,
+            'pointsForWin' => 2.0,
+        ]);
+
+        self::assertSame(10, $modified->balance->calendar->matchdayIntervalDays);
+        self::assertSame(0.4, $modified->balance->match->homeAdvantage);
+        self::assertSame(2, $modified->balance->competition->pointsForWin);
+
+        // Champs non touches : la valeur par defaut du Ruleset de base, pas 0/null.
+        self::assertSame($base->balance->calendar->seasonStartDayOfYear, $modified->balance->calendar->seasonStartDayOfYear);
+        self::assertSame($base->balance->match->strengthScale, $modified->balance->match->strengthScale);
+        self::assertSame($base->balance->competition->pointsForDraw, $modified->balance->competition->pointsForDraw);
+    }
+
+    public function testCalendarMatchAndCompetitionIntFieldsAreCastWithoutTypeError(): void
+    {
+        $base = new Ruleset('test');
+
+        // Meme piege que YouthIntakeBalance : CalendarBalance/CompetitionBalance
+        // sont entierement typees `int`, et `maxSimulatedGoals` est le seul
+        // champ `int` de MatchBalance (sinon tout `float`).
+        $modified = RulesetOverride::withFields($base, [
+            'seasonStartDayOfYear' => 10.0,
+            'firstMatchdayOffsetDays' => 21.0,
+            'maxSimulatedGoals' => 8.0,
+            'pointsForDraw' => 1.0,
+        ]);
+
+        self::assertSame(10, $modified->balance->calendar->seasonStartDayOfYear);
+        self::assertSame(21, $modified->balance->calendar->firstMatchdayOffsetDays);
+        self::assertSame(8, $modified->balance->match->maxSimulatedGoals);
+        self::assertSame(1, $modified->balance->competition->pointsForDraw);
+    }
+
     public function testAllFieldsGroupsCoverAllDeclaredFields(): void
     {
         self::assertSame(

@@ -39,6 +39,7 @@ form.addEventListener('submit', async (event) => {
         lastResponse = await response.json();
         statusEl.textContent = '';
         filtersEl.hidden = false;
+        populateSeasonSelect();
         renderAll();
     } catch (error) {
         statusEl.textContent = `Erreur : ${error.message}`;
@@ -149,6 +150,33 @@ function renderAll() {
     ));
     chartsEl.appendChild(pyramidSection);
 
+    const goalsSection = document.createElement('div');
+    goalsSection.className = 'chart-block';
+    const goalsHeading = document.createElement('h3');
+    goalsHeading.textContent = 'Buts par match';
+    goalsSection.appendChild(goalsHeading);
+    goalsSection.appendChild(renderHistogramChart(
+        lastResponse.baseline.goalsPerMatchHistogram,
+        isComparison ? lastResponse.modified.goalsPerMatchHistogram : null,
+        'buts',
+    ));
+    chartsEl.appendChild(goalsSection);
+
+    chartsEl.appendChild(renderMatchResultSection(lastResponse.baseline, isComparison ? lastResponse.modified : null));
+    chartsEl.appendChild(renderScorelineSection(lastResponse.baseline));
+
+    const season = selectedSeason();
+    const baselineSeason = seasonEntry(lastResponse.baseline, season);
+    chartsEl.appendChild(renderStandingsSection(baselineSeason, isComparison ? `Classement (baseline, saison ${season})` : `Classement (saison ${season})`));
+    if (isComparison) {
+        chartsEl.appendChild(renderStandingsSection(seasonEntry(lastResponse.modified, season), `Classement (modifié, saison ${season})`));
+    }
+
+    chartsEl.appendChild(renderRecentMatchesSection(baselineSeason, isComparison ? `Matchs (baseline, saison ${season})` : `Matchs (saison ${season})`));
+    if (isComparison) {
+        chartsEl.appendChild(renderRecentMatchesSection(seasonEntry(lastResponse.modified, season), `Matchs (modifié, saison ${season})`));
+    }
+
     if (isComparison) {
         const legend = document.createElement('p');
         legend.className = 'legend';
@@ -242,6 +270,157 @@ function buildEffectSummaryTable(rows) {
     });
 
     return table;
+}
+
+const MATCH_RESULT_LABELS = { homeWin: 'Domicile', draw: 'Nul', awayWin: 'Extérieur' };
+
+/** Table generique (pas de colonnes Baseline/Modifie figees, contrairement a buildEffectSummaryTable) - reutilisee par les sections match/classement ci-dessous. */
+function buildTable(headers, rows) {
+    const table = document.createElement('table');
+
+    const headRow = document.createElement('tr');
+    headers.forEach((text) => {
+        const th = document.createElement('th');
+        th.textContent = text;
+        headRow.appendChild(th);
+    });
+    table.appendChild(headRow);
+
+    rows.forEach((cells) => {
+        const row = document.createElement('tr');
+        cells.forEach((text) => {
+            const td = document.createElement('td');
+            td.textContent = text;
+            row.appendChild(td);
+        });
+        table.appendChild(row);
+    });
+
+    return table;
+}
+
+function emptyBlock(title) {
+    const section = document.createElement('div');
+    section.className = 'chart-block';
+    const heading = document.createElement('h3');
+    heading.textContent = title;
+    section.appendChild(heading);
+    return section;
+}
+
+function appendEmptyNotice(section) {
+    const empty = document.createElement('p');
+    empty.className = 'legend';
+    empty.textContent = 'Aucune donnée.';
+    section.appendChild(empty);
+    return section;
+}
+
+/** Repartition domicile/nul/exterieur en %, calculee cote client a partir des comptes bruts (aucun calcul serveur supplementaire). */
+function renderMatchResultSection(baseline, modified) {
+    const section = emptyBlock('Répartition des résultats');
+    const b = baseline.matchResultDistribution;
+    const baselineTotal = b.homeWin + b.draw + b.awayWin;
+
+    if (baselineTotal === 0) {
+        return appendEmptyNotice(section);
+    }
+
+    const modifiedTotal = modified ? modified.matchResultDistribution.homeWin + modified.matchResultDistribution.draw + modified.matchResultDistribution.awayWin : 0;
+    const headers = modified ? ['', 'Baseline', 'Modifié'] : ['', 'Résultat'];
+
+    const rows = Object.keys(MATCH_RESULT_LABELS).map((key) => {
+        const baselinePct = `${(b[key] / baselineTotal * 100).toFixed(1)}%`;
+        if (!modified) {
+            return [MATCH_RESULT_LABELS[key], baselinePct];
+        }
+        const modifiedPct = modifiedTotal > 0 ? `${(modified.matchResultDistribution[key] / modifiedTotal * 100).toFixed(1)}%` : '—';
+        return [MATCH_RESULT_LABELS[key], baselinePct, modifiedPct];
+    });
+
+    section.appendChild(buildTable(headers, rows));
+    return section;
+}
+
+/** Scores exacts (baseline uniquement) tries par frequence decroissante, plafonnes aux 15 plus frequents - pas de variante comparaison, ce n'est pas un concept qui se diffe proprement (cf. plan). */
+function renderScorelineSection(baseline) {
+    const section = emptyBlock('Scores exacts (triés par fréquence)');
+    const entries = Object.entries(baseline.scorelineFrequency).sort((a, b) => b[1] - a[1]);
+
+    if (entries.length === 0) {
+        return appendEmptyNotice(section);
+    }
+
+    const rows = entries.slice(0, 15).map(([score, count]) => [score, String(count)]);
+    section.appendChild(buildTable(['Score', 'n'], rows));
+    return section;
+}
+
+/** @param {{standings: object[]}} seasonEntry - une entree de AggregateResult.seasonHistory (cf. seasonEntry()) */
+function renderStandingsSection(seasonEntry, title) {
+    const section = emptyBlock(title);
+
+    if (seasonEntry.standings.length === 0) {
+        return appendEmptyNotice(section);
+    }
+
+    const rows = seasonEntry.standings.map((row) => [
+        row.clubName, String(row.played), String(row.won), String(row.drawn), String(row.lost),
+        String(row.goalsFor), String(row.goalsAgainst), String(row.points),
+    ]);
+    section.appendChild(buildTable(['Club', 'J', 'G', 'N', 'P', 'BP', 'BC', 'Pts'], rows));
+    return section;
+}
+
+/** @param {{matches: object[]}} seasonEntry - une entree de AggregateResult.seasonHistory (cf. seasonEntry()) */
+function renderRecentMatchesSection(seasonEntry, title) {
+    const section = emptyBlock(title);
+
+    if (seasonEntry.matches.length === 0) {
+        return appendEmptyNotice(section);
+    }
+
+    const rows = seasonEntry.matches.map((m) => [String(m.matchday), m.homeClub, `${m.homeGoals} - ${m.awayGoals}`, m.awayClub]);
+    section.appendChild(buildTable(['J', 'Domicile', 'Score', 'Extérieur'], rows));
+    return section;
+}
+
+/**
+ * Reconstruit les options du selecteur de saison a partir de l'union des
+ * saisons connues cote baseline/modifie (peuvent differer si l'override
+ * touche seasonStartDayOfYear - rare, mais pas exclu) - selectionne la plus
+ * recente par defaut. Ne fait aucune requete : tout est deja dans
+ * lastResponse.
+ */
+function populateSeasonSelect() {
+    const seasonSelect = document.getElementById('season-select');
+    const seasons = new Set((lastResponse.baseline.seasonHistory || []).map((s) => s.season));
+    if (lastResponse.modified) {
+        (lastResponse.modified.seasonHistory || []).forEach((s) => seasons.add(s.season));
+    }
+    const sorted = Array.from(seasons).sort((a, b) => a - b);
+
+    seasonSelect.innerHTML = '';
+    sorted.forEach((season) => {
+        const option = document.createElement('option');
+        option.value = String(season);
+        option.textContent = `Saison ${season}`;
+        seasonSelect.appendChild(option);
+    });
+
+    if (sorted.length > 0) {
+        seasonSelect.value = String(sorted[sorted.length - 1]);
+    }
+}
+
+function selectedSeason() {
+    return Number(document.getElementById('season-select').value);
+}
+
+/** @return {{season: number, standings: object[], matches: object[]}} l'entree de seasonHistory pour cette saison, ou un objet vide si absente (saison sans match, ou absente d'un cote seulement en comparaison) */
+function seasonEntry(result, season) {
+    const found = (result.seasonHistory || []).find((entry) => entry.season === season);
+    return found || { season, standings: [], matches: [] };
 }
 
 function formatDelta(value) {
@@ -475,7 +654,7 @@ function attachCurveTooltip(svg, wrapper, xValues, xOf, series, formatPoint = (a
     svg.addEventListener('mouseleave', hide);
 }
 
-function renderHistogramChart(histogram, modifiedHistogram) {
+function renderHistogramChart(histogram, modifiedHistogram, unitLabel = 'ans') {
     const ages = Object.keys(histogram).map(Number);
     if (modifiedHistogram) {
         ages.push(...Object.keys(modifiedHistogram).map(Number));
@@ -508,12 +687,12 @@ function renderHistogramChart(histogram, modifiedHistogram) {
 
         const baselineCount = histogram[age] || 0;
         const baselineHeight = scale(baselineCount, 0, maxCount, y0, y1);
-        appendRect(svg, groupX, baselineHeight, barWidth, y0 - baselineHeight, 'bar baseline', `${age} ans : ${baselineCount}`);
+        appendRect(svg, groupX, baselineHeight, barWidth, y0 - baselineHeight, 'bar baseline', `${age} ${unitLabel} : ${baselineCount}`);
 
         if (modifiedHistogram) {
             const modifiedCount = modifiedHistogram[age] || 0;
             const modifiedHeight = scale(modifiedCount, 0, maxCount, y0, y1);
-            appendRect(svg, groupX + barWidth, modifiedHeight, barWidth, y0 - modifiedHeight, 'bar modified', `${age} ans (modifie) : ${modifiedCount}`);
+            appendRect(svg, groupX + barWidth, modifiedHeight, barWidth, y0 - modifiedHeight, 'bar modified', `${age} ${unitLabel} (modifie) : ${modifiedCount}`);
         }
     });
 

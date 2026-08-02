@@ -8,6 +8,7 @@ use Flair\Harness\Population\PopulationFactory;
 use Flair\Harness\Population\PopulationSpec;
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Football\Components\Club;
+use Flair\Kernel\Football\Components\Competition;
 use Flair\Kernel\Football\Components\Facilities;
 use Flair\Kernel\Football\Components\SquadMembership;
 use PHPUnit\Framework\TestCase;
@@ -67,5 +68,29 @@ final class PopulationFactoryTest extends TestCase
         foreach ($playerIds as $playerId) {
             self::assertNull($world->components(SquadMembership::class)->get($playerId));
         }
+    }
+
+    /**
+     * Sans elle, Football\CalendarSystem (qui lit Competition::class) n'a
+     * aucun calendrier a generer meme si des clubs existent.
+     */
+    public function testCreatesACompetitionWhenClubsExist(): void
+    {
+        $world = new WorldState();
+        $spec = new PopulationSpec(playerCount: 5, years: 1, seed: 1, clubCount: 3);
+
+        (new PopulationFactory())->populate($world, $spec);
+
+        self::assertCount(1, $world->components(Competition::class)->entities());
+    }
+
+    public function testDoesNotCreateACompetitionWithoutClubs(): void
+    {
+        $world = new WorldState();
+        $spec = new PopulationSpec(playerCount: 5, years: 1, seed: 1, clubCount: 0);
+
+        (new PopulationFactory())->populate($world, $spec);
+
+        self::assertSame([], $world->components(Competition::class)->entities());
     }
 }
