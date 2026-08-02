@@ -13,6 +13,9 @@ const form = document.getElementById('run-form');
 const statusEl = document.getElementById('status');
 const filtersEl = document.getElementById('filters');
 const chartsEl = document.getElementById('charts');
+const seasonSelect = document.getElementById('season-select');
+const seasonPrevBtn = document.getElementById('season-prev');
+const seasonNextBtn = document.getElementById('season-next');
 
 form.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -47,6 +50,9 @@ form.addEventListener('submit', async (event) => {
 });
 
 filtersEl.addEventListener('change', renderAll);
+seasonSelect.addEventListener('change', updateSeasonNavButtons);
+seasonPrevBtn.addEventListener('click', () => stepSeason(-1));
+seasonNextBtn.addEventListener('click', () => stepSeason(1));
 
 /**
  * Ne garde que les champs dont la valeur differe de son defaut (pose en
@@ -393,7 +399,6 @@ function renderRecentMatchesSection(seasonEntry, title) {
  * lastResponse.
  */
 function populateSeasonSelect() {
-    const seasonSelect = document.getElementById('season-select');
     const seasons = new Set((lastResponse.baseline.seasonHistory || []).map((s) => s.season));
     if (lastResponse.modified) {
         (lastResponse.modified.seasonHistory || []).forEach((s) => seasons.add(s.season));
@@ -411,10 +416,34 @@ function populateSeasonSelect() {
     if (sorted.length > 0) {
         seasonSelect.value = String(sorted[sorted.length - 1]);
     }
+
+    updateSeasonNavButtons();
 }
 
 function selectedSeason() {
-    return Number(document.getElementById('season-select').value);
+    return Number(seasonSelect.value);
+}
+
+/** Deplace la selection de saison de +1/-1 dans la liste triee des <option>, sans requete (tout est deja dans lastResponse). Ne fait rien au-dela des bornes. */
+function stepSeason(direction) {
+    const options = Array.from(seasonSelect.options);
+    const index = options.findIndex((option) => option.value === seasonSelect.value);
+    const nextIndex = index + direction;
+    if (nextIndex < 0 || nextIndex >= options.length) {
+        return;
+    }
+
+    seasonSelect.value = options[nextIndex].value;
+    updateSeasonNavButtons();
+    renderAll();
+}
+
+/** Grise le bouton precedent/suivant en bout de liste - evite un stepSeason() sans effet visible. */
+function updateSeasonNavButtons() {
+    const options = seasonSelect.options;
+    const index = Array.from(options).findIndex((option) => option.value === seasonSelect.value);
+    seasonPrevBtn.disabled = options.length === 0 || index <= 0;
+    seasonNextBtn.disabled = options.length === 0 || index === -1 || index >= options.length - 1;
 }
 
 /** @return {{season: number, standings: object[], matches: object[]}} l'entree de seasonHistory pour cette saison, ou un objet vide si absente (saison sans match, ou absente d'un cote seulement en comparaison) */

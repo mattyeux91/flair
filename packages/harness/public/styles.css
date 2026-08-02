@@ -66,6 +66,40 @@ fieldset#filters label {
     gap: 6px;
 }
 
+fieldset#filters {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--bg);
+    box-shadow: 0 4px 8px -4px rgba(0, 0, 0, 0.15);
+}
+
+.season-nav {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.season-nav label {
+    margin-right: 0;
+}
+
+.season-nav button {
+    background: transparent;
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 0.9rem;
+    line-height: 1.4;
+    cursor: pointer;
+}
+
+.season-nav button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
 input, select {
     background: var(--bg);
     color: var(--fg);

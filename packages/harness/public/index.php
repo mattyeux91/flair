@@ -224,7 +224,12 @@ $openByDefault = ['Retraite' => true, 'Développement' => true];
         <label><input type="checkbox" name="category" value="technical" checked> Technique</label>
         <label><input type="checkbox" name="category" value="mental" checked> Mental</label>
         <label><input type="checkbox" id="toggle-band" checked> Bande p10-p90</label>
-        <label>Saison <select id="season-select"></select></label>
+        <span class="season-nav">
+            <label for="season-select">Saison</label>
+            <button type="button" id="season-prev" aria-label="Saison précédente" disabled>‹</button>
+            <select id="season-select"></select>
+            <button type="button" id="season-next" aria-label="Saison suivante" disabled>›</button>
+        </span>
     </fieldset>
 
     <section id="charts"></section>
