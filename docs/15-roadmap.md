@@ -87,6 +87,8 @@ Finances des clubs, grand livre monétaire, contrats, marché des transferts mul
 
 > **Critère de sortie :** invariant de conservation monétaire vert sur 20 saisons, et inflation dans la cible du ruleset.
 
+> **Note de conception à ne pas perdre (2026-08-02), avant d'écrire la perception :** `observerId` (`12-` §4) doit être une **personne** (`Person` + composant de rôle — scout/coach/président/journaliste/supporter), jamais un attribut de `Club` — c'est le cas d'école qui justifie l'ECS (`12-` §1 : joueur → entraîneur → président, même entité). Aucun rôle non-joueur n'existe encore dans le monde : ni le composant de rôle, ni la relation d'emploi club↔personne, ni le mécanisme qui fait avancer `observationCount`. Pour cette phase, seul le rôle **scout employé par un club** est nécessaire (sert la valorisation du marché, `14-` §5) — coach/président (gouvernance de club, `14-` §7) et journaliste/supporter (narration, Phase 6) peuvent attendre. Détail complet dans `12-modele-du-monde.md` §4.
+
 ### Phase 3 — Persistance et temps réel *(≈ 3 semaines)*
 
 Event store, snapshots, boucle du Host, cadence temps réel, verrou mono-writer, un monde qui tourne en continu.

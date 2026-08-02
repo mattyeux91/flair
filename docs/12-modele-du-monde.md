@@ -203,6 +203,18 @@ $estimate = $trueValue + $noise * $sigma;
 
 On ne stocke donc pas les estimations : on stocke `observationCount` et `scoutQuality`, et on **dérive** l'estimation à la lecture (dans la projection). Gain : coût mémoire nul, stabilité parfaite, et la « révélation » progressive est gratuite.
 
+### `observerId` est une personne, jamais un club — note de conception (2026-08-02)
+
+Le commentaire `// un club, un agent, un média` sur `observerId` ci-dessus est trompeur tel quel : un club n'est pas de nature à percevoir quoi que ce soit, c'est une **personne** qui perçoit — scout, coach, journaliste, supporter, président — et le club s'appuie (ou non) sur ces personnes pour recruter, superviser, etc. C'est très exactement le cas d'école de §1 : *« un joueur prend sa retraite, devient entraîneur adjoint, puis entraîneur principal, puis président »*. `observerId` doit donc être l'`EntityId` d'une entité portant `Person`, à laquelle un composant de rôle est attaché (`CoachSkills`/`ScoutingRole`/... — cf. §1 et le tableau de §5) — jamais un attribut porté par `Club` lui-même.
+
+**Ce que ça laisse à concevoir avant que la formule ci-dessus ait un sens**, découvert en discutant la priorité de ce lot plutôt qu'en l'implémentant à l'aveugle :
+
+1. **Comment une personne acquiert un rôle non-joueur.** Semée directement au genesis (même précédent que `Facilities`/`Finances` : état externe, aucun système du noyau n'en crée), ou par transition depuis un joueur retraité (plus riche narrativement, mais un système à part entière — `RetirementSystem` retire déjà les composants de compétences, il resterait à décider qui y attache un rôle et quand).
+2. **La relation d'emploi club ↔ personne.** `SquadMembership` lie un joueur à un club dans un sens précis (effectif) ; l'emploi d'un scout par un club est une relation différente, un nouveau composant à concevoir, pas une réutilisation de `SquadMembership`.
+3. **Le mécanisme qui fait avancer `observationCount`.** La formule le prend comme un acquis, mais rien ne l'incrémente sans une action d'observation explicite (qui regarde qui, à quelle fréquence) — c'est le vrai cœur mécanique du scouting, pas la formule de bruit qui vient après.
+
+**Scoping retenu pour la Phase 2** (`15-` §4 — perception/scouting et agents PNJ y sont explicitement, ce n'est pas hors périmètre) : seul le rôle **scout employé par un club** sert un besoin déjà identifié, la valorisation du marché des transferts (§ ci-dessus, `14-` §5). Coach/président relèvent de la gouvernance de club (attentes du board, licenciements, `14-` §7) et journaliste/supporter de la narration (`14-` §9, Phase 6) — tous deux hors périmètre tant que rien ne les consomme. L'architecture (`Person` + composant de rôle, jamais de sous-type) reste ouverte pour les ajouter plus tard sans rien casser.
+
 ---
 
 ## 5. Les attributs des joueurs : peu, orthogonaux, groupés par comportement de vieillissement
