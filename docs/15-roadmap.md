@@ -75,6 +75,10 @@ Deux ajouts qui font la valeur de cette phase :
 
 > **Critère de sortie :** modifier une valeur de `ruleset.balance` et **voir l'effet chiffré** sur la santé du monde en moins de 5 minutes.
 
+> **Mesuré empiriquement le 2026-08-02** (`packages/harness/bin/aggregate.php`, seed 42, 500 joueurs / 18 clubs / 40 saisons) : run baseline seul ~56s ; comparaison à graines appariées complète (baseline + `--set trainingRate=1.5` + delta chiffré Gini/rotation) ~1min49s — sous la barre des 5 minutes avec large marge. Gini des titres 0.298 → 0.346 et rotation du top 5 63.7% → 62.1% entre baseline et modifié, effet lisible directement dans le rapport texte. Les briques prévues sont toutes en place : Gini des titres + rotation du top 5 (`CompetitiveBalance`), graphe d'événements opt-in (`EventGraphCollector`), test de déterminisme état+séquence d'événements (`DeterministicRunTest`), CI à deux jobs (`kernel` puis `harness`, suite `Regression` incluse). **Phase 1 est close sur cette base.**
+>
+> En parallèle (prérequis Phase 5, §2) : le prototype papier/CLI `prototype/agent-loop/` a confirmé que la tension commission/satisfaction/réputation est un vrai dilemme (styles de jeu divergents sur 3 graines, cf. son README) — la question qu'il devait trancher est tranchée. Conservé tel quel, en l'état de prototype, sans promotion en document de conception ni suppression.
+
 À partir d'ici tu pilotes au lieu de deviner. C'est ton avantage sur un studio.
 
 ### Phase 2 — Économie et marché *(≈ 4 semaines)*
