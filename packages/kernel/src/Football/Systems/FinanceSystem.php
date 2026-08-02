@@ -230,11 +230,15 @@ final class FinanceSystem implements System
     }
 
     /**
-     * L'entretien des installations : un puits qui croit avec la qualite
-     * (docs/14- §6). C'est lui, plus que la borne haute de `Facilities`, qui
-     * empeche un club riche de convertir indefiniment ses revenus en qualite
-     * - un plafond arbitraire aurait donne une marche, l'entretien donne un
-     * rendement decroissant.
+     * L'entretien des installations : un puits qui croit avec le **carre** de
+     * la qualite, pas lineairement (docs/14- §6/§7 - voir le docblock de
+     * `FinanceBalance::$facilityUpkeepPerQualityPointCents` pour le
+     * raisonnement complet). C'est lui, plus que la borne haute de
+     * `Facilities`, qui empeche un club riche de convertir indefiniment ses
+     * revenus en qualite - un plafond arbitraire aurait donne une marche,
+     * l'entretien convexe donne un rendement decroissant qui mord plus fort
+     * a mesure qu'on approche du sommet, amortissant la boucle "succes ->
+     * argent -> meilleurs joueurs -> succes" de docs/14- §7.
      *
      * Un club sans `Facilities` ne paie rien : il n'a rien a entretenir.
      */
@@ -246,7 +250,7 @@ final class FinanceSystem implements System
             return 0;
         }
 
-        $upkeep = max(0, (int) round($finance->facilityUpkeepPerQualityPointCents * $facilities->quality));
+        $upkeep = max(0, (int) round($finance->facilityUpkeepPerQualityPointCents * $facilities->quality ** 2));
         $drained += $upkeep;
 
         return $upkeep;

@@ -65,15 +65,33 @@ final readonly class FinanceBalance
          */
         public float $meritShare = 0.0,
         /**
-         * Cout d'entretien annuel d'un point entier de qualite
-         * d'installations : un club a `quality = 1.5` paie une fois et demie
-         * ce montant chaque saison (docs/14- §6, table des puits :
-         * "amortissement des infrastructures").
+         * Cout d'entretien annuel d'un point de qualite d'installations, a
+         * `quality = 1.0` (qualite moyenne) - au-dela, le cout croit avec le
+         * **carre** de la qualite, pas lineairement : un club a
+         * `quality = 2.0` (le maximum) paie quatre fois ce montant, pas deux
+         * (docs/14- §6, table des puits : "amortissement des
+         * infrastructures").
          *
-         * Un puits qui **croit avec la richesse** : c'est ce qui empeche un
-         * club riche de convertir indefiniment ses revenus en qualite, sans
-         * avoir a lui imposer un plafond arbitraire. La borne haute de
-         * `Facilities` existe, mais l'entretien mord bien avant elle.
+         * Convexe plutot que lineaire pour amortir la boucle "succes ->
+         * argent -> meilleurs joueurs -> succes" (docs/14- §7) : la version
+         * lineaire laissait un club riche convertir indefiniment ses revenus
+         * en qualite sans jamais vraiment ralentir, la contre-reaction restant
+         * trop faible face au revenu au merite. Un centre de formation de
+         * classe mondiale n'est pas deux fois plus cher qu'un centre correct,
+         * il l'est nettement plus - se defend dans la fiction comme dans
+         * l'equilibrage. C'est ce qui empeche un club riche de convertir
+         * indefiniment ses revenus en qualite, sans avoir a lui imposer un
+         * plafond arbitraire. La borne haute de `Facilities` existe, mais
+         * l'entretien mord bien avant elle, et mord plus fort a l'approche du
+         * sommet.
+         *
+         * Convexe **continue** (le carre), pas par paliers - meme raisonnement
+         * que `FacilitiesBalance::$centsPerQualityPoint` : un seuil fixe
+         * creerait un effet de falaise autour d'un niveau de qualite precis,
+         * la ou le continu garde la qualite d'equilibre une fonction monotone
+         * et lisse de la richesse du club. Vaut `$facilityUpkeepPerQualityPointCents`
+         * exactement a `quality = 1.0`, ce qui est deliberement le meme point
+         * neutre que la version lineaire qu'il remplace.
          */
         public int $facilityUpkeepPerQualityPointCents = 14_000_000,
         /**

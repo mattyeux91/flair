@@ -281,7 +281,14 @@ final class FinanceSystemTest extends TestCase
         return $clubs;
     }
 
-    public function testUpkeepGrowsWithFacilityQualityAndIsCountedAsASink(): void
+    /**
+     * L'entretien croit avec le **carre** de la qualite, pas lineairement
+     * (`FinanceBalance::$facilityUpkeepPerQualityPointCents`) : a
+     * `quality = 1.0`, un club paie exactement le tarif de base (point
+     * neutre partage avec l'ancienne version lineaire) ; a `quality = 2.0`
+     * (le maximum), il en paie quatre fois plus, pas deux.
+     */
+    public function testUpkeepGrowsWithTheSquareOfFacilityQualityAndIsCountedAsASink(): void
     {
         $world = new WorldState();
         $modest = $this->createClub($world, balanceCents: 0);
@@ -297,9 +304,9 @@ final class FinanceSystemTest extends TestCase
         ));
 
         self::assertSame(70_000_000 - 10_000_000, $world->components(Finances::class)->get($modest)?->balanceCents);
-        self::assertSame(70_000_000 - 20_000_000, $world->components(Finances::class)->get($lavish)?->balanceCents);
+        self::assertSame(70_000_000 - 40_000_000, $world->components(Finances::class)->get($lavish)?->balanceCents);
 
-        self::assertSame(30_000_000, $world->singleton(MonetaryMass::class)?->totalSinksCents);
+        self::assertSame(50_000_000, $world->singleton(MonetaryMass::class)?->totalSinksCents);
     }
 
     public function testAClubInvestsItsSurplusAboveTheReserveAndEmitsTheFact(): void
