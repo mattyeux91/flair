@@ -36,15 +36,19 @@ use Flair\Kernel\Football\Generation\PlayerFactory;
  * Ce qui reste local, et doit le rester : l'age et le **niveau de
  * competence correspondant a cet age**. Un joueur genere a 28 ans a deja
  * vecu dix ans de progression, il ne demarre pas aux competences d'un
- * debutant. Approximation assumee du premier jet : une interpolation
- * lineaire entre le niveau de recrue et le `ceiling`, atteint au pic
- * physique - `PlayerDevelopmentSystem` suivrait une trajectoire plus fine,
- * mais le rejouer ici reviendrait a en dupliquer la logique.
+ * debutant - et un joueur genere a 34 ans a deja depasse son pic, il ne
+ * demarre pas non plus au `ceiling`. Approximation assumee du premier jet :
+ * une interpolation triangulaire (montee lineaire du niveau de recrue vers
+ * le `ceiling` jusqu'au pic physique, puis descente symetrique vers le
+ * niveau de recrue au-dela) - `PlayerDevelopmentSystem` suivrait une
+ * trajectoire plus fine (stochastique, calibree par `PlayerDevelopmentBalance`),
+ * mais le rejouer ici reviendrait a en dupliquer la logique et a coupler
+ * cette classe a des parametres non calibres (Phase 1).
  */
 final class PopulationFactory
 {
-    private const YOUNGEST_START_AGE = 14.0;
-    private const OLDEST_START_AGE = 17.0;
+    private const YOUNGEST_START_AGE = 17.0;
+    private const OLDEST_START_AGE = 34.0;
 
     public function __construct(
         private readonly PlayerFactory $players = new PlayerFactory(),
@@ -117,14 +121,31 @@ final class PopulationFactory
         return $entity;
     }
 
-    /** Interpolation lineaire du niveau de recrue vers le `ceiling`, atteint au pic et conserve ensuite (le declin est l'affaire de PlayerDevelopmentSystem, pas de la generation initiale). */
+    /**
+     * Interpolation triangulaire : montee lineaire du niveau de recrue vers
+     * le `ceiling` jusqu'au pic, puis descente symetrique vers le niveau de
+     * recrue au-dela - sur le meme empan que la montee, jamais plus bas (un
+     * veteran en fin de carriere reste au-dessus du niveau d'un debutant,
+     * contrairement au declin reel de `PlayerDevelopmentSystem` qui peut
+     * aller jusqu'a `MIN_SKILL`). Approximation volontairement ignorante de
+     * `PlayerDevelopmentBalance` - la reprendre coupterait cette classe a des
+     * parametres non calibres (Phase 1) pour un gain de precision qui n'a
+     * pas lieu d'etre a la generation initiale (cf. docblock de classe).
+     */
     private function levelAtAge(float $age, int $ceiling, int $peakAge, YouthIntakeBalance $talent): int
     {
         $rookieLevel = $ceiling * $talent->startingSkillRatio;
         $span = max(1.0, $peakAge - $talent->intakeAgeYears);
-        $progress = min(1.0, max(0.0, ($age - $talent->intakeAgeYears) / $span));
 
-        return (int) round($rookieLevel + $progress * ($ceiling - $rookieLevel));
+        if ($age <= $peakAge) {
+            $progress = min(1.0, max(0.0, ($age - $talent->intakeAgeYears) / $span));
+
+            return (int) round($rookieLevel + $progress * ($ceiling - $rookieLevel));
+        }
+
+        $declineProgress = min(1.0, ($age - $peakAge) / $span);
+
+        return (int) round($ceiling - $declineProgress * ($ceiling - $rookieLevel));
     }
 
     private function jitter(Rng $rng, int $level, YouthIntakeBalance $talent): int
