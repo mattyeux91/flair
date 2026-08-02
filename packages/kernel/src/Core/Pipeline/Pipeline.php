@@ -6,7 +6,7 @@ namespace Flair\Kernel\Core\Pipeline;
 
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Messaging\Intent;
-use Flair\Kernel\Core\Ruleset;
+use Flair\Kernel\Core\Ruleset\Ruleset;
 
 /**
  * Execute un tick sur une liste de systemes declaree, dans l'ordre

@@ -66,8 +66,11 @@ interface System
     /** @return list<class-string> déclaré → vérifiable, documenté */
     public function reads(): array;
 
-    /** @return list<class-string> */
+    /** @return list<class-string> composants mutés en place via ComponentStore::set() */
     public function writes(): array;
+
+    /** @return list<class-string> composants retirés via ComponentStore::remove() (archétype-strip) — distinct de writes(), qui ne couvre que set() */
+    public function removes(): array;
 
     /** @return list<class-string> types d'événements écoutés — vide si purement périodique */
     public function subscribesTo(): array;

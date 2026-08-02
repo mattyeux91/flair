@@ -10,7 +10,7 @@ use Flair\Kernel\Core\Messaging\Intent;
 use Flair\Kernel\Core\Pipeline\Pipeline;
 use Flair\Kernel\Core\Pipeline\System;
 use Flair\Kernel\Core\Pipeline\SystemContext;
-use Flair\Kernel\Core\Ruleset;
+use Flair\Kernel\Core\Ruleset\Ruleset;
 use Flair\Kernel\Core\Simulation\Simulation;
 use Flair\Kernel\Core\Simulation\TickContext;
 use PHPUnit\Framework\TestCase;
@@ -138,6 +138,16 @@ final class SimulationTestSystem implements System
     }
 
     public function writes(): array
+    {
+        return [];
+    }
+
+    public function removes(): array
+    {
+        return [];
+    }
+
+    public function creates(): array
     {
         return [];
     }

@@ -1,0 +1,191 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Flair\Kernel\Football\Systems;
+
+use Flair\Kernel\Core\Messaging\DomainEvent;
+use Flair\Kernel\Core\Pipeline\System;
+use Flair\Kernel\Core\Pipeline\SystemContext;
+use Flair\Kernel\Core\Ruleset\YouthIntakeBalance;
+use Flair\Kernel\Core\Support\Rng;
+use Flair\Kernel\Core\Support\SimDate;
+use Flair\Kernel\Football\Components\Club;
+use Flair\Kernel\Football\Components\Facilities;
+use Flair\Kernel\Football\Components\Person;
+use Flair\Kernel\Football\Components\PlayerMentalSkills;
+use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
+use Flair\Kernel\Football\Components\PlayerPotentials;
+use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
+use Flair\Kernel\Football\Components\SquadMembership;
+use Flair\Kernel\Football\Events\YouthPlayerPromoted;
+use Flair\Kernel\Football\Generation\PlayerFactory;
+
+/**
+ * L'arrivee des jeunes (docs/12- §7, docs/15- §4) : purement periodique,
+ * aucun evenement ecoute. Un jour precis de l'annee simulee
+ * (`YouthIntakeBalance::$intakeDayOfYear`), chaque club promeut une
+ * poignee de joueurs neufs dans son effectif.
+ *
+ * **Ferme la boucle demographique.** Sans lui, `RetirementSystem` ne fait
+ * que vider la population et le premier critere de sortie de la Phase 0
+ * ("pyramide des ages stationnaire sur 20 saisons", docs/15- §4) est
+ * structurellement inatteignable.
+ *
+ * ## Par club, pas par monde
+ *
+ * Le flux RNG est derive de `(worldSeed, tick, systemId, entityId)`
+ * (docs/13- §4.1) - or ce systeme cree des entites qui n'ont pas encore
+ * d'identifiant au moment du tirage. La cle ne peut donc pas etre le joueur
+ * produit : c'est le **club producteur** (`$ctx->rng($clubId)`). Ce qui
+ * tombe juste sur le plan du domaine, un centre de formation appartenant a
+ * un club, et permet de moduler la promotion par `Facilities`.
+ *
+ * Ce n'est pas qu'une commodite d'implementation : l'alternative - un
+ * intake mondial asservi a une cible de population - **garantirait** la
+ * stationnarite par construction. On mesurerait alors son propre
+ * regulateur, et le critere de sortie de la Phase 0 serait vide de sens.
+ * Ici la stationnarite reste une propriete emergente, a verifier.
+ *
+ * ## Cadence
+ *
+ * `tick % intakeDayOfYear` plutot qu'une probabilite quotidienne facon
+ * `RetirementSystem` : une cohorte discrete arrivant le meme jour rend la
+ * pyramide des ages immediatement lisible, la ou des arrivees au
+ * compte-goutte toute l'annee la brouillent. C'est aussi ce que fait le
+ * vrai football - non parce que les jeunes naissent ce jour-la, mais parce
+ * que l'entree dans la population professionnelle est bornee par le
+ * calendrier administratif (bascule de saison au 1er juillet en Europe).
+ * Voir `YouthIntakeBalance::$intakeDayOfYear` pour le caractere provisoire
+ * du modulo.
+ *
+ * ## Position dans le pipeline
+ *
+ * En premier. Les joueurs promus font partie du monde des ce tick :
+ * `TrainingSystem` lit leur `SquadMembership` et `PlayerDevelopmentSystem`
+ * leurs competences dans le meme tick, par le canal 1 (composant ecrit tot,
+ * lu plus loin - docs/13- §2). Aucune inversion de dependance : ce systeme
+ * n'ecrit que sur des entites qui n'existaient pas quand qui que ce soit a
+ * itere.
+ *
+ * Seul createur de joueurs a l'execution (`creates()`, cf. le docblock de
+ * `System`) : il ne `set()` jamais un composant d'une entite preexistante,
+ * ce qui le laisse coexister avec `PlayerDevelopmentSystem`, seul writer
+ * des competences, sans violer l'invariant "un seul writer" (docs/13- §2).
+ */
+final class YouthIntakeSystem implements System
+{
+    public function __construct(
+        private readonly PlayerFactory $players = new PlayerFactory(),
+    ) {
+    }
+
+    public function id(): string
+    {
+        return 'youth-intake';
+    }
+
+    /** @return list<class-string> */
+    public function reads(): array
+    {
+        return [
+            Club::class,
+            Facilities::class,
+        ];
+    }
+
+    /** @return list<class-string> */
+    public function writes(): array
+    {
+        return [];
+    }
+
+    /** @return list<class-string> */
+    public function removes(): array
+    {
+        return [];
+    }
+
+    /** @return list<class-string> */
+    public function creates(): array
+    {
+        return [
+            Person::class,
+            PlayerPotentials::class,
+            PlayerPhysicalSkills::class,
+            PlayerTechnicalSkills::class,
+            PlayerMentalSkills::class,
+            SquadMembership::class,
+        ];
+    }
+
+    /** @return list<class-string> */
+    public function subscribesTo(): array
+    {
+        return [];
+    }
+
+    public function handle(DomainEvent $event, SystemContext $ctx): void
+    {
+    }
+
+    public function update(SystemContext $ctx): void
+    {
+        $intake = $ctx->ruleset()->balance->youthIntake;
+
+        if ($ctx->tick % 365 !== $intake->intakeDayOfYear) {
+            return;
+        }
+
+        $birthDate = new SimDate((int) round($ctx->tick - $intake->intakeAgeYears * 365));
+
+        foreach ($ctx->components(Club::class)->entities() as $clubId) {
+            $rng = $ctx->rng($clubId);
+            // Club sans `Facilities` -> qualite neutre, pas d'exclusion : un
+            // club sans donnee d'installations a quand meme un centre de
+            // formation moyen. Effet identique a TrainingSystem, qui saute
+            // ces clubs et laisse PlayerDevelopmentSystem appliquer son
+            // propre defaut neutre.
+            $facilities = $ctx->components(Facilities::class)->get($clubId);
+            $quality = $facilities === null ? 1.0 : $facilities->quality;
+
+            $count = $this->cohortSize($intake->baseIntakePerClub * $quality, $rng);
+
+            for ($i = 0; $i < $count; $i++) {
+                $this->promote($ctx, $clubId, $birthDate, $intake, $rng);
+            }
+        }
+    }
+
+    /**
+     * Arrondi stochastique de l'effectif attendu : `floor(x)` joueurs, plus
+     * un de plus avec la probabilite `x - floor(x)`. Un `round()` sec
+     * ecraserait la calibration - avec 1,2 attendu, tous les clubs
+     * promouvraient exactement 1 joueur et `baseIntakePerClub` n'aurait plus
+     * aucun effet entre 0,5 et 1,5. Ici l'esperance reste exactement `x`
+     * malgre des cohortes forcement entieres.
+     */
+    private function cohortSize(float $expected, Rng $rng): int
+    {
+        $guaranteed = (int) floor(max(0.0, $expected));
+        $remainder = max(0.0, $expected) - $guaranteed;
+        $roll = $rng->nextUint32() % 10_000;
+
+        return $guaranteed + ($roll < (int) ($remainder * 10_000) ? 1 : 0);
+    }
+
+    private function promote(SystemContext $ctx, int $clubId, SimDate $birthDate, YouthIntakeBalance $intake, Rng $rng): void
+    {
+        $playerId = $ctx->createEntity();
+        $blueprint = $this->players->drawRookie($rng, "Joueur {$playerId}", $birthDate, $intake);
+
+        $ctx->components(Person::class)->set($playerId, $blueprint->person);
+        $ctx->components(PlayerPotentials::class)->set($playerId, $blueprint->potentials);
+        $ctx->components(PlayerPhysicalSkills::class)->set($playerId, $blueprint->physical);
+        $ctx->components(PlayerTechnicalSkills::class)->set($playerId, $blueprint->technical);
+        $ctx->components(PlayerMentalSkills::class)->set($playerId, $blueprint->mental);
+        $ctx->components(SquadMembership::class)->set($playerId, new SquadMembership($clubId));
+
+        $ctx->emit(new YouthPlayerPromoted($playerId, $clubId), entityId: $playerId);
+    }
+}

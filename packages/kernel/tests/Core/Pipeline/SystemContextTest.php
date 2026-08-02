@@ -11,7 +11,7 @@ use Flair\Kernel\Core\Messaging\OutQueue;
 use Flair\Kernel\Core\Messaging\Scheduler;
 use Flair\Kernel\Core\Pipeline\SeqCounter;
 use Flair\Kernel\Core\Pipeline\SystemContext;
-use Flair\Kernel\Core\Ruleset;
+use Flair\Kernel\Core\Ruleset\Ruleset;
 use PHPUnit\Framework\TestCase;
 
 final class SystemContextTest extends TestCase

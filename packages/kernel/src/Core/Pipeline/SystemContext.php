@@ -10,7 +10,7 @@ use Flair\Kernel\Core\Messaging\DomainEvent;
 use Flair\Kernel\Core\Messaging\Intent;
 use Flair\Kernel\Core\Messaging\OutQueue;
 use Flair\Kernel\Core\Messaging\Scheduler;
-use Flair\Kernel\Core\Ruleset;
+use Flair\Kernel\Core\Ruleset\Ruleset;
 use Flair\Kernel\Core\Support\Rng;
 
 /**
