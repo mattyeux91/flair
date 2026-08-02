@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Flair\Kernel\Tests\Football;
 
 use Flair\Kernel\Core\Pipeline\System;
+use Flair\Kernel\Football\Systems\CalendarSystem;
+use Flair\Kernel\Football\Systems\CompetitionSystem;
+use Flair\Kernel\Football\Systems\MatchSystem;
 use Flair\Kernel\Football\Systems\PlayerDevelopmentSystem;
 use Flair\Kernel\Football\Systems\RetirementSystem;
 use Flair\Kernel\Football\Systems\TrainingSystem;
@@ -32,6 +35,9 @@ final class PipelineInvariantsTest extends TestCase
             new TrainingSystem(),
             new RetirementSystem(),
             new PlayerDevelopmentSystem(),
+            new CalendarSystem(),
+            new MatchSystem(),
+            new CompetitionSystem(),
         ];
     }
 

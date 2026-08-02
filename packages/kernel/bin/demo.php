@@ -22,11 +22,13 @@ require __DIR__ . '/../vendor/autoload.php';
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Pipeline\Pipeline;
 use Flair\Kernel\Core\Ruleset\Balance;
+use Flair\Kernel\Core\Ruleset\CalendarBalance;
 use Flair\Kernel\Core\Ruleset\Ruleset;
 use Flair\Kernel\Core\Simulation\Simulation;
 use Flair\Kernel\Core\Simulation\TickContext;
 use Flair\Kernel\Core\Support\SimDate;
 use Flair\Kernel\Football\Components\Club;
+use Flair\Kernel\Football\Components\Competition;
 use Flair\Kernel\Football\Components\Facilities;
 use Flair\Kernel\Football\Components\Person;
 use Flair\Kernel\Football\Components\PlayerMentalSkills;
@@ -34,12 +36,24 @@ use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
 use Flair\Kernel\Football\Components\PlayerPotentials;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
 use Flair\Kernel\Football\Components\SquadMembership;
+use Flair\Kernel\Football\Components\Standings;
 use Flair\Kernel\Football\Events\PlayerRetired;
 use Flair\Kernel\Football\Events\YouthPlayerPromoted;
+use Flair\Kernel\Football\Systems\CalendarSystem;
+use Flair\Kernel\Football\Systems\CompetitionSystem;
+use Flair\Kernel\Football\Systems\MatchSystem;
 use Flair\Kernel\Football\Systems\PlayerDevelopmentSystem;
 use Flair\Kernel\Football\Systems\RetirementSystem;
 use Flair\Kernel\Football\Systems\TrainingSystem;
 use Flair\Kernel\Football\Systems\YouthIntakeSystem;
+
+function demoCreateCompetition(WorldState $world): int
+{
+    $competition = $world->createEntity();
+    $world->components(Competition::class)->set($competition, new Competition('Ligue Demo'));
+
+    return $competition;
+}
 
 /** @return array<string, int> nom -> entityId */
 function demoCreateClubs(WorldState $world): array
@@ -152,16 +166,58 @@ function demoPrintPopulation(WorldState $world, array $clubs, array $promotions)
     echo sprintf("  population active=%d | promus: %s\n", $active, implode(', ', $detail));
 }
 
+/** @param array<string, int> $clubs nom -> entityId */
+function demoPrintStandings(WorldState $world, int $competitionId, array $clubs): void
+{
+    $standings = $world->components(Standings::class)->get($competitionId);
+
+    if ($standings === null) {
+        return;
+    }
+
+    $namesById = array_flip($clubs);
+    $rows = $standings->entries;
+    usort($rows, static fn ($a, $b): int => $b->points <=> $a->points ?: ($b->goalsFor - $b->goalsAgainst) <=> ($a->goalsFor - $a->goalsAgainst));
+
+    echo "  classement :\n";
+    foreach ($rows as $entry) {
+        $name = $namesById[$entry->clubId] ?? "club #{$entry->clubId}";
+        echo sprintf(
+            "    %-14s J=%-2d Pts=%-2d (%d-%d)\n",
+            $name,
+            $entry->played,
+            $entry->points,
+            $entry->goalsFor,
+            $entry->goalsAgainst,
+        );
+    }
+}
+
 const DEMO_YEARS = 40;
 const DEMO_TICKS_PER_YEAR = 365;
 const DEMO_WORLD_SEED = 42;
 
 $world = new WorldState();
+$competition = demoCreateCompetition($world);
 $clubs = demoCreateClubs($world);
 $players = demoCreatePlayers($world, atTick: 1, clubs: $clubs);
 
-$simulation = new Simulation(new Pipeline([new YouthIntakeSystem(), new TrainingSystem(), new RetirementSystem(), new PlayerDevelopmentSystem()]));
-$ruleset = new Ruleset('demo', new Balance(developmentRate: 1.0));
+$simulation = new Simulation(new Pipeline([
+    new YouthIntakeSystem(),
+    new TrainingSystem(),
+    new RetirementSystem(),
+    new PlayerDevelopmentSystem(),
+    new CalendarSystem(),
+    new MatchSystem(),
+    new CompetitionSystem(),
+]));
+// Saison generee des le premier tick simule (pas au tick 0, jamais atteint
+// par la boucle ci-dessous) et journees rapprochees : seulement 2 clubs en
+// demo, pas besoin de l'espacement realiste d'une vraie saison.
+$ruleset = new Ruleset('demo', new Balance(
+    developmentRate: 1.0,
+    calendar: new CalendarBalance(seasonStartDayOfYear: 1, firstMatchdayOffsetDays: 5, matchdayIntervalDays: 5),
+));
 
 /** @var array<int, int> $promotions entityId du club -> promus cette annee */
 $promotions = [];
@@ -197,5 +253,6 @@ for ($year = 1; $year <= DEMO_YEARS; $year++) {
     echo "Apres {$year} an(s) :\n";
     demoPrintSnapshot($world, $players);
     demoPrintPopulation($world, $clubs, $promotions);
+    demoPrintStandings($world, $competition, $clubs);
     $promotions = [];
 }

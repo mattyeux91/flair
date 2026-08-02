@@ -188,9 +188,43 @@ Premier code hors du kernel générique : le vieillissement, le plus autonome de
 - **`RetirementSystem`** — purement périodique, seul système qui `remove()` `PlayerPotentials`+les trois composants de compétences. Chaque tick, pour chaque entité `Person`+`PlayerPotentials` : au-delà d'un âge d'éligibilité, une probabilité de retraite croissante (âge, `fragility`) est tirée ; si elle tombe, les composants sont retirés et `PlayerRetired` est émis.
 - **`PlayerDevelopmentSystem`** — purement périodique, seul système qui `set()` les trois composants de compétences. Chaque attribut progresse ou décline via un taux annuel (`growthRate × écart au plafond × g(âge)`, `balance->developmentRate` du `Ruleset` en multiplicateur, modulé par `TrainingEffect->quality`) converti en probabilité **quotidienne** d'un pas de ±1 — nécessaire pour éviter qu'un taux journalier fractionnaire ne s'arrondisse toujours à zéro, et ça donne une progression par à-coups plutôt qu'une interpolation lisse. Chaque catégorie a son propre âge de pic et sa propre pente de déclin post-pic (`Ruleset\PlayerDevelopmentBalance`).
 
-Pipeline déclaré (`bin/demo.php`, `harness/Sampler`) : `YouthIntakeSystem`, `TrainingSystem`, `RetirementSystem`, `PlayerDevelopmentSystem` — les facteurs avant les effets, `TrainingSystem` doit écrire `TrainingEffect` avant que `PlayerDevelopmentSystem` le lise. `YouthIntakeSystem` est en tête pour qu'un joueur promu fasse partie du monde dès ce tick (son `SquadMembership` est lu par `TrainingSystem`, ses compétences par `PlayerDevelopmentSystem` — canal 1, `docs/13-` §2).
+### Calendrier, match L0 et classement
 
-Simplifications assumées (voir les docblocks des classes pour le détail) : `ceiling`/`growthRate`/`fragility` partagés entre les trois catégories plutôt qu'un plafond par attribut, pas de "queue épaisse" sur le bruit, pas de potentiel révélé progressivement (dépend du comptage de matchs, donc du moteur de match), domaine `Club` réduit à l'identité + une qualité scalaire. Premier jet à calibrer via le harness d'équilibrage (Phase 1), pas des valeurs équilibrées.
+Dernière brique de la Phase 0 (`docs/15-` §4) : calendrier, match, classement — livrée comme une seule tranche (un calendrier seul n'a pas de consommateur).
+
+- **`Competition`** — identité minimale (`name`) sur une entité compétition, porte `Standings`. **Une seule compétition en Phase 0** : aucun `CompetitionMembership` côté club n'existe, donc `CalendarSystem` associe tous les `Club::entities()` du monde à chaque `Competition` trouvée — juste tant qu'il n'en existe qu'une.
+- **`Fixture`** — un match programmé (`competitionId`/`homeClubId`/`awayClubId`/`matchday`), créé une fois par `CalendarSystem` (`creates()`), jamais modifié ensuite.
+- **`MatchResult`** — le score, sur la même entité que `Fixture` mais un composant distinct (seul writer `MatchSystem`) : un système qui ne veut qu'ajouter un score n'a pas besoin de connaître la forme complète de `Fixture`.
+- **`Standings`/`StandingsEntry`** — le classement, sur l'entité compétition, seul writer `CompetitionSystem`. `entries` (`array<clubId, StandingsEntry>`) est peuplé **paresseusement** : un club n'y apparaît qu'après son premier match, pour éviter à `CompetitionSystem` de devoir lire `Club::class`.
+- **`FixtureKickoff`** (planifié via `Scheduler`), **`SeasonStarted`**, **`MatchPlayed`** (Fait) — les trois événements du lot, tous self-suffisants (mêmes précédent que `YouthPlayerPromoted` : un événement se comprend seul, sans recroiser un composant).
+- **`Generation/PoissonMatchEngine`** + **`MatchScore`** — le moteur L0 (`docs/14-` §1, Dixon-Coles) : pure comme `PlayerFactory`, `(Rng, ratings, MatchBalance) → MatchScore`. `λ_home = exp((attackHome − defenseAway) / strengthScale + homeAdvantage)`, `λ_away` symétrique sans l'avantage du terrain ; pmf de Poisson par récurrence (`p(0) = exp(-λ)`, `p(k) = p(k-1) × λ / k`, un seul `exp()` par λ) ; correction de Dixon-Coles `τ(x, y, λ, μ, ρ)` sur les scores 0-0/1-0/0-1/1-1 ; tirage par **grille normalisée + inversion de la fonction de répartition cumulée** (un seul `nextUint32()`), plutôt que par rejet — borné, déterministe, pas de boucle non bornée.
+
+  **`exp()` est la première fonction transcendante du noyau — décision consciente, pas une entorse au paragraphe `PlayerFactory` ci-dessus.** `PlayerFactory` évite `exp`/`log`/`sqrt`/`cos` pour la loi de talent à cause d'un risque de **portabilité cross-plateforme/cross-libc** (un `ulp` de différence changerait la forme de la queue de distribution). Mais `docs/13-` §4.8 précise que le noyau n'a besoin que d'une reproductibilité **même machine, même version de PHP** — pas cross-plateforme, puisque seul le serveur exécute le noyau (pas de lockstep multijoueur). Sur une même machine, `exp()` de la libm rend toujours le même résultat pour les mêmes entrées : le déterminisme n'est donc pas menacé ici, et le monde tourne aujourd'hui sur une seule machine. À revisiter si la Phase 1 introduit une comparaison de hash entre machines différentes (harness sur CI, monde en prod sur un autre hôte).
+- **`CalendarSystem`** — périodique, `creates() = [Fixture::class]`. À `tick % 365 === seasonStartDayOfYear`, génère pour chaque `Competition` un calendrier aller-retour complet par la **méthode du cercle** (déterministe, aucun RNG), crée une `Fixture` par match et programme un `FixtureKickoff` via `ctx->schedule()`. Invariant testable indépendamment du détail d'alternance de la méthode : chaque club joue exactement `N-1` fois à domicile et `N-1` fois à l'extérieur sur la saison (la manche retour est la manche aller, domicile/extérieur inversés).
+- **`MatchSystem`** — réactif sur `FixtureKickoff`, `writes() = [MatchResult::class]`. Calcule un rating attaque/défense par club à partir de l'effectif (`SquadMembership` + skills) — pas de `Position` ni de sélection d'onze (`docs/15-` déjà arrêté) : `attackRating` moyenne `finishing`/`passing`/`technique`/`pace`, `defenseRating` moyenne `defending`/`positioning`/`strength`/`reflexes` sur tout l'effectif. Club sans joueur → rating neutre (50.0). Écrit `MatchResult` **et** émet le Fait `MatchPlayed`.
+- **`CompetitionSystem`** — réactif sur `FixtureKickoff` et `SeasonStarted`, `writes() = [Standings::class]`. Sur `SeasonStarted` (émis par `CalendarSystem` à la génération de la saison), remet `Standings` à vide. Sur `FixtureKickoff` : lit `MatchResult`.
+
+  **Le point d'architecture à retenir : `MatchSystem` et `CompetitionSystem` réagissent au même `FixtureKickoff`.** `Pipeline::tick()` calcule `$incoming` une seule fois puis le rejoue pour chaque système dans l'ordre déclaré (voir "Le tick, de bout en bout" plus haut) — `MatchSystem`, déclaré avant, a donc déjà écrit `MatchResult` quand `CompetitionSystem` traite le même événement. C'est exactement l'exemple documenté par `docs/13-` §2 : *"un match joué doit alimenter le classement du jour"* — canal 1 (composant lu le jour même), pas canal 2 (`MatchPlayed`, qui n'arriverait qu'au tick suivant et serait trop tard pour le classement du jour).
+
+```mermaid
+sequenceDiagram
+    participant CalendarSystem
+    participant Scheduler
+    participant MatchSystem
+    participant CompetitionSystem
+
+    CalendarSystem->>Scheduler: schedule(FixtureKickoff, atTick: jour du match)
+    Note over Scheduler: ... tick suivants ...
+    Scheduler->>MatchSystem: FixtureKickoff (incoming du tick)
+    MatchSystem->>MatchSystem: écrit MatchResult (composant)
+    MatchSystem-->>Scheduler: emit(MatchPlayed) → OutQueue (tick+1)
+    Scheduler->>CompetitionSystem: FixtureKickoff (même incoming, même tick)
+    CompetitionSystem->>CompetitionSystem: lit MatchResult, écrit Standings
+```
+
+Pipeline déclaré (`bin/demo.php`, `Football\PipelineInvariantsTest`) : `YouthIntakeSystem`, `TrainingSystem`, `RetirementSystem`, `PlayerDevelopmentSystem`, `CalendarSystem`, `MatchSystem`, `CompetitionSystem` — les facteurs avant les effets (`TrainingSystem` avant `PlayerDevelopmentSystem`), `YouthIntakeSystem` en tête (canal 1 pour les joueurs promus), puis le trio calendrier/match/classement en fin de pipeline (`MatchSystem` avant `CompetitionSystem`, obligatoire pour le canal 1 ci-dessus).
+
+Simplifications assumées (voir les docblocks des classes pour le détail) : `ceiling`/`growthRate`/`fragility` partagés entre les trois catégories plutôt qu'un plafond par attribut, pas de "queue épaisse" sur le bruit, pas de potentiel révélé progressivement (dépend du comptage de matchs, donc du moteur de match), domaine `Club` réduit à l'identité + une qualité scalaire, une seule compétition (pas de `CompetitionMembership`), force de club = agrégat de tout l'effectif (pas de `Position`). Premier jet à calibrer via le harness d'équilibrage (Phase 1), pas des valeurs équilibrées.
 
 - **`Core/Support/SimDate`** — le seul temps connu du noyau (`docs/13-` §1, "1 tick = 1 jour simulé") : un compteur de jours, `yearsSince()` pour les écarts. Générique, pas spécifique football — réutilisable par tout futur composant daté (`Contract.expiresOn`...).
 
