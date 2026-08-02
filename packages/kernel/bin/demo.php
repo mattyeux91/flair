@@ -62,6 +62,9 @@ function demoCreateCompetition(WorldState $world): int
 
 const DEMO_STARTING_BALANCE_CENTS = 10_000_000;
 const DEMO_WAGE_PER_WEEK_CENTS = 50_000;
+// Assez loin pour que la demo montre le vieillissement et l'entrainement sans
+// que ses quelques joueurs partent au premier mercato (Football\ContractSystem).
+const DEMO_CONTRACT_EXPIRY_TICK = 10_000;
 
 /** @return array<string, int> nom -> entityId */
 function demoCreateClubs(WorldState $world): array
@@ -136,7 +139,7 @@ function demoCreatePlayers(WorldState $world, int $atTick, array $clubs): array
             fragility: $definition['fragility'],
         ));
         $world->components(SquadMembership::class)->set($entity, new SquadMembership($clubId));
-        $world->components(Contract::class)->set($entity, new Contract($clubId, DEMO_WAGE_PER_WEEK_CENTS));
+        $world->components(Contract::class)->set($entity, new Contract($clubId, DEMO_WAGE_PER_WEEK_CENTS, new SimDate(DEMO_CONTRACT_EXPIRY_TICK)));
 
         $players[$name] = $entity;
     }

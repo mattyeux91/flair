@@ -7,11 +7,13 @@ namespace Flair\Kernel\Tests\Football;
 use Flair\Kernel\Core\Pipeline\System;
 use Flair\Kernel\Football\Systems\CalendarSystem;
 use Flair\Kernel\Football\Systems\CompetitionSystem;
+use Flair\Kernel\Football\Systems\ContractSystem;
 use Flair\Kernel\Football\Systems\FacilitiesSystem;
 use Flair\Kernel\Football\Systems\FinanceSystem;
 use Flair\Kernel\Football\Systems\MatchSystem;
 use Flair\Kernel\Football\Systems\PlayerDevelopmentSystem;
 use Flair\Kernel\Football\Systems\RetirementSystem;
+use Flair\Kernel\Football\Systems\SquadSystem;
 use Flair\Kernel\Football\Systems\TrainingSystem;
 use Flair\Kernel\Football\Systems\YouthIntakeSystem;
 use PHPUnit\Framework\TestCase;
@@ -25,7 +27,7 @@ use PHPUnit\Framework\TestCase;
  * le noyau (docs/13- §2 n'en montre qu'un exemple illustratif, cote
  * domaine football, avec des classes qui n'existent pas) - la liste
  * ci-dessous est donc maintenue a la main et doit suivre l'ordre reel
- * declare dans `bin/demo.php`/`harness/Sampler`.
+ * declare dans `bin/demo.php`/`Harness\Simulation\PipelineFactory`.
  */
 final class PipelineInvariantsTest extends TestCase
 {
@@ -35,6 +37,7 @@ final class PipelineInvariantsTest extends TestCase
         return [
             new FacilitiesSystem(),
             new YouthIntakeSystem(),
+            new SquadSystem(),
             new TrainingSystem(),
             new RetirementSystem(),
             new FinanceSystem(),
@@ -42,6 +45,7 @@ final class PipelineInvariantsTest extends TestCase
             new CalendarSystem(),
             new MatchSystem(),
             new CompetitionSystem(),
+            new ContractSystem(),
         ];
     }
 

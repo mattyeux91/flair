@@ -10,7 +10,6 @@ use Flair\Kernel\Core\Pipeline\SystemContext;
 use Flair\Kernel\Core\Ruleset\RetirementBalance;
 use Flair\Kernel\Core\Support\Rng;
 use Flair\Kernel\Core\Support\SimDate;
-use Flair\Kernel\Football\Components\Contract;
 use Flair\Kernel\Football\Components\Person;
 use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
@@ -28,14 +27,21 @@ use Flair\Kernel\Football\Events\PlayerRetired;
  * (`PlayerPhysicalSkills`/`PlayerTechnicalSkills`/`PlayerMentalSkills`) et
  * `PlayerPotentials` sont retires (12- §1 - un archetype se change en
  * retirant des composants, pas en detruisant l'entite), et un Fait
- * `PlayerRetired` est emis (irreversible, 16- §2). `Contract` est retire
- * avec eux (Phase 2) : un joueur retraite n'a plus d'obligation salariale,
- * meme si `SquadMembership` persiste (limite pre-existante, hors perimetre
- * de ce lot) - `Football\FinanceSystem` s'appuie sur cette absence pour
- * arreter de le payer, meme convention "skip via null-check" que
- * `TrainingSystem`.
+ * `PlayerRetired` est emis (irreversible, 16- §2).
  *
- * Seul systeme qui `remove()` ces cinq composants : distinct de
+ * **La relation d'emploi n'est pas retiree ici.** Ce systeme a possede
+ * `Contract` jusqu'a l'arrivee de `Football\SquadSystem`, qui est desormais
+ * seul writer et seul remover de `Contract` et `SquadMembership` et qui
+ * nettoie les deux en reagissant a `PlayerRetired`. Deux removers du meme
+ * composant sont interdits (`Football\PipelineInvariantsTest`), et la
+ * frontiere ainsi tracee se tient : ce systeme possede l'archetype "joueur"
+ * (competences et potentiels), `SquadSystem` possede le lien a un employeur -
+ * lien qu'un entraineur ou un president aura aussi le jour ou ces roles
+ * existeront. Un retraite garde donc son contrat un tick de plus, et peut
+ * etre paye une derniere fois : un versement reel, comptabilise comme puits,
+ * sans effet sur l'invariant de conservation monetaire.
+ *
+ * Seul systeme qui `remove()` ces quatre composants : distinct de
  * `PlayerDevelopmentSystem`, qui les `set()` mais ne les retire jamais.
  * Cette separation evite qu'un meme systeme cumule deux responsabilites
  * non liees (SRP) et rend l'invariant "un seul remover par composant"
@@ -71,7 +77,6 @@ final class RetirementSystem implements System
             PlayerPhysicalSkills::class,
             PlayerTechnicalSkills::class,
             PlayerMentalSkills::class,
-            Contract::class,
         ];
     }
 
@@ -112,7 +117,6 @@ final class RetirementSystem implements System
                 $ctx->components(PlayerPhysicalSkills::class)->remove($entityId);
                 $ctx->components(PlayerTechnicalSkills::class)->remove($entityId);
                 $ctx->components(PlayerMentalSkills::class)->remove($entityId);
-                $ctx->components(Contract::class)->remove($entityId);
                 $ctx->emit(new PlayerRetired($entityId, (int) $ageYears), entityId: $entityId);
             }
         }

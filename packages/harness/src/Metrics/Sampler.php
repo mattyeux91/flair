@@ -11,6 +11,7 @@ use Flair\Kernel\Core\Ruleset\Ruleset;
 use Flair\Kernel\Core\Simulation\Simulation;
 use Flair\Kernel\Core\Simulation\TickContext;
 use Flair\Kernel\Core\Support\SimDate;
+use Flair\Kernel\Football\Components\Contract;
 use Flair\Kernel\Football\Components\Facilities;
 use Flair\Kernel\Football\Components\Fixture;
 use Flair\Kernel\Football\Components\Person;
@@ -18,6 +19,7 @@ use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
 use Flair\Kernel\Football\Components\SeasonIncome;
+use Flair\Kernel\Football\Events\ContractSigned;
 use Flair\Kernel\Football\Events\MatchPlayed;
 use Flair\Kernel\Football\Events\PlayerRetired;
 use Flair\Kernel\Football\Events\SeasonStarted;
@@ -89,6 +91,9 @@ final class Sampler
 {
     private const int TICKS_PER_YEAR = 365;
 
+    /** Meme convention que `Football\ContractSystem` : un contrat se signe a la semaine, se raisonne a l'annee. */
+    private const int WEEKS_PER_YEAR = 52;
+
     /**
      * Au-dela de ce nombre de buts d'un cote, le score exact rejoint la cle
      * `'autre'` de `$scorelineFrequency` plutot que sa propre entree -
@@ -129,6 +134,10 @@ final class Sampler
         $seasonsStarted = 0;
         /** @var array<string, int> $cumulativeIncomeByClub nom de club -> total des revenus de saison percus sur le run */
         $cumulativeIncomeByClub = [];
+        /** @var array<int, int> $transfersByYear annee -> nombre de joueurs ayant change de club */
+        $transfersByYear = [];
+        /** @var array<int, array{transfers: int, unattached: int, wageBillCents: int}> $marketByYear */
+        $marketByYear = [];
 
         for ($year = 1; $year <= $years; $year++) {
             for ($day = 1; $day <= self::TICKS_PER_YEAR; $day++) {
@@ -150,6 +159,10 @@ final class Sampler
 
                     if ($event instanceof YouthPlayerPromoted) {
                         $known[$event->playerId] = true;
+                    }
+
+                    if ($event instanceof ContractSigned && $event->previousClubId !== $event->clubId) {
+                        $transfersByYear[$year] = ($transfersByYear[$year] ?? 0) + 1;
                     }
 
                     if ($event instanceof SeasonStarted) {
@@ -189,6 +202,7 @@ final class Sampler
             $populationByYear[$year] = \count($activePlayerIds);
             $eventGraph?->recordQueueDepth($year, $world);
             $cumulativeIncomeByClub = $this->accumulateSeasonIncome($world, $clubNames, $cumulativeIncomeByClub);
+            $marketByYear[$year] = $this->marketSnapshot($world, $transfersByYear[$year] ?? 0);
 
             $ages = $this->sampleYearEnd($world, $activePlayerIds, $year, $samples);
             if ($year === $years) {
@@ -207,7 +221,90 @@ final class Sampler
             $seasonHistory,
             $cumulativeIncomeByClub,
             $this->facilitiesSnapshot($world, $clubNames),
+            $marketByYear,
+            $this->wageBillSnapshot($world, $clubNames),
         );
+    }
+
+    /**
+     * L'etat du marche du travail en fin d'annee simulee : combien de joueurs
+     * ont change de club, combien n'en ont aucun, et ce que le monde s'est
+     * engage a payer.
+     *
+     * Les trois chiffres qui disent si `Football\ContractSystem` fait ce
+     * qu'il pretend. Le chomage est le **carburant** du marche tant qu'aucune
+     * indemnite de transfert n'existe (docs/14- §5 hors perimetre Phase 2) :
+     * sans joueurs libres, aucun club n'a de quoi se renforcer autrement
+     * qu'en prolongeant les siens, et le monde se fige. Un chomage nul serait
+     * donc un signal de panne, pas de bonne sante - et un chomage qui derive
+     * a la hausse d'annee en annee, le signal inverse.
+     *
+     * La masse salariale est **annuelle et engagee**, pas versee : la somme
+     * de ce que les contrats en cours couteront sur douze mois. C'est la
+     * grandeur qui se compare a `SeasonIncome` et donc au budget de
+     * `ContractBalance::$wageBudgetShare`.
+     *
+     * @return array{transfers: int, unattached: int, wageBillCents: int}
+     */
+    private function marketSnapshot(WorldState $world, int $transfers): array
+    {
+        $contracts = $world->components(Contract::class);
+        $contracted = 0;
+        $wageBillCents = 0;
+
+        foreach ($contracts->entities() as $playerId) {
+            $contract = $contracts->get($playerId);
+
+            if ($contract === null) {
+                continue;
+            }
+
+            $contracted++;
+            $wageBillCents += $contract->wagePerWeekCents * self::WEEKS_PER_YEAR;
+        }
+
+        // Un joueur actif est une entite qui porte encore des competences :
+        // Football\RetirementSystem les retire a la retraite, donc un retraite
+        // n'est jamais compte comme chomeur.
+        $active = \count($world->components(PlayerPhysicalSkills::class)->entities());
+
+        return [
+            'transfers' => $transfers,
+            'unattached' => max(0, $active - $contracted),
+            'wageBillCents' => $wageBillCents,
+        ];
+    }
+
+    /**
+     * Masse salariale annuelle engagee par chaque club en fin de run.
+     *
+     * Meme forme et meme raison d'etre que `facilitiesSnapshot()` : un
+     * **stock** en fin de course, pas un flux a cumuler. C'est l'observable
+     * de l'indexation du salaire sur la qualite - a salaire forfaitaire, ces
+     * chiffres ne pourraient differer que par la taille des effectifs.
+     *
+     * @param array<int, string> $clubNames
+     * @return array<string, int>
+     */
+    private function wageBillSnapshot(WorldState $world, array $clubNames): array
+    {
+        $contracts = $world->components(Contract::class);
+        $byClub = [];
+
+        foreach ($contracts->entities() as $playerId) {
+            $contract = $contracts->get($playerId);
+
+            if ($contract === null) {
+                continue;
+            }
+
+            $name = $clubNames[$contract->clubId] ?? "Club #{$contract->clubId}";
+            $byClub[$name] = ($byClub[$name] ?? 0) + $contract->wagePerWeekCents * self::WEEKS_PER_YEAR;
+        }
+
+        ksort($byClub);
+
+        return $byClub;
     }
 
     /**

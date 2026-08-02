@@ -42,6 +42,7 @@ final class TextReport
 
         $output .= $this->renderCompetitiveBalance(CompetitiveBalance::analyze($result->seasonHistory, $result->cumulativeIncomeByClub));
         $output .= $this->renderFacilities($result->finalFacilitiesByClub);
+        $output .= $this->renderMarket($result->marketByYear, $result->finalWageBillByClub);
 
         return $output;
     }
@@ -79,9 +80,11 @@ final class TextReport
         $output .= "-- Equilibre competitif, baseline --\n";
         $output .= $this->renderCompetitiveBalance(CompetitiveBalance::analyze($baseline->seasonHistory, $baseline->cumulativeIncomeByClub));
         $output .= $this->renderFacilities($baseline->finalFacilitiesByClub, 'Installations, baseline');
+        $output .= $this->renderMarket($baseline->marketByYear, $baseline->finalWageBillByClub, 'Marche, baseline');
         $output .= "-- Equilibre competitif, modifie --\n";
         $output .= $this->renderCompetitiveBalance(CompetitiveBalance::analyze($modified->seasonHistory, $modified->cumulativeIncomeByClub));
         $output .= $this->renderFacilities($modified->finalFacilitiesByClub, 'Installations, modifie');
+        $output .= $this->renderMarket($modified->marketByYear, $modified->finalWageBillByClub, 'Marche, modifie');
 
         return $output;
     }
@@ -372,6 +375,52 @@ final class TextReport
             $qualities[\count($qualities) - 1],
             $qualities[\count($qualities) - 1] - $qualities[0],
         );
+    }
+
+    /**
+     * Le marche du travail : mobilite, chomage, et ce que les clubs se sont
+     * engages a payer (`Football\ContractSystem`).
+     *
+     * Les cinq dernieres annees seulement - les premieres d'un run sont un
+     * transitoire ou la population initiale, plus nombreuse que ce que les
+     * budgets peuvent payer, se degonfle. Les lire comme un regime permanent
+     * ferait conclure a un chomage de masse qui n'existe pas.
+     *
+     * @param array<int, array{transfers: int, unattached: int, wageBillCents: int}> $byYear
+     * @param array<string, int> $byClub masse salariale annuelle engagee, par club
+     */
+    private function renderMarket(array $byYear, array $byClub, string $title = 'Marche'): string
+    {
+        if ($byYear === []) {
+            return "{$title} : aucune donnee.\n\n";
+        }
+
+        $output = "-- {$title} (5 dernieres annees) --\n";
+        $output .= sprintf("%5s  %10s  %10s  %14s\n", 'annee', 'transferts', 'sans club', 'masse sal. (E)');
+
+        foreach (\array_slice($byYear, -5, null, true) as $year => $row) {
+            $output .= sprintf(
+                "%5d  %10d  %10d  %14s\n",
+                $year,
+                $row['transfers'],
+                $row['unattached'],
+                number_format($row['wageBillCents'] / 100, 0, ',', ' '),
+            );
+        }
+
+        if ($byClub !== []) {
+            $bills = array_values($byClub);
+            sort($bills);
+            $output .= sprintf(
+                "masse salariale par club (E) : min=%s  mediane=%s  max=%s  rapport=%.2f\n",
+                number_format($bills[0] / 100, 0, ',', ' '),
+                number_format(Stats::percentile($bills, 50.0) / 100, 0, ',', ' '),
+                number_format($bills[\count($bills) - 1] / 100, 0, ',', ' '),
+                $bills[0] > 0 ? $bills[\count($bills) - 1] / $bills[0] : 0.0,
+            );
+        }
+
+        return $output . "\n";
     }
 
     /**

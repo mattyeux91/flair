@@ -231,10 +231,28 @@ final class YouthIntakeSystem implements System
         return $guaranteed + ($roll < (int) ($remainder * 10_000) ? 1 : 0);
     }
 
+    /**
+     * Le contrat d'une recrue est au **salaire forfaitaire** de
+     * `YouthIntakeBalance::$basePlayerWagePerWeekCents`, jamais indexe sur sa
+     * qualite par `Football\Support\WageModel` comme le sont les
+     * renouvellements et les signatures de `Football\ContractSystem`. Ce n'est
+     * pas un oubli : un premier contrat d'academie est standardise dans le
+     * vrai football, et le joueur passe au prix du marche a son premier
+     * renouvellement - ce qui donne au centre de formation son interet
+     * economique, quelques annees de talent paye en dessous de sa valeur.
+     *
+     * La duree, elle, est tiree comme partout ailleurs
+     * (`ContractBalance::$minDurationYears`) : sans terme, le jeune ne
+     * reviendrait jamais sur le marche.
+     */
     private function promote(SystemContext $ctx, int $clubId, SimDate $birthDate, YouthIntakeBalance $intake, Rng $rng): void
     {
         $playerId = $ctx->createEntity();
         $blueprint = $this->players->drawRookie($rng, "Joueur {$playerId}", $birthDate, $intake);
+        $contract = $ctx->ruleset()->balance->contract;
+        $shortest = max(1, $contract->minDurationYears);
+        $longest = max($shortest, $contract->maxDurationYears);
+        $years = $shortest + (int) ($rng->nextUint32() % ($longest - $shortest + 1));
 
         $ctx->components(Person::class)->set($playerId, $blueprint->person);
         $ctx->components(PlayerPotentials::class)->set($playerId, $blueprint->potentials);
@@ -242,7 +260,11 @@ final class YouthIntakeSystem implements System
         $ctx->components(PlayerTechnicalSkills::class)->set($playerId, $blueprint->technical);
         $ctx->components(PlayerMentalSkills::class)->set($playerId, $blueprint->mental);
         $ctx->components(SquadMembership::class)->set($playerId, new SquadMembership($clubId));
-        $ctx->components(Contract::class)->set($playerId, new Contract($clubId, $intake->basePlayerWagePerWeekCents));
+        $ctx->components(Contract::class)->set($playerId, new Contract(
+            $clubId,
+            $intake->basePlayerWagePerWeekCents,
+            new SimDate($ctx->tick + $years * 365),
+        ));
 
         $ctx->emit(new YouthPlayerPromoted($playerId, $clubId), entityId: $playerId);
     }

@@ -7,6 +7,7 @@ namespace Flair\Harness\Comparison;
 use Flair\Kernel\Core\Ruleset\Balance;
 use Flair\Kernel\Core\Ruleset\CalendarBalance;
 use Flair\Kernel\Core\Ruleset\CompetitionBalance;
+use Flair\Kernel\Core\Ruleset\ContractBalance;
 use Flair\Kernel\Core\Ruleset\FacilitiesBalance;
 use Flair\Kernel\Core\Ruleset\FinanceBalance;
 use Flair\Kernel\Core\Ruleset\MatchBalance;
@@ -19,7 +20,8 @@ use Flair\Kernel\Core\Ruleset\YouthIntakeBalance;
  * Construit un Ruleset qui ne differe d'un autre que par un ensemble de
  * champs de calibration (`Balance` racine, `RetirementBalance`,
  * `PlayerDevelopmentBalance`, `YouthIntakeBalance`, `CalendarBalance`,
- * `MatchBalance`, `CompetitionBalance`) - utilise par le CLI et
+ * `MatchBalance`, `CompetitionBalance`, `FinanceBalance`, `FacilitiesBalance`,
+ * `ContractBalance`) - utilise par le CLI et
  * la page web pour la comparaison a graines appariees. Explicitement
  * enumere plutot que via reflection, dans le meme esprit que le reste du
  * noyau (aucune magie/reflection nulle part).
@@ -31,7 +33,7 @@ use Flair\Kernel\Core\Ruleset\YouthIntakeBalance;
  * Validation fail-fast : un champ inconnu leve avant toute construction, pas
  * d'application partielle.
  *
- * `YouthIntakeBalance` est le seul groupe qui melange des champs `int` et
+ * `YouthIntakeBalance` et `ContractBalance` melangent des champs `int` et
  * `float` - sous `declare(strict_types=1)`, passer un float a un parametre
  * `int` leve un `TypeError`. Chaque champ est donc caste explicitement selon
  * son type reel dans `YouthIntakeBalance`, jamais via une table de types
@@ -123,6 +125,19 @@ final class RulesetOverride
     ];
 
     /** @var list<string> */
+    public const array CONTRACT_FIELDS = [
+        'renewalDayOfYear',
+        'minDurationYears',
+        'maxDurationYears',
+        'targetSquadSize',
+        'baseWagePerWeekCents',
+        'referenceQuality',
+        'wageMultiplierMin',
+        'wageMultiplierMax',
+        'wageBudgetShare',
+    ];
+
+    /** @var list<string> */
     public const array ALL_FIELDS = [
         ...self::GLOBAL_FIELDS,
         ...self::RETIREMENT_FIELDS,
@@ -133,6 +148,7 @@ final class RulesetOverride
         ...self::COMPETITION_FIELDS,
         ...self::FINANCE_FIELDS,
         ...self::FACILITIES_FIELDS,
+        ...self::CONTRACT_FIELDS,
     ];
 
     /**
@@ -151,6 +167,7 @@ final class RulesetOverride
         'Classement' => self::COMPETITION_FIELDS,
         'Finances' => self::FINANCE_FIELDS,
         'Installations' => self::FACILITIES_FIELDS,
+        'Contrats' => self::CONTRACT_FIELDS,
         'Global' => self::GLOBAL_FIELDS,
     ];
 
@@ -198,6 +215,7 @@ final class RulesetOverride
             competition: self::withCompetition($balance->competition, $overrides),
             finance: self::withFinance($balance->finance, $overrides),
             facilities: self::withFacilities($balance->facilities, $overrides),
+            contract: self::withContract($balance->contract, $overrides),
         ));
     }
 
@@ -299,6 +317,28 @@ final class RulesetOverride
         return new FacilitiesBalance(
             centsPerQualityPoint: isset($overrides['centsPerQualityPoint']) ? (int) round($overrides['centsPerQualityPoint']) : $base->centsPerQualityPoint,
             qualityDecayPerSeason: $overrides['qualityDecayPerSeason'] ?? $base->qualityDecayPerSeason,
+        );
+    }
+
+    /**
+     * Deuxieme groupe (avec `YouthIntakeBalance`) a melanger `int` et `float`
+     * : meme traitement, un cast explicite par champ selon son type reel, pas
+     * de table generique.
+     *
+     * @param array<string, float> $overrides
+     */
+    private static function withContract(ContractBalance $base, array $overrides): ContractBalance
+    {
+        return new ContractBalance(
+            renewalDayOfYear: isset($overrides['renewalDayOfYear']) ? (int) round($overrides['renewalDayOfYear']) : $base->renewalDayOfYear,
+            minDurationYears: isset($overrides['minDurationYears']) ? (int) round($overrides['minDurationYears']) : $base->minDurationYears,
+            maxDurationYears: isset($overrides['maxDurationYears']) ? (int) round($overrides['maxDurationYears']) : $base->maxDurationYears,
+            targetSquadSize: isset($overrides['targetSquadSize']) ? (int) round($overrides['targetSquadSize']) : $base->targetSquadSize,
+            baseWagePerWeekCents: isset($overrides['baseWagePerWeekCents']) ? (int) round($overrides['baseWagePerWeekCents']) : $base->baseWagePerWeekCents,
+            referenceQuality: isset($overrides['referenceQuality']) ? (int) round($overrides['referenceQuality']) : $base->referenceQuality,
+            wageMultiplierMin: $overrides['wageMultiplierMin'] ?? $base->wageMultiplierMin,
+            wageMultiplierMax: $overrides['wageMultiplierMax'] ?? $base->wageMultiplierMax,
+            wageBudgetShare: $overrides['wageBudgetShare'] ?? $base->wageBudgetShare,
         );
     }
 }

@@ -25,10 +25,20 @@ use Flair\Kernel\Football\Events\SeasonConcluded;
 use Flair\Kernel\Football\Singletons\MonetaryMass;
 use Flair\Kernel\Football\Systems\FinanceSystem;
 use Flair\Kernel\Football\Systems\RetirementSystem;
+use Flair\Kernel\Football\Systems\SquadSystem;
 use PHPUnit\Framework\TestCase;
 
 final class FinanceSystemTest extends TestCase
 {
+    /**
+     * Echeance hors d'atteinte de toutes les fenetres de ce fichier : ces
+     * tests portent sur les flux monetaires, jamais sur l'expiration des
+     * contrats (`Football\ContractSystem`, teste ailleurs). Une echeance
+     * neutre evite qu'un joueur disparaisse de l'effectif au milieu d'une
+     * mesure de masse salariale.
+     */
+    private const int NEVER_EXPIRES = 1_000_000;
+
     public function testSeasonConcludedCreditsEveryClubWithFinancesAndUpdatesMonetaryMass(): void
     {
         $world = new WorldState();
@@ -212,7 +222,10 @@ final class FinanceSystemTest extends TestCase
         $club = $this->createClub($world, balanceCents: 100_000_000);
         $player = $this->createPlayerNearingRetirement($world, $club, wagePerWeekCents: 50_000);
 
-        $pipeline = new Pipeline([new RetirementSystem(), new FinanceSystem()]);
+        // `SquadSystem` est indispensable ici : depuis qu'il possede la
+        // relation d'emploi, c'est lui qui retire `Contract` en reagissant a
+        // `PlayerRetired`, au tick suivant la retraite.
+        $pipeline = new Pipeline([new SquadSystem(), new RetirementSystem(), new FinanceSystem()]);
         $ruleset = $this->ruleset();
 
         $retiredAtTick = null;
@@ -419,7 +432,7 @@ final class FinanceSystemTest extends TestCase
     {
         $player = $world->createEntity();
         $world->components(Person::class)->set($player, new Person('Joueur Test', new SimDate(0)));
-        $world->components(Contract::class)->set($player, new Contract($clubId, $wagePerWeekCents));
+        $world->components(Contract::class)->set($player, new Contract($clubId, $wagePerWeekCents, new SimDate(self::NEVER_EXPIRES)));
 
         return $player;
     }
@@ -441,7 +454,7 @@ final class FinanceSystemTest extends TestCase
             growthRate: 0.3,
             fragility: 0.8,
         ));
-        $world->components(Contract::class)->set($player, new Contract($clubId, $wagePerWeekCents));
+        $world->components(Contract::class)->set($player, new Contract($clubId, $wagePerWeekCents, new SimDate(self::NEVER_EXPIRES)));
 
         return $player;
     }

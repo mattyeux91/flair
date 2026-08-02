@@ -71,6 +71,8 @@ final readonly class AggregateResult
      * @param list<array{season: int, standings: list<array{clubId: int, clubName: string, played: int, won: int, drawn: int, lost: int, goalsFor: int, goalsAgainst: int, points: int}>, matches: list<array{matchday: int, homeClub: string, awayClub: string, homeGoals: int, awayGoals: int}>}> $seasonHistory une entree par saison achevee, dans l'ordre chronologique (jamais la toute derniere saison d'un run, qui ne joue structurellement aucun match - cf. docblock de Sampler)
      * @param array<string, int> $cumulativeIncomeByClub nom de club -> total des revenus de saison percus sur le run
      * @param array<string, float> $finalFacilitiesByClub nom de club -> qualite d'installations en fin de run
+     * @param array<int, array{transfers: int, unattached: int, wageBillCents: int}> $marketByYear annee simulee -> activite du mercato de cette annee et etat de l'emploi en fin d'annee
+     * @param array<string, int> $finalWageBillByClub nom de club -> masse salariale annuelle engagee en fin de run
      */
     public function __construct(
         public array $curves,
@@ -83,6 +85,8 @@ final readonly class AggregateResult
         public array $seasonHistory = [],
         public array $cumulativeIncomeByClub = [],
         public array $finalFacilitiesByClub = [],
+        public array $marketByYear = [],
+        public array $finalWageBillByClub = [],
     ) {
     }
 
@@ -97,6 +101,8 @@ final readonly class AggregateResult
      * @param list<array{season: int, standings: list<array{clubId: int, clubName: string, played: int, won: int, drawn: int, lost: int, goalsFor: int, goalsAgainst: int, points: int}>, matches: list<array{matchday: int, homeClub: string, awayClub: string, homeGoals: int, awayGoals: int}>}> $seasonHistory
      * @param array<string, int> $cumulativeIncomeByClub
      * @param array<string, float> $finalFacilitiesByClub
+     * @param array<int, array{transfers: int, unattached: int, wageBillCents: int}> $marketByYear
+     * @param array<string, int> $finalWageBillByClub
      */
     public static function fromSamples(
         array $samples,
@@ -109,6 +115,8 @@ final readonly class AggregateResult
         array $seasonHistory = [],
         array $cumulativeIncomeByClub = [],
         array $finalFacilitiesByClub = [],
+        array $marketByYear = [],
+        array $finalWageBillByClub = [],
     ): self {
         $byCategoryThenAge = [];
         foreach ($samples as $sample) {
@@ -141,6 +149,8 @@ final readonly class AggregateResult
             $seasonHistory,
             $cumulativeIncomeByClub,
             $finalFacilitiesByClub,
+            $marketByYear,
+            $finalWageBillByClub,
         );
     }
 }
