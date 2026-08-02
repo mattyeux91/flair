@@ -32,7 +32,7 @@ final class WorldInspector
     {
         $names = [];
         foreach ($world->components(Club::class)->entities() as $clubId) {
-            $names[$clubId] = $world->components(Club::class)->get($clubId)?->name ?? "Club #{$clubId}";
+            $names[$clubId] = $world->components(Club::class)->get($clubId)->name ?? "Club #{$clubId}";
         }
 
         return $names;

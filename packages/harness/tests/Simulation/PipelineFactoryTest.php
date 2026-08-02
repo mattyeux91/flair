@@ -29,7 +29,17 @@ final class PipelineFactoryTest extends TestCase
 
         $property = new ReflectionProperty($pipeline, 'systems');
         $systems = $property->getValue($pipeline);
-        $classes = array_map(static fn (object $system): string => $system::class, $systems);
+        if (!\is_array($systems)) {
+            self::fail('Pipeline::$systems devrait etre un tableau.');
+        }
+
+        $classes = [];
+        foreach ($systems as $system) {
+            if (!\is_object($system)) {
+                self::fail('Pipeline::$systems devrait ne contenir que des objets System.');
+            }
+            $classes[] = $system::class;
+        }
 
         self::assertSame([
             YouthIntakeSystem::class,

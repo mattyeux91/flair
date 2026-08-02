@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Flair\Harness\Report;
 
 use Flair\Harness\Metrics\AggregateResult;
+use Flair\Harness\Metrics\CompetitiveBalance;
+use Flair\Harness\Metrics\CompetitiveBalanceResult;
+use Flair\Harness\Metrics\EventGraphResult;
 
 /**
  * Rendu console d'un AggregateResult - tables et barres ASCII, meme esprit
@@ -35,6 +38,8 @@ final class TextReport
         $seasonLabel = $lastSeason !== null ? "saison {$lastSeason['season']}" : 'derniere saison';
         $output .= $this->renderStandings($lastSeason['standings'] ?? [], "Classement ({$seasonLabel})");
         $output .= $this->renderRecentMatches($lastSeason['matches'] ?? [], "Matchs de la {$seasonLabel}");
+
+        $output .= $this->renderCompetitiveBalance(CompetitiveBalance::analyze($result->seasonHistory));
 
         return $output;
     }
@@ -68,6 +73,11 @@ final class TextReport
         $output .= $this->renderStandings($modifiedSeason['standings'] ?? [], 'Classement, modifie' . ($modifiedSeason !== null ? " (saison {$modifiedSeason['season']})" : ''));
         $output .= $this->renderRecentMatches($baselineSeason['matches'] ?? [], 'Matchs recents, baseline' . ($baselineSeason !== null ? " (saison {$baselineSeason['season']})" : ''));
         $output .= $this->renderRecentMatches($modifiedSeason['matches'] ?? [], 'Matchs recents, modifie' . ($modifiedSeason !== null ? " (saison {$modifiedSeason['season']})" : ''));
+
+        $output .= "-- Equilibre competitif, baseline --\n";
+        $output .= $this->renderCompetitiveBalance(CompetitiveBalance::analyze($baseline->seasonHistory));
+        $output .= "-- Equilibre competitif, modifie --\n";
+        $output .= $this->renderCompetitiveBalance(CompetitiveBalance::analyze($modified->seasonHistory));
 
         return $output;
     }
@@ -241,7 +251,7 @@ final class TextReport
         return $output . "\n";
     }
 
-    /** @param array<int, int> $histogram buts totaux -> nombre de matchs */
+    /** @param array<string, int> $histogram "buts_domicile-buts_exterieur" (ou 'autre') -> nombre de matchs */
     private function renderScorelineFrequency(array $histogram): string
     {
         if ($histogram === []) {
@@ -297,6 +307,29 @@ final class TextReport
         return $output . "\n";
     }
 
+    private function renderCompetitiveBalance(CompetitiveBalanceResult $balance): string
+    {
+        if ($balance->seasonsMeasured === 0) {
+            return "Equilibre competitif : aucune saison achevee observee.\n\n";
+        }
+
+        $output = "-- Equilibre competitif ({$balance->seasonsMeasured} saison(s) mesuree(s)) --\n";
+        $output .= sprintf("%-24s  %6s\n", 'club', 'titres');
+        $titlesByClub = $balance->titlesByClub;
+        arsort($titlesByClub);
+        foreach ($titlesByClub as $clubName => $titles) {
+            $output .= sprintf("%-24s  %6d\n", $clubName, $titles);
+        }
+
+        $output .= sprintf("Champions distincts : %d\n", $balance->distinctChampions);
+        $output .= sprintf("Gini des titres : %.3f (0 = egalite parfaite, 1 = monopole)\n", $balance->giniOfTitles);
+        $output .= $balance->topFiveTurnoverRate !== null
+            ? sprintf("Rotation du top 5 : %.1f%%\n", $balance->topFiveTurnoverRate * 100)
+            : "Rotation du top 5 : donnees insuffisantes (moins de 2 saisons)\n";
+
+        return $output . "\n";
+    }
+
     /**
      * @param list<array{matchday: int, homeClub: string, awayClub: string, homeGoals: int, awayGoals: int}> $matches
      */
@@ -316,6 +349,36 @@ final class TextReport
                 $match['awayGoals'],
                 $match['awayClub'],
             );
+        }
+
+        return $output . "\n";
+    }
+
+    /**
+     * Rendu opt-in (docs/16- §6) - appele explicitement par bin/aggregate.php
+     * quand --event-graph est fourni, jamais depuis render()/renderComparison()
+     * puisque AggregateResult ne porte pas cette donnee (EventGraphCollector
+     * est un collecteur separe, pas branche par defaut dans Sampler::run()).
+     */
+    public function renderEventGraph(EventGraphResult $eventGraph): string
+    {
+        $output = "-- Graphe d'evenements (volume par type, tout le run) --\n";
+        if ($eventGraph->totalEvents === 0) {
+            return $output . "aucun evenement observe.\n\n";
+        }
+
+        $volumeByType = $eventGraph->volumeByType;
+        arsort($volumeByType);
+        foreach ($volumeByType as $type => $count) {
+            $output .= sprintf("%-60s  %8d\n", $type, $count);
+        }
+        $output .= sprintf("%-60s  %8d\n", 'total', $eventGraph->totalEvents);
+        $output .= "\n";
+
+        $output .= "-- Backlog du Scheduler par annee --\n";
+        $output .= sprintf("%6s  %8s\n", 'annee', 'backlog');
+        foreach ($eventGraph->schedulerBacklogByYear as $entry) {
+            $output .= sprintf("%6d  %8d\n", $entry['year'], $entry['schedulerBacklog']);
         }
 
         return $output . "\n";

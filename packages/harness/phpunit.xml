@@ -4,10 +4,15 @@
     colors="true"
     testdox="true"
     verbose="true"
+    defaultTestSuite="Application Test Suite"
 >
     <testsuites>
         <testsuite name="Application Test Suite">
             <directory>tests</directory>
+            <exclude>tests/Regression</exclude>
+        </testsuite>
+        <testsuite name="Regression">
+            <directory>tests/Regression</directory>
         </testsuite>
     </testsuites>
 </phpunit>

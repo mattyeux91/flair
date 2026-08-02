@@ -96,7 +96,7 @@ final class Sampler
     private const int SCORELINE_GOAL_CAP = 6;
 
     /** @param list<int> $playerIds */
-    public function run(WorldState $world, array $playerIds, int $years, int $worldSeed, Ruleset $ruleset): AggregateResult
+    public function run(WorldState $world, array $playerIds, int $years, int $worldSeed, Ruleset $ruleset, ?EventGraphCollector $eventGraph = null): AggregateResult
     {
         $simulation = new Simulation(PipelineFactory::build());
 
@@ -136,6 +136,8 @@ final class Sampler
                     ruleset: $ruleset,
                 ));
 
+                $eventGraph?->tally($result->events);
+
                 foreach ($result->events as $event) {
                     if ($event instanceof PlayerRetired && !isset($retired[$event->playerId])) {
                         $retired[$event->playerId] = true;
@@ -166,7 +168,7 @@ final class Sampler
                         // MatchPlayed ne porte pas matchday (self-suffisant sur les identifiants
                         // de match, pas sur la position au calendrier) - lu sur Fixture, cree par
                         // CalendarSystem sur la meme entite (fixtureId).
-                        $matchday = $world->components(Fixture::class)->get($event->fixtureId)?->matchday ?? 0;
+                        $matchday = $world->components(Fixture::class)->get($event->fixtureId)->matchday ?? 0;
                         $currentSeasonMatches[] = [
                             'matchday' => $matchday,
                             'homeClub' => $clubNames[$event->homeClubId] ?? "Club #{$event->homeClubId}",
@@ -181,6 +183,7 @@ final class Sampler
             /** @var list<int> $activePlayerIds */
             $activePlayerIds = array_keys(array_diff_key($known, $retired));
             $populationByYear[$year] = \count($activePlayerIds);
+            $eventGraph?->recordQueueDepth($year, $world);
 
             $ages = $this->sampleYearEnd($world, $activePlayerIds, $year, $samples);
             if ($year === $years) {
