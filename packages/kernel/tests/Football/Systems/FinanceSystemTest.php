@@ -12,6 +12,7 @@ use Flair\Kernel\Core\Ruleset\Ruleset;
 use Flair\Kernel\Core\Support\SimDate;
 use Flair\Kernel\Football\Components\Club;
 use Flair\Kernel\Football\Components\Contract;
+use Flair\Kernel\Football\Components\Facilities;
 use Flair\Kernel\Football\Components\Finances;
 use Flair\Kernel\Football\Components\Person;
 use Flair\Kernel\Football\Components\PlayerMentalSkills;
@@ -19,6 +20,7 @@ use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
 use Flair\Kernel\Football\Components\PlayerPotentials;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
 use Flair\Kernel\Football\Components\SeasonIncome;
+use Flair\Kernel\Football\Events\ClubInvestedInFacilities;
 use Flair\Kernel\Football\Events\SeasonConcluded;
 use Flair\Kernel\Football\Singletons\MonetaryMass;
 use Flair\Kernel\Football\Systems\FinanceSystem;
@@ -277,6 +279,124 @@ final class FinanceSystemTest extends TestCase
         }
 
         return $clubs;
+    }
+
+    public function testUpkeepGrowsWithFacilityQualityAndIsCountedAsASink(): void
+    {
+        $world = new WorldState();
+        $modest = $this->createClub($world, balanceCents: 0);
+        $lavish = $this->createClub($world, balanceCents: 0);
+        $world->components(Facilities::class)->set($modest, new Facilities(1.0));
+        $world->components(Facilities::class)->set($lavish, new Facilities(2.0));
+
+        // Reserve inatteignable : on isole l'entretien de l'investissement.
+        $this->concludeSeason($world, ranking: [$modest, $lavish], atTick: 5);
+        $this->runFinanceTick($world, tick: 5, finance: new FinanceBalance(
+            facilityUpkeepPerQualityPointCents: 10_000_000,
+            facilityInvestmentReserveCents: PHP_INT_MAX,
+        ));
+
+        self::assertSame(70_000_000 - 10_000_000, $world->components(Finances::class)->get($modest)?->balanceCents);
+        self::assertSame(70_000_000 - 20_000_000, $world->components(Finances::class)->get($lavish)?->balanceCents);
+
+        self::assertSame(30_000_000, $world->singleton(MonetaryMass::class)?->totalSinksCents);
+    }
+
+    public function testAClubInvestsItsSurplusAboveTheReserveAndEmitsTheFact(): void
+    {
+        $world = new WorldState();
+        $club = $this->createClub($world, balanceCents: 0);
+        $world->components(Facilities::class)->set($club, new Facilities(1.0));
+
+        $this->concludeSeason($world, ranking: [$club], atTick: 5);
+        $this->runFinanceTick($world, tick: 5, finance: new FinanceBalance(
+            facilityUpkeepPerQualityPointCents: 0,
+            facilityInvestmentReserveCents: 50_000_000,
+            facilityInvestmentMaxPerSeasonCents: 40_000_000,
+        ));
+
+        // 70M de revenu, 50M de reserve -> 20M investis, sous le plafond.
+        self::assertSame(50_000_000, $world->components(Finances::class)->get($club)?->balanceCents);
+        self::assertSame(20_000_000, $world->singleton(MonetaryMass::class)?->totalSinksCents);
+
+        $emitted = $this->investmentsEmitted($world);
+        self::assertCount(1, $emitted);
+        self::assertSame($club, $emitted[0]->clubId);
+        self::assertSame(20_000_000, $emitted[0]->cents);
+    }
+
+    public function testInvestmentIsCappedPerSeason(): void
+    {
+        $world = new WorldState();
+        $club = $this->createClub($world, balanceCents: 500_000_000);
+        $world->components(Facilities::class)->set($club, new Facilities(1.0));
+
+        $this->concludeSeason($world, ranking: [$club], atTick: 5);
+        $this->runFinanceTick($world, tick: 5, finance: new FinanceBalance(
+            facilityUpkeepPerQualityPointCents: 0,
+            facilityInvestmentReserveCents: 50_000_000,
+            facilityInvestmentMaxPerSeasonCents: 40_000_000,
+        ));
+
+        self::assertSame(40_000_000, $this->investmentsEmitted($world)[0]->cents ?? null);
+    }
+
+    public function testAClubBelowItsReserveDoesNotInvest(): void
+    {
+        $world = new WorldState();
+        $club = $this->createClub($world, balanceCents: 0);
+        $world->components(Facilities::class)->set($club, new Facilities(1.0));
+
+        $this->concludeSeason($world, ranking: [$club], atTick: 5);
+        $this->runFinanceTick($world, tick: 5, finance: new FinanceBalance(
+            facilityUpkeepPerQualityPointCents: 0,
+            facilityInvestmentReserveCents: 200_000_000,
+        ));
+
+        self::assertSame([], $this->investmentsEmitted($world));
+        self::assertSame(70_000_000, $world->components(Finances::class)->get($club)?->balanceCents);
+    }
+
+    /**
+     * Sans ce garde-fou, l'argent d'un club deja au plafond disparaitrait sans
+     * contrepartie : `Football\FacilitiesSystem` clamperait la qualite en
+     * silence et le club aurait paye pour rien.
+     */
+    public function testAClubAtMaximumQualityDoesNotBurnMoneyOnFacilities(): void
+    {
+        $world = new WorldState();
+        $club = $this->createClub($world, balanceCents: 500_000_000);
+        $world->components(Facilities::class)->set($club, new Facilities(Facilities::MAX_QUALITY));
+
+        $this->concludeSeason($world, ranking: [$club], atTick: 5);
+        $this->runFinanceTick($world, tick: 5, finance: new FinanceBalance(
+            facilityUpkeepPerQualityPointCents: 0,
+            facilityInvestmentReserveCents: 50_000_000,
+        ));
+
+        self::assertSame([], $this->investmentsEmitted($world));
+        self::assertSame(500_000_000 + 70_000_000, $world->components(Finances::class)->get($club)?->balanceCents);
+    }
+
+    public function testAClubWithoutFacilitiesPaysNoUpkeepAndInvestsNothing(): void
+    {
+        $world = new WorldState();
+        $club = $this->createClub($world, balanceCents: 500_000_000);
+
+        $this->concludeSeason($world, ranking: [$club], atTick: 5);
+        $this->runFinanceTick($world, tick: 5, finance: new FinanceBalance());
+
+        self::assertSame([], $this->investmentsEmitted($world));
+        self::assertSame(0, $world->singleton(MonetaryMass::class)?->totalSinksCents);
+    }
+
+    /** @return list<ClubInvestedInFacilities> */
+    private function investmentsEmitted(WorldState $world): array
+    {
+        return array_values(array_filter(
+            $world->outQueue()->pending(),
+            static fn (object $event): bool => $event instanceof ClubInvestedInFacilities,
+        ));
     }
 
     private function createClub(WorldState $world, int $balanceCents): int

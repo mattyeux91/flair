@@ -79,12 +79,72 @@ final class YouthIntakeSystemTest extends TestCase
         self::assertEqualsWithDelta(17.0, $age, 0.01);
     }
 
-    public function testBetterFacilitiesProduceMorePlayersOverTime(): void
+    /**
+     * Les installations decident de la **part** du vivier qu'un club capte,
+     * pas de sa taille : la comparaison doit donc se faire entre deux clubs
+     * d'un meme monde. Deux mondes separes a qualite uniforme promouvraient
+     * exactement autant l'un que l'autre, quelle que soit leur qualite - c'est
+     * precisement la propriete verifiee par le test suivant.
+     */
+    public function testBetterFacilitiesCaptureALargerShareOfTheNationalIntake(): void
     {
-        $elite = $this->promotionsOverYears(quality: 2.0, years: 40);
-        $modest = $this->promotionsOverYears(quality: 0.5, years: 40);
+        $world = new WorldState();
+        $elite = $this->addClub($world, 'Centre Elite', 2.0);
+        $modest = $this->addClub($world, 'Centre Modeste', 0.5);
 
-        self::assertGreaterThan($modest, $elite);
+        $balance = new YouthIntakeBalance(intakeDayOfYear: 0, baseIntakePerClub: 1.0);
+        for ($year = 0; $year < 40; $year++) {
+            $this->runTick($world, tick: $year * 365, balance: $balance);
+        }
+
+        self::assertGreaterThan($this->squadSize($world, $modest), $this->squadSize($world, $elite));
+    }
+
+    /**
+     * **La propriete qui empeche le monde d'osciller** (cf. le docblock de
+     * `YouthIntakeSystem::averageQuality()`). Le vivier national est de taille
+     * fixe : ameliorer les installations de tout le monde redistribue les
+     * promotions, ca n'en cree pas une de plus. Sans cette invariance, les
+     * installations devenues dynamiques refermeraient une boucle de retour
+     * retardee d'une carriere entiere, et la population cesserait d'etre
+     * stationnaire - critere de sortie de la Phase 0.
+     */
+    public function testTheNationalIntakeDoesNotDependOnHowGoodTheFacilitiesAre(): void
+    {
+        $poor = $this->promotionsInAWorldWhereEveryClubHasQuality(0.5);
+        $average = $this->promotionsInAWorldWhereEveryClubHasQuality(1.0);
+        $rich = $this->promotionsInAWorldWhereEveryClubHasQuality(2.0);
+
+        self::assertSame($average, $poor);
+        self::assertSame($average, $rich);
+        self::assertGreaterThan(0, $average);
+    }
+
+    private function promotionsInAWorldWhereEveryClubHasQuality(float $quality): int
+    {
+        $world = new WorldState();
+        for ($i = 0; $i < 6; $i++) {
+            $this->addClub($world, "Club {$i}", $quality);
+        }
+
+        $balance = new YouthIntakeBalance(intakeDayOfYear: 0, baseIntakePerClub: 1.5);
+        for ($year = 0; $year < 20; $year++) {
+            $this->runTick($world, tick: $year * 365, balance: $balance);
+        }
+
+        return \count($world->components(PlayerPotentials::class)->entities());
+    }
+
+    private function squadSize(WorldState $world, int $clubId): int
+    {
+        $size = 0;
+        foreach ($world->components(SquadMembership::class)->entities() as $playerId) {
+            if ($world->components(SquadMembership::class)->get($playerId)?->clubId === $clubId) {
+                $size++;
+            }
+        }
+
+        return $size;
     }
 
     /**

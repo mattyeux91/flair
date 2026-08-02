@@ -7,6 +7,7 @@ namespace Flair\Harness\Simulation;
 use Flair\Kernel\Core\Pipeline\Pipeline;
 use Flair\Kernel\Football\Systems\CalendarSystem;
 use Flair\Kernel\Football\Systems\CompetitionSystem;
+use Flair\Kernel\Football\Systems\FacilitiesSystem;
 use Flair\Kernel\Football\Systems\FinanceSystem;
 use Flair\Kernel\Football\Systems\MatchSystem;
 use Flair\Kernel\Football\Systems\PlayerDevelopmentSystem;
@@ -30,6 +31,7 @@ final class PipelineFactory
     public static function build(): Pipeline
     {
         return new Pipeline([
+            new FacilitiesSystem(),
             new YouthIntakeSystem(),
             new TrainingSystem(),
             new RetirementSystem(),

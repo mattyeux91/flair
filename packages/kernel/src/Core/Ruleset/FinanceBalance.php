@@ -64,6 +64,30 @@ final readonly class FinanceBalance
          * change un defaut qu'avec la mesure a l'appui.
          */
         public float $meritShare = 0.0,
+        /**
+         * Cout d'entretien annuel d'un point entier de qualite
+         * d'installations : un club a `quality = 1.5` paie une fois et demie
+         * ce montant chaque saison (docs/14- §6, table des puits :
+         * "amortissement des infrastructures").
+         *
+         * Un puits qui **croit avec la richesse** : c'est ce qui empeche un
+         * club riche de convertir indefiniment ses revenus en qualite, sans
+         * avoir a lui imposer un plafond arbitraire. La borne haute de
+         * `Facilities` existe, mais l'entretien mord bien avant elle.
+         */
+        public int $facilityUpkeepPerQualityPointCents = 14_000_000,
+        /**
+         * Tresorerie qu'un club garde avant d'envisager le moindre
+         * investissement. En dessous, il ne finance que son entretien.
+         */
+        public int $facilityInvestmentReserveCents = 50_000_000,
+        /**
+         * Plafond investi par saison, quelle que soit la tresorerie
+         * disponible. Sans lui, un club assis sur des annees d'excedent
+         * sauterait a la qualite maximale en une seule saison - une marche
+         * que ni le harness ni la narration ne sauraient lire.
+         */
+        public int $facilityInvestmentMaxPerSeasonCents = 40_000_000,
         /** Jour de la semaine (`tick % 7`) ou les salaires sont verses a chaque joueur sous `Contract`. */
         public int $wagePaymentDayOfWeek = 0,
     ) {

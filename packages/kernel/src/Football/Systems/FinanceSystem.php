@@ -7,9 +7,12 @@ namespace Flair\Kernel\Football\Systems;
 use Flair\Kernel\Core\Messaging\DomainEvent;
 use Flair\Kernel\Core\Pipeline\System;
 use Flair\Kernel\Core\Pipeline\SystemContext;
+use Flair\Kernel\Core\Ruleset\FinanceBalance;
 use Flair\Kernel\Football\Components\Contract;
+use Flair\Kernel\Football\Components\Facilities;
 use Flair\Kernel\Football\Components\Finances;
 use Flair\Kernel\Football\Components\SeasonIncome;
+use Flair\Kernel\Football\Events\ClubInvestedInFacilities;
 use Flair\Kernel\Football\Events\SeasonConcluded;
 use Flair\Kernel\Football\Singletons\MonetaryMass;
 
@@ -140,6 +143,7 @@ final class FinanceSystem implements System
         return [
             Finances::class,
             Contract::class,
+            Facilities::class,
             MonetaryMass::class,
         ];
     }
@@ -197,6 +201,7 @@ final class FinanceSystem implements System
         $totalWeight = intdiv($clubCount * ($clubCount + 1), 2);
 
         $injected = 0;
+        $drained = 0;
 
         foreach (self::orderByRank($clubIds, $event->finalRanking) as $rank => $clubId) {
             $finances = $ctx->components(Finances::class)->get($clubId);
@@ -207,13 +212,85 @@ final class FinanceSystem implements System
 
             $income = $equalShare + intdiv($meritPool * ($clubCount - $rank), $totalWeight);
 
-            $ctx->components(Finances::class)->set($clubId, new Finances($finances->balanceCents + $income));
+            $balance = $finances->balanceCents + $income;
             $ctx->components(SeasonIncome::class)->set($clubId, new SeasonIncome($income));
             $injected += $income;
+
+            $balance -= $this->chargeUpkeep($ctx, $clubId, $finance, $drained);
+            $balance -= $this->investInFacilities($ctx, $clubId, $balance, $finance, $drained);
+
+            $ctx->components(Finances::class)->set($clubId, new Finances($balance));
         }
 
         $mass = $ctx->singleton(MonetaryMass::class) ?? new MonetaryMass();
-        $ctx->setSingleton(new MonetaryMass($mass->totalInjectionsCents + $injected, $mass->totalSinksCents));
+        $ctx->setSingleton(new MonetaryMass(
+            $mass->totalInjectionsCents + $injected,
+            $mass->totalSinksCents + $drained,
+        ));
+    }
+
+    /**
+     * L'entretien des installations : un puits qui croit avec la qualite
+     * (docs/14- §6). C'est lui, plus que la borne haute de `Facilities`, qui
+     * empeche un club riche de convertir indefiniment ses revenus en qualite
+     * - un plafond arbitraire aurait donne une marche, l'entretien donne un
+     * rendement decroissant.
+     *
+     * Un club sans `Facilities` ne paie rien : il n'a rien a entretenir.
+     */
+    private function chargeUpkeep(SystemContext $ctx, int $clubId, FinanceBalance $finance, int &$drained): int
+    {
+        $facilities = $ctx->components(Facilities::class)->get($clubId);
+
+        if ($facilities === null) {
+            return 0;
+        }
+
+        $upkeep = max(0, (int) round($finance->facilityUpkeepPerQualityPointCents * $facilities->quality));
+        $drained += $upkeep;
+
+        return $upkeep;
+    }
+
+    /**
+     * Ce que le club consacre a ameliorer ses installations : tout ce qui
+     * depasse sa reserve, plafonne par saison. Un puits lui aussi - cet
+     * argent quitte le monde (docs/14- §6, "amortissement des
+     * infrastructures"), il n'est transfere a personne.
+     *
+     * **Un club deja au plafond n'investit pas.** Sans ce test, son argent
+     * disparaitrait sans contrepartie : `Football\FacilitiesSystem` clamperait
+     * la qualite en silence et le club paierait pour rien. C'est la raison
+     * pour laquelle la borne vit sur `Facilities` et non dans le `Ruleset` de
+     * `FacilitiesSystem` - ce systeme-ci doit pouvoir la consulter sans
+     * dependre des leviers d'un autre.
+     *
+     * L'ecriture de `Facilities` n'a pas lieu ici : elle appartient a
+     * `FacilitiesSystem`, qui recoit le Fait au tick suivant (voir le
+     * docblock de `Football\Events\ClubInvestedInFacilities` pour pourquoi ce
+     * detour est structurellement force).
+     */
+    private function investInFacilities(SystemContext $ctx, int $clubId, int $balance, FinanceBalance $finance, int &$drained): int
+    {
+        $facilities = $ctx->components(Facilities::class)->get($clubId);
+
+        if ($facilities === null || $facilities->quality >= Facilities::MAX_QUALITY) {
+            return 0;
+        }
+
+        $invested = min(
+            max(0, $balance - $finance->facilityInvestmentReserveCents),
+            max(0, $finance->facilityInvestmentMaxPerSeasonCents),
+        );
+
+        if ($invested === 0) {
+            return 0;
+        }
+
+        $drained += $invested;
+        $ctx->emit(new ClubInvestedInFacilities($clubId, $invested), entityId: $clubId);
+
+        return $invested;
     }
 
     /**

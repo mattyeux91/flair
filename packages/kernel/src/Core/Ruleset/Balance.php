@@ -21,7 +21,12 @@ namespace Flair\Kernel\Core\Ruleset;
  * leviers d'un autre (meme principe que `reads()`/`writes()` sur `System`,
  * `13-` §2), et pour ne pas melanger les sous-domaines a mesure que
  * d'autres systemes (blessures, marche...) rejoindront `Balance`.
- * `finance` rejoint cette liste avec la Phase 2 (docs/15- §4).
+ * `finance` rejoint cette liste avec la Phase 2 (docs/15- §4), puis
+ * `facilities` avec l'investissement des clubs : les deux se partagent la
+ * meme mecanique mais pas les memes leviers - `finance` decide combien
+ * d'argent part, `facilities` combien de qualite cet argent achete. La regle
+ * "un systeme ne depend jamais des leviers d'un autre" est precisement ce qui
+ * impose cette coupure plutot qu'un groupe unique.
  */
 final readonly class Balance
 {
@@ -37,6 +42,7 @@ final readonly class Balance
         public MatchBalance $match = new MatchBalance(),
         public CompetitionBalance $competition = new CompetitionBalance(),
         public FinanceBalance $finance = new FinanceBalance(),
+        public FacilitiesBalance $facilities = new FacilitiesBalance(),
     ) {
     }
 }

@@ -7,6 +7,7 @@ namespace Flair\Harness\Tests\Simulation;
 use Flair\Harness\Simulation\PipelineFactory;
 use Flair\Kernel\Football\Systems\CalendarSystem;
 use Flair\Kernel\Football\Systems\CompetitionSystem;
+use Flair\Kernel\Football\Systems\FacilitiesSystem;
 use Flair\Kernel\Football\Systems\FinanceSystem;
 use Flair\Kernel\Football\Systems\MatchSystem;
 use Flair\Kernel\Football\Systems\PlayerDevelopmentSystem;
@@ -24,7 +25,7 @@ final class PipelineFactoryTest extends TestCase
      * (plusieurs contraintes documentees dans CLAUDE.md), donc ce test doit
      * echouer bruyamment si quelqu'un le modifie sans le vouloir.
      */
-    public function testBuildsTheEightSystemsInTheDeclaredOrder(): void
+    public function testBuildsTheNineSystemsInTheDeclaredOrder(): void
     {
         $pipeline = PipelineFactory::build();
 
@@ -43,6 +44,7 @@ final class PipelineFactoryTest extends TestCase
         }
 
         self::assertSame([
+            FacilitiesSystem::class,
             YouthIntakeSystem::class,
             TrainingSystem::class,
             RetirementSystem::class,

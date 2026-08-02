@@ -11,6 +11,7 @@ use Flair\Kernel\Core\Ruleset\Ruleset;
 use Flair\Kernel\Core\Simulation\Simulation;
 use Flair\Kernel\Core\Simulation\TickContext;
 use Flair\Kernel\Core\Support\SimDate;
+use Flair\Kernel\Football\Components\Facilities;
 use Flair\Kernel\Football\Components\Fixture;
 use Flair\Kernel\Football\Components\Person;
 use Flair\Kernel\Football\Components\PlayerMentalSkills;
@@ -205,7 +206,32 @@ final class Sampler
             $scorelineFrequency,
             $seasonHistory,
             $cumulativeIncomeByClub,
+            $this->facilitiesSnapshot($world, $clubNames),
         );
+    }
+
+    /**
+     * Qualite d'installations de chaque club en fin de run - l'observable
+     * propre de la boucle "revenus -> installations -> joueurs -> resultats"
+     * (docs/14- §7). Un instantane final suffit : contrairement aux revenus,
+     * la qualite est un **stock** qui integre deja tout l'historique du club,
+     * il n'y a rien a cumuler.
+     *
+     * @param array<int, string> $clubNames
+     * @return array<string, float>
+     */
+    private function facilitiesSnapshot(WorldState $world, array $clubNames): array
+    {
+        $store = $world->components(Facilities::class);
+        $byClub = [];
+
+        foreach ($store->entities() as $clubId) {
+            $byClub[$clubNames[$clubId] ?? "Club #{$clubId}"] = $store->get($clubId)->quality ?? 0.0;
+        }
+
+        ksort($byClub);
+
+        return $byClub;
     }
 
     /**

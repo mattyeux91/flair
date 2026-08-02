@@ -44,6 +44,7 @@ use Flair\Kernel\Football\Events\PlayerRetired;
 use Flair\Kernel\Football\Events\YouthPlayerPromoted;
 use Flair\Kernel\Football\Systems\CalendarSystem;
 use Flair\Kernel\Football\Systems\CompetitionSystem;
+use Flair\Kernel\Football\Systems\FacilitiesSystem;
 use Flair\Kernel\Football\Systems\FinanceSystem;
 use Flair\Kernel\Football\Systems\MatchSystem;
 use Flair\Kernel\Football\Systems\PlayerDevelopmentSystem;
@@ -226,6 +227,7 @@ $clubs = demoCreateClubs($world);
 $players = demoCreatePlayers($world, atTick: 1, clubs: $clubs);
 
 $simulation = new Simulation(new Pipeline([
+    new FacilitiesSystem(),
     new YouthIntakeSystem(),
     new TrainingSystem(),
     new RetirementSystem(),

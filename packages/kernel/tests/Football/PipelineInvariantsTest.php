@@ -7,6 +7,7 @@ namespace Flair\Kernel\Tests\Football;
 use Flair\Kernel\Core\Pipeline\System;
 use Flair\Kernel\Football\Systems\CalendarSystem;
 use Flair\Kernel\Football\Systems\CompetitionSystem;
+use Flair\Kernel\Football\Systems\FacilitiesSystem;
 use Flair\Kernel\Football\Systems\FinanceSystem;
 use Flair\Kernel\Football\Systems\MatchSystem;
 use Flair\Kernel\Football\Systems\PlayerDevelopmentSystem;
@@ -32,6 +33,7 @@ final class PipelineInvariantsTest extends TestCase
     private function pipeline(): array
     {
         return [
+            new FacilitiesSystem(),
             new YouthIntakeSystem(),
             new TrainingSystem(),
             new RetirementSystem(),

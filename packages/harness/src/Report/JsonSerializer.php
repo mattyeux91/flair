@@ -25,6 +25,7 @@ final class JsonSerializer
      *     scorelineFrequency: array<string, int>,
      *     seasonHistory: list<array{season: int, standings: list<array{clubId: int, clubName: string, played: int, won: int, drawn: int, lost: int, goalsFor: int, goalsAgainst: int, points: int}>, matches: list<array{matchday: int, homeClub: string, awayClub: string, homeGoals: int, awayGoals: int}>}>,
      *     cumulativeIncomeByClub: array<string, int>,
+     *     finalFacilitiesByClub: array<string, float>,
      *     competitiveBalance: array{titlesByClub: array<string, int>, giniOfTitles: float, giniOfRevenues: float, topFiveTurnoverRate: float|null, distinctChampions: int, seasonsMeasured: int},
      * }
      */
@@ -40,6 +41,7 @@ final class JsonSerializer
             'scorelineFrequency' => $result->scorelineFrequency,
             'seasonHistory' => $result->seasonHistory,
             'cumulativeIncomeByClub' => $result->cumulativeIncomeByClub,
+            'finalFacilitiesByClub' => $result->finalFacilitiesByClub,
             'competitiveBalance' => CompetitiveBalance::toArray(CompetitiveBalance::analyze($result->seasonHistory, $result->cumulativeIncomeByClub)),
         ];
     }

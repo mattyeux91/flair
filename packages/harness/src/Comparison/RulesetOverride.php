@@ -7,6 +7,7 @@ namespace Flair\Harness\Comparison;
 use Flair\Kernel\Core\Ruleset\Balance;
 use Flair\Kernel\Core\Ruleset\CalendarBalance;
 use Flair\Kernel\Core\Ruleset\CompetitionBalance;
+use Flair\Kernel\Core\Ruleset\FacilitiesBalance;
 use Flair\Kernel\Core\Ruleset\FinanceBalance;
 use Flair\Kernel\Core\Ruleset\MatchBalance;
 use Flair\Kernel\Core\Ruleset\PlayerDevelopmentBalance;
@@ -109,7 +110,16 @@ final class RulesetOverride
     public const array FINANCE_FIELDS = [
         'clubIncomePerSeasonCents',
         'meritShare',
+        'facilityUpkeepPerQualityPointCents',
+        'facilityInvestmentReserveCents',
+        'facilityInvestmentMaxPerSeasonCents',
         'wagePaymentDayOfWeek',
+    ];
+
+    /** @var list<string> */
+    public const array FACILITIES_FIELDS = [
+        'centsPerQualityPoint',
+        'qualityDecayPerSeason',
     ];
 
     /** @var list<string> */
@@ -122,6 +132,7 @@ final class RulesetOverride
         ...self::MATCH_FIELDS,
         ...self::COMPETITION_FIELDS,
         ...self::FINANCE_FIELDS,
+        ...self::FACILITIES_FIELDS,
     ];
 
     /**
@@ -139,6 +150,7 @@ final class RulesetOverride
         'Match' => self::MATCH_FIELDS,
         'Classement' => self::COMPETITION_FIELDS,
         'Finances' => self::FINANCE_FIELDS,
+        'Installations' => self::FACILITIES_FIELDS,
         'Global' => self::GLOBAL_FIELDS,
     ];
 
@@ -185,6 +197,7 @@ final class RulesetOverride
             match: self::withMatch($balance->match, $overrides),
             competition: self::withCompetition($balance->competition, $overrides),
             finance: self::withFinance($balance->finance, $overrides),
+            facilities: self::withFacilities($balance->facilities, $overrides),
         ));
     }
 
@@ -273,7 +286,19 @@ final class RulesetOverride
         return new FinanceBalance(
             clubIncomePerSeasonCents: isset($overrides['clubIncomePerSeasonCents']) ? (int) round($overrides['clubIncomePerSeasonCents']) : $base->clubIncomePerSeasonCents,
             meritShare: $overrides['meritShare'] ?? $base->meritShare,
+            facilityUpkeepPerQualityPointCents: isset($overrides['facilityUpkeepPerQualityPointCents']) ? (int) round($overrides['facilityUpkeepPerQualityPointCents']) : $base->facilityUpkeepPerQualityPointCents,
+            facilityInvestmentReserveCents: isset($overrides['facilityInvestmentReserveCents']) ? (int) round($overrides['facilityInvestmentReserveCents']) : $base->facilityInvestmentReserveCents,
+            facilityInvestmentMaxPerSeasonCents: isset($overrides['facilityInvestmentMaxPerSeasonCents']) ? (int) round($overrides['facilityInvestmentMaxPerSeasonCents']) : $base->facilityInvestmentMaxPerSeasonCents,
             wagePaymentDayOfWeek: isset($overrides['wagePaymentDayOfWeek']) ? (int) round($overrides['wagePaymentDayOfWeek']) : $base->wagePaymentDayOfWeek,
+        );
+    }
+
+    /** @param array<string, float> $overrides */
+    private static function withFacilities(FacilitiesBalance $base, array $overrides): FacilitiesBalance
+    {
+        return new FacilitiesBalance(
+            centsPerQualityPoint: isset($overrides['centsPerQualityPoint']) ? (int) round($overrides['centsPerQualityPoint']) : $base->centsPerQualityPoint,
+            qualityDecayPerSeason: $overrides['qualityDecayPerSeason'] ?? $base->qualityDecayPerSeason,
         );
     }
 }
