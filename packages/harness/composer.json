@@ -20,6 +20,9 @@
             "Flair\\Harness\\Tests\\": "tests/"
         }
     },
+    "scripts": {
+        "serve": "php -d opcache.enable_cli=1 -d opcache.jit_buffer_size=64M -d opcache.jit=tracing -S localhost:8000 -t public"
+    },
     "repositories": [
         {
             "type": "path",
@@ -27,7 +30,8 @@
         }
     ],
     "config": {
-        "sort-packages": true
+        "sort-packages": true,
+        "process-timeout": 0
     },
     "minimum-stability": "dev",
     "prefer-stable": true

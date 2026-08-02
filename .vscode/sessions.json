@@ -31,7 +31,7 @@
           "icon": "server",
           "color": "terminal.ansiRed",
           "commands": [
-            "cd packages/harness && php -S localhost:8791 -t public"
+            "cd packages/harness && composer run serve"
           ]
         }
       ],

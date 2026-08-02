@@ -15,15 +15,38 @@ use Flair\Kernel\Core\Ruleset\Ruleset;
 
 $baseline = new Ruleset('harness');
 
+/**
+ * Bornes de taille du POST web, distinctes de celles du CLI
+ * (`bin/aggregate.php`, sans plafond) : le kernel est un simulateur PHP pur,
+ * sans JIT ni cache d'octets particulier, et une requete HTTP synchrone doit
+ * rester dans un budget humainement raisonnable. Mesure empiriquement (pas
+ * de regulateur ici, juste un constat) : 1200 joueurs/35 ans, sans override,
+ * tourne en ~100s en PHP interprete (~200s pour une comparaison a graines
+ * appariees, qui execute deux fois la simulation) - sous le plafond de
+ * MAX_EXECUTION_TIME_SECONDS ci-dessous avec de la marge. Au-dela, utiliser
+ * le CLI, qui n'a pas cette contrainte de requete/reponse.
+ */
+const MAX_PLAYERS = 1200;
+const MAX_YEARS = 35;
+
+/**
+ * Filet de securite, pas la strategie principale : les bornes ci-dessus sont
+ * ce qui doit empecher un depassement en pratique. Ce plafond couvre la
+ * marge mesuree (~200s pire cas) plus une marge pour une machine plus lente
+ * ou une charge concurrente - pas un exercice de precision.
+ */
+const MAX_EXECUTION_TIME_SECONDS = 300;
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Content-Type: application/json');
+    set_time_limit(MAX_EXECUTION_TIME_SECONDS);
 
     /** @var array<string, mixed> $input */
     $input = json_decode((string) file_get_contents('php://input'), true) ?? [];
 
     $spec = new PopulationSpec(
-        playerCount: max(1, min(5000, (int) ($input['players'] ?? 200))),
-        years: max(1, min(100, (int) ($input['years'] ?? 30))),
+        playerCount: max(1, min(MAX_PLAYERS, (int) ($input['players'] ?? 200))),
+        years: max(1, min(MAX_YEARS, (int) ($input['years'] ?? 30))),
         seed: (int) ($input['seed'] ?? 42),
         clubCount: max(0, min(64, (int) ($input['clubs'] ?? 18))),
         facilitiesQuality: (float) ($input['facilitiesQuality'] ?? 1.0),
@@ -70,7 +93,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
  * ($obj->$field) sur un nom de champ variable - chaque ligne nomme son
  * champ en clair, meme esprit d'enumeration explicite que RulesetOverride.
  *
- * @var list<array{field: string, group: string, label: string, step: string, default: int|float}>
+ * `min`/`max` (optionnels) : seulement renseignes pour les champs qui
+ * servent de borne de boucle dans le kernel (`talentSkew`,
+ * `baseIntakePerClub` - cf. `RulesetOverride::FIELD_BOUNDS`), pour empecher
+ * une saisie hors bornes de declencher le timeout serveur (30s) directement
+ * depuis le formulaire, meme esprit que les bornes deja sur les champs
+ * Population plus haut.
+ *
+ * @var list<array{field: string, group: string, label: string, step: string, default: int|float, min?: int|float, max?: int|float}>
  */
 $fieldMeta = [
     ['field' => 'retirementEligibleAge', 'group' => 'Retraite', 'label' => "Âge d'éligibilité (années)", 'step' => '0.5', 'default' => $baseline->balance->retirement->retirementEligibleAge],
@@ -86,10 +116,10 @@ $fieldMeta = [
 
     ['field' => 'intakeDayOfYear', 'group' => 'Formation des jeunes', 'label' => 'Jour de promotion (tick % 365)', 'step' => '1', 'default' => $baseline->balance->youthIntake->intakeDayOfYear],
     ['field' => 'intakeAgeYears', 'group' => 'Formation des jeunes', 'label' => "Âge d'entrée pro (années)", 'step' => '0.5', 'default' => $baseline->balance->youthIntake->intakeAgeYears],
-    ['field' => 'baseIntakePerClub', 'group' => 'Formation des jeunes', 'label' => 'Promotions moyennes par club/saison', 'step' => '0.1', 'default' => $baseline->balance->youthIntake->baseIntakePerClub],
+    ['field' => 'baseIntakePerClub', 'group' => 'Formation des jeunes', 'label' => 'Promotions moyennes par club/saison', 'step' => '0.1', 'default' => $baseline->balance->youthIntake->baseIntakePerClub, 'min' => 0, 'max' => 20],
     ['field' => 'ceilingMin', 'group' => 'Formation des jeunes', 'label' => 'Potentiel min (ceiling)', 'step' => '1', 'default' => $baseline->balance->youthIntake->ceilingMin],
     ['field' => 'ceilingMax', 'group' => 'Formation des jeunes', 'label' => 'Potentiel max (ceiling)', 'step' => '1', 'default' => $baseline->balance->youthIntake->ceilingMax],
-    ['field' => 'talentSkew', 'group' => 'Formation des jeunes', 'label' => 'Asymétrie de la loi de talent (k)', 'step' => '1', 'default' => $baseline->balance->youthIntake->talentSkew],
+    ['field' => 'talentSkew', 'group' => 'Formation des jeunes', 'label' => 'Asymétrie de la loi de talent (k)', 'step' => '1', 'default' => $baseline->balance->youthIntake->talentSkew, 'min' => 1, 'max' => 50],
     ['field' => 'startingSkillRatio', 'group' => 'Formation des jeunes', 'label' => 'Ratio de compétence de départ', 'step' => '0.01', 'default' => $baseline->balance->youthIntake->startingSkillRatio],
     ['field' => 'startingSkillJitter', 'group' => 'Formation des jeunes', 'label' => 'Bruit de compétence de départ', 'step' => '1', 'default' => $baseline->balance->youthIntake->startingSkillJitter],
     ['field' => 'physicalPeakAgeMin', 'group' => 'Formation des jeunes', 'label' => 'Âge de pic physique min', 'step' => '1', 'default' => $baseline->balance->youthIntake->physicalPeakAgeMin],
@@ -131,8 +161,8 @@ $openByDefault = ['Retraite' => true, 'Développement' => true];
     <form id="run-form">
         <fieldset>
             <legend>Population</legend>
-            <label>Joueurs <input type="number" name="players" value="200" min="1" max="5000"></label>
-            <label>Années simulées <input type="number" name="years" value="30" min="1" max="100"></label>
+            <label>Joueurs <input type="number" name="players" value="200" min="1" max="<?= MAX_PLAYERS ?>"></label>
+            <label>Années simulées <input type="number" name="years" value="30" min="1" max="<?= MAX_YEARS ?>"></label>
             <label>Graine <input type="number" name="seed" value="42"></label>
             <label>Clubs synthétiques <input type="number" name="clubs" value="18" min="0" max="64"></label>
             <label>Qualité moyenne des installations <input type="number" step="0.1" name="facilitiesQuality" value="1.0" min="0.1" max="3"></label>
@@ -144,8 +174,17 @@ $openByDefault = ['Retraite' => true, 'Développement' => true];
                 <details<?= ($openByDefault[$groupLabel] ?? false) ? ' open' : '' ?>>
                     <summary><?= htmlspecialchars($groupLabel) ?></summary>
                     <?php foreach ($groupedFields[$groupLabel] ?? [] as $meta): ?>
+                        <?php
+                            $bounds = '';
+                            if (isset($meta['min'])) {
+                                $bounds .= ' min="' . htmlspecialchars((string) $meta['min']) . '"';
+                            }
+                            if (isset($meta['max'])) {
+                                $bounds .= ' max="' . htmlspecialchars((string) $meta['max']) . '"';
+                            }
+                        ?>
                         <label><?= htmlspecialchars($meta['label']) ?>
-                            <input type="number" step="<?= htmlspecialchars($meta['step']) ?>" name="override[<?= htmlspecialchars($meta['field']) ?>]" value="<?= htmlspecialchars((string) $meta['default']) ?>" data-default="<?= htmlspecialchars((string) $meta['default']) ?>">
+                            <input type="number" step="<?= htmlspecialchars($meta['step']) ?>" name="override[<?= htmlspecialchars($meta['field']) ?>]" value="<?= htmlspecialchars((string) $meta['default']) ?>" data-default="<?= htmlspecialchars((string) $meta['default']) ?>"<?= $bounds ?>>
                         </label>
                     <?php endforeach; ?>
                 </details>

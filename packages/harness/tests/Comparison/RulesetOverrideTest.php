@@ -44,6 +44,34 @@ final class RulesetOverrideTest extends TestCase
         ]);
     }
 
+    public function testOutOfBoundsTalentSkewThrowsBeforeApplyingAnyOverride(): void
+    {
+        $base = new Ruleset('test');
+
+        $this->expectException(\InvalidArgumentException::class);
+
+        // talentSkew est une borne de boucle dans PlayerFactory::drawTalent()
+        // (docs/12- §7) : une valeur demesuree declenche des dizaines/
+        // centaines de millions de tirages RNG et un timeout PHP (30s).
+        RulesetOverride::withFields($base, [
+            'talentSkew' => 999_999.0,
+        ]);
+    }
+
+    public function testOutOfBoundsBaseIntakePerClubThrowsBeforeApplyingAnyOverride(): void
+    {
+        $base = new Ruleset('test');
+
+        $this->expectException(\InvalidArgumentException::class);
+
+        // baseIntakePerClub borne le nombre de promotions par club et par
+        // saison (YouthIntakeSystem::update()) - meme risque de boucle
+        // demesuree que talentSkew.
+        RulesetOverride::withFields($base, [
+            'baseIntakePerClub' => 1_000_000.0,
+        ]);
+    }
+
     public function testYouthIntakeIntFieldsAreCastWithoutTypeError(): void
     {
         $base = new Ruleset('test');

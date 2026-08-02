@@ -23,6 +23,14 @@ declare(strict_types=1);
  *   php bin/aggregate.php --players=500 --years=40 --seed=42
  *   php bin/aggregate.php --players=500 --years=40 --seed=42 --clubs=18 \
  *       --set retirementFragilityWeight=0.30 --set trainingRate=1.5
+ *
+ * Pas de plafond de taille ici (contrairement a public/index.php) : le CLI
+ * n'a pas de contrainte requete/reponse HTTP. Pour un run plus rapide sur de
+ * gros volumes, `opcache.jit` (desactive par defaut en CLI) donne ~2,5x sans
+ * rien changer au resultat - verifie bit a bit identique interprete vs JIT
+ * sur le meme seed :
+ *   php -d opcache.enable_cli=1 -d opcache.jit_buffer_size=64M \
+ *       -d opcache.jit=tracing bin/aggregate.php --players=2000 --years=50
  */
 
 require __DIR__ . '/../vendor/autoload.php';

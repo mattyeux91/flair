@@ -100,12 +100,34 @@ final class RulesetOverride
         'Global' => self::GLOBAL_FIELDS,
     ];
 
+    /**
+     * Bornes des seuls champs qui servent de borne de boucle dans le kernel
+     * (`PlayerFactory::drawTalent()`, `YouthIntakeSystem::cohortSize()`) - une
+     * valeur demesuree declenche des dizaines/centaines de millions de
+     * tirages RNG et un timeout PHP (30s), constate en prod sur le harness
+     * web. Les autres champs de `ALL_FIELDS` n'exposent aucun risque de
+     * boucle et n'ont donc pas besoin de bornes artificielles ici.
+     *
+     * @var array<string, array{0: float, 1: float}>
+     */
+    private const array FIELD_BOUNDS = [
+        'talentSkew' => [1, 50],
+        'baseIntakePerClub' => [0.0, 20.0],
+    ];
+
     /** @param array<string, float> $overrides nom de champ (n'importe quel groupe) -> nouvelle valeur */
     public static function withFields(Ruleset $base, array $overrides): Ruleset
     {
-        foreach (array_keys($overrides) as $field) {
+        foreach ($overrides as $field => $value) {
             if (!\in_array($field, self::ALL_FIELDS, strict: true)) {
                 throw new \InvalidArgumentException("Champ de Balance inconnu : {$field}");
+            }
+
+            $bounds = self::FIELD_BOUNDS[$field] ?? null;
+            if ($bounds !== null && ($value < $bounds[0] || $value > $bounds[1])) {
+                throw new \InvalidArgumentException(
+                    "Valeur hors bornes pour {$field} : {$value} (attendu entre {$bounds[0]} et {$bounds[1]})"
+                );
             }
         }
 
