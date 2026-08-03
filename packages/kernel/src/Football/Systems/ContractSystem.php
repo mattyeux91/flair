@@ -155,7 +155,7 @@ final class ContractSystem implements System
             return;
         }
 
-        $clubIds = $ctx->components(Club::class)->entities();
+        $clubIds = $ctx->read(Club::class)->entities();
 
         if ($clubIds === []) {
             return;
@@ -225,8 +225,8 @@ final class ContractSystem implements System
         array &$committedWage,
         array &$expiring,
     ): void {
-        foreach ($ctx->components(Contract::class)->entities() as $playerId) {
-            $contract = $ctx->components(Contract::class)->get($playerId);
+        foreach ($ctx->read(Contract::class)->entities() as $playerId) {
+            $contract = $ctx->read(Contract::class)->get($playerId);
 
             if ($contract === null || !isset($squadSize[$contract->clubId])) {
                 continue;
@@ -345,7 +345,7 @@ final class ContractSystem implements System
 
         foreach ($clubIds as $clubId) {
             $lottery[$clubId] = $ctx->rng($clubId)->nextUint32();
-            $solvent[$clubId] = ($ctx->components(Finances::class)->get($clubId)->balanceCents ?? 0) >= 0;
+            $solvent[$clubId] = ($ctx->read(Finances::class)->get($clubId)->balanceCents ?? 0) >= 0;
         }
 
         $pool = $this->unattached($ctx, $qualities, $released);
@@ -411,8 +411,8 @@ final class ContractSystem implements System
     {
         $pool = array_keys($released);
 
-        foreach ($ctx->components(PlayerPhysicalSkills::class)->entities() as $playerId) {
-            if ($ctx->components(Contract::class)->get($playerId) !== null) {
+        foreach ($ctx->read(PlayerPhysicalSkills::class)->entities() as $playerId) {
+            if ($ctx->read(Contract::class)->get($playerId) !== null) {
                 continue;
             }
 
@@ -446,7 +446,7 @@ final class ContractSystem implements System
         $budgets = [];
 
         foreach ($clubIds as $clubId) {
-            $income = $ctx->components(SeasonIncome::class)->get($clubId);
+            $income = $ctx->read(SeasonIncome::class)->get($clubId);
             $budgets[$clubId] = $income === null
                 ? null
                 : max(0, (int) round($income->cents * $balance->wageBudgetShare));
@@ -487,9 +487,9 @@ final class ContractSystem implements System
      */
     private function quality(SystemContext $ctx, int $playerId): ?int
     {
-        $physical = $ctx->components(PlayerPhysicalSkills::class)->get($playerId);
-        $technical = $ctx->components(PlayerTechnicalSkills::class)->get($playerId);
-        $mental = $ctx->components(PlayerMentalSkills::class)->get($playerId);
+        $physical = $ctx->read(PlayerPhysicalSkills::class)->get($playerId);
+        $technical = $ctx->read(PlayerTechnicalSkills::class)->get($playerId);
+        $mental = $ctx->read(PlayerMentalSkills::class)->get($playerId);
 
         if ($physical === null || $technical === null || $mental === null) {
             return null;

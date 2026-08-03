@@ -108,7 +108,7 @@ final class FacilitiesSystem implements System
         if ($event instanceof SeasonConcluded) {
             $decay = $ctx->ruleset()->balance->facilities->qualityDecayPerSeason;
 
-            foreach ($ctx->components(Facilities::class)->entities() as $clubId) {
+            foreach ($ctx->read(Facilities::class)->entities() as $clubId) {
                 $this->shiftQuality($ctx, $clubId, -$decay);
             }
 
@@ -137,7 +137,7 @@ final class FacilitiesSystem implements System
      */
     private function shiftQuality(SystemContext $ctx, int $clubId, float $delta): void
     {
-        $facilities = $ctx->components(Facilities::class)->get($clubId);
+        $facilities = $ctx->read(Facilities::class)->get($clubId);
 
         if ($facilities === null) {
             return;
@@ -148,6 +148,6 @@ final class FacilitiesSystem implements System
             min(Facilities::MAX_QUALITY, $facilities->quality + $delta),
         );
 
-        $ctx->components(Facilities::class)->set($clubId, new Facilities($quality));
+        $ctx->write(Facilities::class)->set($clubId, new Facilities($quality));
     }
 }

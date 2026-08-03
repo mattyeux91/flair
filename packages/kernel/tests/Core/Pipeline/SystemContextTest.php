@@ -10,8 +10,10 @@ use Flair\Kernel\Core\Messaging\Intent;
 use Flair\Kernel\Core\Messaging\OutQueue;
 use Flair\Kernel\Core\Messaging\Scheduler;
 use Flair\Kernel\Core\Pipeline\SeqCounter;
+use Flair\Kernel\Core\Pipeline\SystemAccess;
 use Flair\Kernel\Core\Pipeline\SystemContext;
 use Flair\Kernel\Core\Ruleset\Ruleset;
+use Flair\Kernel\Tests\Core\Pipeline\Fixtures\DeclaredSystem;
 use PHPUnit\Framework\TestCase;
 
 final class SystemContextTest extends TestCase
@@ -23,16 +25,17 @@ final class SystemContextTest extends TestCase
         self::assertSame(42, $ctx->tick);
     }
 
-    public function testComponentsDelegatesToTheUnderlyingWorldState(): void
+    public function testWriteDelegatesToTheUnderlyingWorldState(): void
     {
         $world = new WorldState();
         $ctx = $this->makeContext(world: $world);
         $entity = $ctx->createEntity();
         $component = new SystemContextTestComponent(1);
 
-        $ctx->components(SystemContextTestComponent::class)->set($entity, $component);
+        $ctx->write(SystemContextTestComponent::class)->set($entity, $component);
 
         self::assertSame($component, $world->components(SystemContextTestComponent::class)->get($entity));
+        self::assertSame($component, $ctx->read(SystemContextTestComponent::class)->get($entity));
     }
 
     public function testCreateEntityDelegatesToTheUnderlyingWorldState(): void
@@ -130,7 +133,13 @@ final class SystemContextTest extends TestCase
         self::assertSame([$intent], $ctx->intents());
     }
 
-    /** @param list<Intent> $intents */
+    /**
+     * Declarations permissives par defaut sur le seul composant manipule ici :
+     * ce cas de test porte sur la delegation au WorldState, pas sur le
+     * controle des declarations (SystemContextAccessTest s'en charge).
+     *
+     * @param list<Intent> $intents
+     */
     private function makeContext(
         int $tick = 1,
         int $systemIndex = 0,
@@ -146,7 +155,11 @@ final class SystemContextTest extends TestCase
         return new SystemContext(
             tick: $tick,
             systemIndex: $systemIndex,
-            systemId: $systemId,
+            access: SystemAccess::of(new DeclaredSystem(
+                id: $systemId,
+                reads: [SystemContextTestComponent::class],
+                writes: [SystemContextTestComponent::class],
+            )),
             worldSeed: $worldSeed,
             ruleset: $ruleset ?? new Ruleset('test'),
             intents: $intents,

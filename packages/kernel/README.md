@@ -20,7 +20,8 @@ src/Football/   le domaine football, au-dessus du kernel générique
 ### `Ecs/`
 
 - **`EntityIdAllocator`** — compteur monotone, jamais de réutilisation d'id, `0` réservé comme sentinelle "aucune entité".
-- **`ComponentStore<T>`** — une colonne par type de composant : `set()`/`get()`/`remove()`, et `entities()` qui renvoie **toujours** les ids triés, jamais l'ordre d'insertion (`docs/12-` §2 — "la source n°1 de non-reproductibilité silencieuse").
+- **`ComponentReader<T>`** — vue lecture seule d'une colonne (`get()`/`entities()`). Existe pour que `SystemContext::read()` puisse rendre un handle qui n'a physiquement pas de `set()`.
+- **`ComponentStore<T>`** — une colonne par type de composant, implémente `ComponentReader<T>` : `set()`/`get()`/`remove()`, et `entities()` qui renvoie **toujours** les ids triés, jamais l'ordre d'insertion (`docs/12-` §2 — "la source n°1 de non-reproductibilité silencieuse"). Accès complet et non gardé — c'est le stockage brut, que worldgen et le harness écrivent légitimement via `WorldState` sans être des systèmes. Un `System`, lui, n'y touche jamais directement.
 - **`WorldState`** — agrège l'allocateur, un `ComponentStore` par type de composant, les singletons (adressés par type via `singleton()`/`setSingleton()`), **et** le `Scheduler`/`OutQueue` du monde. Ces deux derniers ont rejoint `WorldState` précisément parce que `step()` ne prend que `WorldState` + `TickContext` — rien d'autre ne pourrait les faire survivre d'un appel à l'autre (voir `docs/13-` §5, note sur les snapshots).
 
 ### `Messaging/`
@@ -35,13 +36,16 @@ src/Football/   le domaine football, au-dessus du kernel générique
 
   | Verbe | Opération | Contrainte |
   |---|---|---|
-  | `reads()` | `get()`/`entities()` | ne doit pas lire un composant écrit ou retiré **plus loin** dans le pipeline |
-  | `writes()` | `set()` sur une entité existante | **un seul writer** par composant |
-  | `removes()` | `remove()` (retrait d'archétype) | **un seul remover** par composant |
-  | `creates()` | `set()` sur une entité créée par ce système dans ce tick | **un seul créateur** par composant |
+  | `reads()` | `read()` → `get()`/`entities()` | ne doit pas lire un composant écrit ou retiré **plus loin** dans le pipeline |
+  | `writes()` | `write()` → `set()` sur n'importe quelle entité | **un seul writer** par composant |
+  | `removes()` | `write()` → `remove()` (retrait d'archétype) | **un seul remover** par composant |
+  | `creates()` | `write()` → `set()` sur une entité créée par ce système dans ce tick | **un seul créateur** par composant |
 
   Séparer `creates()` de `writes()` répond au même besoin qui avait déjà séparé `removes()` : un writer de valeur et un créateur d'entité peuvent coexister sur un même composant sans se marcher dessus, puisqu'ils ne touchent jamais la même entité. `YouthIntakeSystem` crée les composants de compétences dont `PlayerDevelopmentSystem` est seul writer — les deux cohabitent légitimement. `creates()` est aussi le seul des quatre exclu du contrôle de dépendance inversée : un créateur ne peut pas invalider une lecture déjà faite, puisque l'entité n'existait pas quand le lecteur a itéré.
-- **`SystemContext`** — façade unique par laquelle un système accède à tout : `components()`/`createEntity()`/`singleton()`/`setSingleton()` délèguent au `WorldState` ; `schedule()`/`emit()` délèguent au `Scheduler`/`OutQueue` en fournissant `systemIndex`/`seq` ; `rng(entityId)` délègue à `Rng::forStream` ; `ruleset()`/`intents()` exposent ce que le `TickContext` a fourni.
+
+  **Ces quatre déclarations sont opposables, pas documentaires** : `SystemContext` refuse tout accès non déclaré (`UndeclaredAccessException`), et la restriction de `creates()` à « une entité créée par ce système dans ce tick » est elle-même vérifiée, via le registre `CreatedEntities` que `createEntity()` alimente. C'était nécessaire parce que `Football\PipelineInvariantsTest` ne compare que des déclarations *entre elles* — il ne peut structurellement pas voir un accès non déclaré, donc rien n'empêchait une déclaration de mentir.
+- **`SystemContext`** — façade unique par laquelle un système accède à tout. L'accès au monde est scindé en deux handles dont le **type porte la permission** : `read(T)` renvoie un `ComponentReader<T>` (`get()`/`entities()`, et physiquement pas de `set()` — PHPStan attrape donc l'erreur à l'analyse), `write(T)` un `GuardedComponentWriter<T>` (`set()`/`remove()`, gardés selon la déclaration exacte). Ce dernier n'expose volontairement pas `get()` : lire passe obligatoirement par `read()`, sinon `reads()` redeviendrait décoratif. Les deux ne sont **pas** une paire symétrique, et ne vivent pas au même endroit pour cette raison — `ComponentReader` est une *capacité* de l'ECS (`ComponentStore` l'implémente), le second un *garde* qui porte les droits d'un système sur un tick et dépend donc de `SystemAccess`/`CreatedEntities`/`UndeclaredAccessException`. Le mettre dans `Ecs` y ferait importer `Pipeline` et inverserait la seule stratification du noyau. `createEntity()`/`singleton()`/`setSingleton()` délèguent au `WorldState` sous la même garde (un singleton se déclare comme un composant : `MonetaryMass` figure dans les `reads()`/`writes()` de `FinanceSystem`) ; `schedule()`/`emit()` délèguent au `Scheduler`/`OutQueue` en fournissant `systemIndex`/`seq` ; `rng(entityId)` délègue à `Rng::forStream` ; `ruleset()`/`intents()` exposent ce que le `TickContext` a fourni.
+- **`SystemAccess`** — les quatre déclarations d'un système, indexées pour un test O(1) et construites une seule fois dans le constructeur de `Pipeline`. Porte aussi `systemId`, dont `SystemContext` dérive le flux RNG.
 - **`SeqCounter`** — compteur monotone d'émission, une instance par tick, partagée par tous les `SystemContext` de ce tick (garantit l'ordre total même quand deux systèmes émettent avec le même `systemIndex`).
 - **`Pipeline`** — construit avec une `list<System>` **déclarée et ordonnée** (l'ordre est une donnée d'architecture versionnée avec le noyau, pas un détail). `tick(WorldState, tick, worldSeed, Ruleset, intents)` calcule l'`$incoming` une seule fois (`Scheduler::drainDueBy()` + `OutQueue::drain()`, concaténés — deux lots distincts, pas de tri unifié entre les deux), puis pour chaque système dans l'ordre déclaré : traite les événements de `$incoming` qui matchent `subscribesTo()` via `handle()`, puis appelle `update()`.
 
@@ -139,12 +143,14 @@ final class FatigueRecoverySystem implements System
 
     public function update(SystemContext $ctx): void
     {
-        foreach ($ctx->components(Fatigue::class)->entities() as $entityId) {
-            $fatigue = $ctx->components(Fatigue::class)->get($entityId);
+        foreach ($ctx->read(Fatigue::class)->entities() as $entityId) {
+            $fatigue = $ctx->read(Fatigue::class)->get($entityId);
             $recovery = $ctx->rng($entityId)->nextUint32() % 3; // 0-2 points recuperes
 
             $next = max(0, $fatigue->value - $recovery);
-            $ctx->components(Fatigue::class)->set($entityId, new Fatigue($next));
+            // write() exigerait Fatigue dans writes()/creates()/removes() : la
+            // declaration ci-dessus n'est pas decorative, elle est opposee.
+            $ctx->write(Fatigue::class)->set($entityId, new Fatigue($next));
 
             if ($next === 0 && $fatigue->value > 0) {
                 $ctx->emit(new FatigueRecovered(), entityId: $entityId);
@@ -309,7 +315,7 @@ Parmi les sept interdits structurants de `docs/11-` §9, ce que le code garantit
 | Un événement n'est jamais traité dans le tick qui l'a produit | **Garanti par construction** : `$incoming` est calculé avant la boucle sur les systèmes, `emit()`/`schedule()` n'écrivent que dans `OutQueue`/`Scheduler`. |
 | Itération toujours triée par `EntityId` | **Garanti par construction** pour `ComponentStore`/`Scheduler`/`OutQueue` (tri à la lecture, jamais d'ordre de `Map`). |
 | `rand()`/`mt_rand()`/`time()`/accès disque ou réseau interdits dans le noyau | **Conventionnel** : rien ne l'empêche mécaniquement pour l'instant (pas de règle PHPStan/CI dédiée). |
-| Un système déclare `reads()`/`writes()`/`removes()`/`creates()`, pas "le monde entier" | **Vérifié mécaniquement pour le domaine football** : `Football\PipelineInvariantsTest` détecte deux systèmes qui écrivent/retirent/créent le même composant, et toute lecture d'un composant écrit/retiré plus loin dans le pipeline déclaré. Toujours pas croisé avec les composants *réellement* lus/écrits dans le corps des méthodes (les déclarations peuvent mentir), et la liste vérifiée est maintenue à la main tant qu'aucun registre canonique `Pipeline::SYSTEMS` n'existe. |
+| Un système déclare `reads()`/`writes()`/`removes()`/`creates()`, pas "le monde entier" | **Vérifié mécaniquement, des deux côtés.** Entre déclarations : `Football\PipelineInvariantsTest` détecte deux systèmes qui écrivent/retirent/créent le même composant, et toute lecture d'un composant écrit/retiré plus loin dans le pipeline déclaré. Contre le code réel : `SystemContext` oppose les déclarations à l'exécution (`UndeclaredAccessException`), et le type de retour de `read()` interdit statiquement l'écriture. Une déclaration ne peut donc plus mentir. Reste que la liste vérifiée par `PipelineInvariantsTest` est maintenue à la main tant qu'aucun registre canonique `Pipeline::SYSTEMS` n'existe. |
 | Dépendance de package `kernel → (rien)` | **Vrai aujourd'hui** (`composer.json` du kernel n'a aucune dépendance runtime), mais pas vérifié par `deptrac`/`phparkitect` — outil pas encore en place. |
 
 ## Commandes de dev

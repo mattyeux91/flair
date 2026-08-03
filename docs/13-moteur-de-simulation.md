@@ -63,7 +63,7 @@ interface System
 {
     public function id(): string;
 
-    /** @return list<class-string> déclaré → vérifiable, documenté */
+    /** @return list<class-string> déclaré → opposable (voir plus bas) */
     public function reads(): array;
 
     /** @return list<class-string> composants mutés en place via ComponentStore::set() */
@@ -106,6 +106,24 @@ final class Pipeline
 **L'ordre est une donnée d'architecture, pas un détail.** Il est déclaré, versionné, et fait partie de la définition du noyau. Le changer change le monde.
 
 Les déclarations `reads`/`writes` permettent un test automatique : détecter deux systèmes qui écrivent le même composant, ou un système qui lit un composant écrit plus tard dans le pipeline (dépendance inversée).
+
+### ⚠️ Les déclarations sont opposables, pas documentaires
+
+Ce test automatique a un angle mort qu'il faut nommer, parce qu'il est invisible : **il compare des déclarations à des déclarations.** Il ne peut structurellement pas détecter un système qui touche un composant qu'il n'a pas déclaré. Tant que rien ne contraint le corps des méthodes, les quatre listes sont des commentaires — et tout ce qui se déduit d'elles se déduit d'un mensonge possible.
+
+D'où la règle : **`SystemContext` refuse tout accès non déclaré** (`UndeclaredAccessException`). L'accès au monde est scindé en deux handles dont le type porte la permission :
+
+```php
+$ctx->read(Facilities::class)->get($clubId);         // exige reads()
+$ctx->write(Facilities::class)->set($clubId, $new);  // exige writes()/creates()/removes()
+```
+
+- `read()` renvoie un `ComponentReader` — il n'a **physiquement pas** de `set()`, donc la faute est une erreur d'analyse statique et pas seulement une exception au premier tick.
+- `write()` renvoie un `GuardedComponentWriter`, qui n'expose **pas** `get()` : lire passe obligatoirement par `read()`, sinon `reads()` recommencerait à pourrir. Ce n'est pas cosmétique — `reads()` est ce dont se déduisent les dépendances entre systèmes. Les deux handles ne forment pas une paire symétrique : le lecteur est une capacité de l'ECS, l'écrivain un garde qui ne vaut que pour un système et un tick — d'où le préfixe, et d'où le fait qu'ils ne vivent pas dans le même dossier.
+- Un **singleton** se déclare comme un composant : `MonetaryMass` figure dans les `reads()`/`writes()` de `FinanceSystem`.
+- `creates()` devient vérifiable plutôt que déclaratif : `createEntity()` retient les entités qu'il rend, et `set()` sur un composant déclaré en `creates()` seul exige que l'entité soit de celles-là. La portée « ce système, ce tick » tombe juste sans effort, puisque le pipeline construit un `SystemContext` par système et par tick.
+
+La restriction porte sur `SystemContext`, **jamais sur l'ECS** : `WorldState`/`ComponentStore` gardent un accès libre, parce que worldgen et le harness écrivent le monde initial sans être des systèmes.
 
 ### Communication entre systèmes
 

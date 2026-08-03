@@ -109,7 +109,7 @@ final class CompetitionSystem implements System
     public function handle(DomainEvent $event, SystemContext $ctx): void
     {
         if ($event instanceof SeasonEnded) {
-            $final = $ctx->components(Standings::class)->get($event->competitionId) ?? new Standings();
+            $final = $ctx->read(Standings::class)->get($event->competitionId) ?? new Standings();
 
             $ctx->emit(
                 new SeasonConcluded($event->competitionId, self::rank($final)),
@@ -120,13 +120,13 @@ final class CompetitionSystem implements System
         }
 
         if ($event instanceof SeasonStarted) {
-            $ctx->components(Standings::class)->set($event->competitionId, new Standings());
+            $ctx->write(Standings::class)->set($event->competitionId, new Standings());
 
             return;
         }
 
         if ($event instanceof FixtureKickoff) {
-            $result = $ctx->components(MatchResult::class)->get($event->fixtureId);
+            $result = $ctx->read(MatchResult::class)->get($event->fixtureId);
 
             if ($result !== null) {
                 $this->applyResult($ctx, $result);
@@ -159,7 +159,7 @@ final class CompetitionSystem implements System
     private function applyResult(SystemContext $ctx, MatchResult $result): void
     {
         $balance = $ctx->ruleset()->balance->competition;
-        $standings = $ctx->components(Standings::class)->get($result->competitionId) ?? new Standings();
+        $standings = $ctx->read(Standings::class)->get($result->competitionId) ?? new Standings();
 
         $entries = $standings->entries;
         $entries[$result->homeClubId] = $this->updateEntry(
@@ -175,7 +175,7 @@ final class CompetitionSystem implements System
             $balance,
         );
 
-        $ctx->components(Standings::class)->set($result->competitionId, new Standings($entries));
+        $ctx->write(Standings::class)->set($result->competitionId, new Standings($entries));
     }
 
     private function updateEntry(StandingsEntry $entry, int $goalsFor, int $goalsAgainst, CompetitionBalance $balance): StandingsEntry

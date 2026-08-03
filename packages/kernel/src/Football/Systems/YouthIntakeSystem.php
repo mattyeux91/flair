@@ -142,7 +142,7 @@ final class YouthIntakeSystem implements System
         }
 
         $birthDate = new SimDate((int) round($ctx->tick - $intake->intakeAgeYears * 365));
-        $clubIds = $ctx->components(Club::class)->entities();
+        $clubIds = $ctx->read(Club::class)->entities();
         $averageQuality = $this->averageQuality($ctx, $clubIds);
 
         foreach ($clubIds as $clubId) {
@@ -165,7 +165,7 @@ final class YouthIntakeSystem implements System
      */
     private function quality(SystemContext $ctx, int $clubId): float
     {
-        return $ctx->components(Facilities::class)->get($clubId)->quality ?? 1.0;
+        return $ctx->read(Facilities::class)->get($clubId)->quality ?? 1.0;
     }
 
     /**
@@ -254,13 +254,13 @@ final class YouthIntakeSystem implements System
         $longest = max($shortest, $contract->maxDurationYears);
         $years = $shortest + (int) ($rng->nextUint32() % ($longest - $shortest + 1));
 
-        $ctx->components(Person::class)->set($playerId, $blueprint->person);
-        $ctx->components(PlayerPotentials::class)->set($playerId, $blueprint->potentials);
-        $ctx->components(PlayerPhysicalSkills::class)->set($playerId, $blueprint->physical);
-        $ctx->components(PlayerTechnicalSkills::class)->set($playerId, $blueprint->technical);
-        $ctx->components(PlayerMentalSkills::class)->set($playerId, $blueprint->mental);
-        $ctx->components(SquadMembership::class)->set($playerId, new SquadMembership($clubId));
-        $ctx->components(Contract::class)->set($playerId, new Contract(
+        $ctx->write(Person::class)->set($playerId, $blueprint->person);
+        $ctx->write(PlayerPotentials::class)->set($playerId, $blueprint->potentials);
+        $ctx->write(PlayerPhysicalSkills::class)->set($playerId, $blueprint->physical);
+        $ctx->write(PlayerTechnicalSkills::class)->set($playerId, $blueprint->technical);
+        $ctx->write(PlayerMentalSkills::class)->set($playerId, $blueprint->mental);
+        $ctx->write(SquadMembership::class)->set($playerId, new SquadMembership($clubId));
+        $ctx->write(Contract::class)->set($playerId, new Contract(
             $clubId,
             $intake->basePlayerWagePerWeekCents,
             new SimDate($ctx->tick + $years * 365),

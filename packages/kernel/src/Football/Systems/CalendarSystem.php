@@ -111,9 +111,9 @@ final class CalendarSystem implements System
             return;
         }
 
-        $clubIds = $ctx->components(Club::class)->entities();
+        $clubIds = $ctx->read(Club::class)->entities();
 
-        foreach ($ctx->components(Competition::class)->entities() as $competitionId) {
+        foreach ($ctx->read(Competition::class)->entities() as $competitionId) {
             $this->scheduleSeason($ctx, $competitionId, $clubIds, $calendar);
         }
     }
@@ -175,7 +175,7 @@ final class CalendarSystem implements System
 
         foreach ($pairs as $pair) {
             $fixtureId = $ctx->createEntity();
-            $ctx->components(Fixture::class)->set($fixtureId, new Fixture($competitionId, $pair['home'], $pair['away'], $matchday));
+            $ctx->write(Fixture::class)->set($fixtureId, new Fixture($competitionId, $pair['home'], $pair['away'], $matchday));
             $ctx->schedule(
                 new FixtureKickoff($fixtureId, $competitionId, $pair['home'], $pair['away'], $matchday),
                 atTick: $atTick,

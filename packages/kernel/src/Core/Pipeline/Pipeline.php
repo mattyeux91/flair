@@ -28,9 +28,16 @@ use Flair\Kernel\Core\Ruleset\Ruleset;
  */
 final class Pipeline
 {
+    /** @var list<SystemAccess> declarations indexees, dans l'ordre de $systems */
+    private array $access;
+
     /** @param list<System> $systems ordre declare, versionne avec le noyau (13- §2) */
     public function __construct(private array $systems)
     {
+        $this->access = array_map(
+            static fn (System $system): SystemAccess => SystemAccess::of($system),
+            $systems,
+        );
     }
 
     /** @param list<Intent> $intents */
@@ -46,7 +53,7 @@ final class Pipeline
             $ctx = new SystemContext(
                 $tick,
                 $index,
-                $system->id(),
+                $this->access[$index],
                 $worldSeed,
                 $ruleset,
                 $intents,

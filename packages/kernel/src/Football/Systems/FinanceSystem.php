@@ -185,7 +185,7 @@ final class FinanceSystem implements System
         }
 
         $finance = $ctx->ruleset()->balance->finance;
-        $clubIds = $ctx->components(Finances::class)->entities();
+        $clubIds = $ctx->read(Finances::class)->entities();
         $clubCount = \count($clubIds);
 
         if ($clubCount === 0) {
@@ -204,7 +204,7 @@ final class FinanceSystem implements System
         $drained = 0;
 
         foreach (self::orderByRank($clubIds, $event->finalRanking) as $rank => $clubId) {
-            $finances = $ctx->components(Finances::class)->get($clubId);
+            $finances = $ctx->read(Finances::class)->get($clubId);
 
             if ($finances === null) {
                 continue;
@@ -213,13 +213,13 @@ final class FinanceSystem implements System
             $income = $equalShare + intdiv($meritPool * ($clubCount - $rank), $totalWeight);
 
             $balance = $finances->balanceCents + $income;
-            $ctx->components(SeasonIncome::class)->set($clubId, new SeasonIncome($income));
+            $ctx->write(SeasonIncome::class)->set($clubId, new SeasonIncome($income));
             $injected += $income;
 
             $balance -= $this->chargeUpkeep($ctx, $clubId, $finance, $drained);
             $balance -= $this->investInFacilities($ctx, $clubId, $balance, $finance, $drained);
 
-            $ctx->components(Finances::class)->set($clubId, new Finances($balance));
+            $ctx->write(Finances::class)->set($clubId, new Finances($balance));
         }
 
         $mass = $ctx->singleton(MonetaryMass::class) ?? new MonetaryMass();
@@ -244,7 +244,7 @@ final class FinanceSystem implements System
      */
     private function chargeUpkeep(SystemContext $ctx, int $clubId, FinanceBalance $finance, int &$drained): int
     {
-        $facilities = $ctx->components(Facilities::class)->get($clubId);
+        $facilities = $ctx->read(Facilities::class)->get($clubId);
 
         if ($facilities === null) {
             return 0;
@@ -276,7 +276,7 @@ final class FinanceSystem implements System
      */
     private function investInFacilities(SystemContext $ctx, int $clubId, int $balance, FinanceBalance $finance, int &$drained): int
     {
-        $facilities = $ctx->components(Facilities::class)->get($clubId);
+        $facilities = $ctx->read(Facilities::class)->get($clubId);
 
         if ($facilities === null || $facilities->quality >= Facilities::MAX_QUALITY) {
             return 0;
@@ -343,20 +343,20 @@ final class FinanceSystem implements System
 
         $paid = 0;
 
-        foreach ($ctx->components(Contract::class)->entities() as $playerId) {
-            $contract = $ctx->components(Contract::class)->get($playerId);
+        foreach ($ctx->read(Contract::class)->entities() as $playerId) {
+            $contract = $ctx->read(Contract::class)->get($playerId);
 
             if ($contract === null) {
                 continue;
             }
 
-            $finances = $ctx->components(Finances::class)->get($contract->clubId);
+            $finances = $ctx->read(Finances::class)->get($contract->clubId);
 
             if ($finances === null) {
                 continue;
             }
 
-            $ctx->components(Finances::class)->set($contract->clubId, new Finances($finances->balanceCents - $contract->wagePerWeekCents));
+            $ctx->write(Finances::class)->set($contract->clubId, new Finances($finances->balanceCents - $contract->wagePerWeekCents));
             $paid += $contract->wagePerWeekCents;
         }
 

@@ -101,9 +101,9 @@ final class RetirementSystem implements System
         $now = new SimDate($ctx->tick);
         $retirement = $ctx->ruleset()->balance->retirement;
 
-        foreach ($ctx->components(PlayerPotentials::class)->entities() as $entityId) {
-            $person = $ctx->components(Person::class)->get($entityId);
-            $potential = $ctx->components(PlayerPotentials::class)->get($entityId);
+        foreach ($ctx->read(PlayerPotentials::class)->entities() as $entityId) {
+            $person = $ctx->read(Person::class)->get($entityId);
+            $potential = $ctx->read(PlayerPotentials::class)->get($entityId);
 
             if ($person === null || $potential === null) {
                 continue;
@@ -113,10 +113,10 @@ final class RetirementSystem implements System
             $rng = $ctx->rng($entityId);
 
             if ($ageYears >= $retirement->retirementEligibleAge && $this->retires($ageYears, $potential->fragility, $retirement, $rng)) {
-                $ctx->components(PlayerPotentials::class)->remove($entityId);
-                $ctx->components(PlayerPhysicalSkills::class)->remove($entityId);
-                $ctx->components(PlayerTechnicalSkills::class)->remove($entityId);
-                $ctx->components(PlayerMentalSkills::class)->remove($entityId);
+                $ctx->write(PlayerPotentials::class)->remove($entityId);
+                $ctx->write(PlayerPhysicalSkills::class)->remove($entityId);
+                $ctx->write(PlayerTechnicalSkills::class)->remove($entityId);
+                $ctx->write(PlayerMentalSkills::class)->remove($entityId);
                 $ctx->emit(new PlayerRetired($entityId, (int) $ageYears), entityId: $entityId);
             }
         }

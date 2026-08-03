@@ -118,12 +118,12 @@ final class SquadSystem implements System
     public function handle(DomainEvent $event, SystemContext $ctx): void
     {
         if ($event instanceof ContractSigned) {
-            $ctx->components(Contract::class)->set($event->playerId, new Contract(
+            $ctx->write(Contract::class)->set($event->playerId, new Contract(
                 $event->clubId,
                 $event->wagePerWeekCents,
                 new SimDate($event->expiresOnEpochDay),
             ));
-            $ctx->components(SquadMembership::class)->set($event->playerId, new SquadMembership($event->clubId));
+            $ctx->write(SquadMembership::class)->set($event->playerId, new SquadMembership($event->clubId));
 
             return;
         }
@@ -135,7 +135,7 @@ final class SquadSystem implements System
         }
 
         if ($event instanceof PlayerRetired) {
-            $contract = $ctx->components(Contract::class)->get($event->playerId);
+            $contract = $ctx->read(Contract::class)->get($event->playerId);
             $this->release($ctx, $event->playerId, $contract?->clubId);
         }
     }
@@ -159,13 +159,13 @@ final class SquadSystem implements System
      */
     private function release(SystemContext $ctx, int $playerId, ?int $expectedClubId): void
     {
-        $contract = $ctx->components(Contract::class)->get($playerId);
+        $contract = $ctx->read(Contract::class)->get($playerId);
 
         if ($contract !== null && $expectedClubId !== null && $contract->clubId !== $expectedClubId) {
             return;
         }
 
-        $ctx->components(Contract::class)->remove($playerId);
-        $ctx->components(SquadMembership::class)->remove($playerId);
+        $ctx->write(Contract::class)->remove($playerId);
+        $ctx->write(SquadMembership::class)->remove($playerId);
     }
 }
