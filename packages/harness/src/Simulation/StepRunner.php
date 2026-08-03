@@ -9,6 +9,7 @@ use Flair\Kernel\Core\Messaging\DomainEvent;
 use Flair\Kernel\Core\Ruleset\Ruleset;
 use Flair\Kernel\Core\Simulation\Simulation;
 use Flair\Kernel\Core\Simulation\TickContext;
+use Flair\Kernel\Football\FootballPipeline;
 
 /**
  * Enveloppe interactive autour de Simulation::step() : garde un WorldState
@@ -29,7 +30,7 @@ final class StepRunner
         private readonly Ruleset $ruleset,
         private readonly int $worldSeed,
     ) {
-        $this->simulation = new Simulation(PipelineFactory::build());
+        $this->simulation = new Simulation(FootballPipeline::build());
     }
 
     /**

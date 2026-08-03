@@ -10,9 +10,12 @@ declare(strict_types=1);
  * Phase 1) - juste un point d'entree rapide pour observer le comportement
  * reel des systemes, sans repasser par la suite de tests.
  *
- * A completer au meme rythme que les systemes du domaine football : chaque
- * nouveau System rejoint le Pipeline construit plus bas, sans rien changer
- * au reste du script.
+ * Monte le pipeline canonique (`Football\FootballPipeline`) : un systeme
+ * ajoute au domaine arrive ici sans que personne y pense. Ce script en a
+ * justement eu besoin - il a tourne un temps sur neuf systemes sur onze,
+ * `SquadSystem` et `ContractSystem` n'ayant jamais rejoint sa copie de la
+ * liste, et affichait donc une economie sans renouvellement de contrat ni
+ * gestion d'effectif, que la simulation reelle n'a pas.
  *
  * Usage : php bin/demo.php
  */
@@ -20,7 +23,6 @@ declare(strict_types=1);
 require __DIR__ . '/../vendor/autoload.php';
 
 use Flair\Kernel\Core\Ecs\WorldState;
-use Flair\Kernel\Core\Pipeline\Pipeline;
 use Flair\Kernel\Core\Ruleset\Balance;
 use Flair\Kernel\Core\Ruleset\CalendarBalance;
 use Flair\Kernel\Core\Ruleset\Ruleset;
@@ -42,15 +44,7 @@ use Flair\Kernel\Football\Components\SquadMembership;
 use Flair\Kernel\Football\Components\Standings;
 use Flair\Kernel\Football\Events\PlayerRetired;
 use Flair\Kernel\Football\Events\YouthPlayerPromoted;
-use Flair\Kernel\Football\Systems\CalendarSystem;
-use Flair\Kernel\Football\Systems\CompetitionSystem;
-use Flair\Kernel\Football\Systems\FacilitiesSystem;
-use Flair\Kernel\Football\Systems\FinanceSystem;
-use Flair\Kernel\Football\Systems\MatchSystem;
-use Flair\Kernel\Football\Systems\PlayerDevelopmentSystem;
-use Flair\Kernel\Football\Systems\RetirementSystem;
-use Flair\Kernel\Football\Systems\TrainingSystem;
-use Flair\Kernel\Football\Systems\YouthIntakeSystem;
+use Flair\Kernel\Football\FootballPipeline;
 
 function demoCreateCompetition(WorldState $world): int
 {
@@ -229,17 +223,7 @@ $competition = demoCreateCompetition($world);
 $clubs = demoCreateClubs($world);
 $players = demoCreatePlayers($world, atTick: 1, clubs: $clubs);
 
-$simulation = new Simulation(new Pipeline([
-    new FacilitiesSystem(),
-    new YouthIntakeSystem(),
-    new TrainingSystem(),
-    new RetirementSystem(),
-    new FinanceSystem(),
-    new PlayerDevelopmentSystem(),
-    new CalendarSystem(),
-    new MatchSystem(),
-    new CompetitionSystem(),
-]));
+$simulation = new Simulation(FootballPipeline::build());
 // Saison generee des le premier tick simule (pas au tick 0, jamais atteint
 // par la boucle ci-dessous) et journees rapprochees : seulement 2 clubs en
 // demo, pas besoin de l'espacement realiste d'une vraie saison.

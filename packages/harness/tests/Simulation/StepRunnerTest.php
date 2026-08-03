@@ -18,7 +18,7 @@ final class StepRunnerTest extends TestCase
 {
     /**
      * Garde-fou de non-divergence : StepRunner (pas-a-pas, tick par tick)
-     * et Sampler::run() (boucle interne d'un bloc) partagent PipelineFactory
+     * et Sampler::run() (boucle interne d'un bloc) partagent FootballPipeline
      * et doivent donc produire exactement le meme etat pour la meme graine
      * et le meme nombre de ticks - sinon le REPL raconterait une histoire
      * differente de l'outil batch existant, silencieusement.

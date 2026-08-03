@@ -82,10 +82,12 @@ interface System
     public function update(SystemContext $ctx): void;
 }
 
-// Ordre du pipeline — donnée d'architecture, versionnée avec le noyau
-final class Pipeline
+// Composition du pipeline — donnée d'architecture, versionnée avec le noyau.
+// Vit côté domaine (`Football\FootballPipeline`), jamais sur la classe
+// `Pipeline` elle-même, qui est générique et ne doit rien savoir du football.
+final class FootballPipeline
 {
-    public const SYSTEMS = [
+    public static function systems(): array { return [
         TimeSystem::class,            // avance le calendrier, déclenche les événements datés
         IntentIngestionSystem::class, // valide et applique les intentions (humaines et PNJ)
         ContractSystem::class,        // échéances, clauses, renouvellements
@@ -99,11 +101,17 @@ final class Pipeline
         FanSystem::class,             // humeur, affluence, abonnements
         NarrativeSystem::class,       // détecte les histoires dans le flux d'événements
         NpcDecisionSystem::class,     // les PNJ produisent leurs intentions du tick suivant
-    ];
+    ]; }
 }
 ```
 
 **L'ordre est une donnée d'architecture, pas un détail.** Il est déclaré, versionné, et fait partie de la définition du noyau. Le changer change le monde.
+
+**Cette liste est écrite à un seul endroit**, dont dépendent le harness, `bin/demo.php` et le futur `host` — le noyau possède les systèmes, donc il possède la liste. La leçon a été apprise à la dure : recopiée dans quatre fichiers, dont deux se déclaraient chacun « seule source de vérité », elle avait fini par diverger, et `bin/demo.php` a tourné un temps sur neuf systèmes sur onze — affichant une économie sans renouvellement de contrat que la simulation réelle n'avait pas.
+
+> ⚠️ **Ne jamais auto-découvrir les systèmes** en scannant le répertoire. C'est de l'I/O, interdite dans le noyau (`11-` §1), mais la vraie raison est ailleurs : un monde est épinglé à `(kernelVersion, rulesetVersion)`. Avec la découverte automatique, déposer un fichier changerait le comportement de **tous** les mondes existants sans qu'aucun diff ne le montre, et la comparaison à graines appariées perdrait sa variable de contrôle. Ajouter un système doit rester un acte explicite et visible.
+
+Le registre est un **défaut, pas un verrou** : un test unitaire monte légitimement un pipeline partiel pour isoler ce qu'il mesure.
 
 Les déclarations `reads`/`writes` permettent un test automatique : détecter deux systèmes qui écrivent le même composant, ou un système qui lit un composant écrit plus tard dans le pipeline (dépendance inversée).
 

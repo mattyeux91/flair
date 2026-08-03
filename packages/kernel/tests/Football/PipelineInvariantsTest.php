@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flair\Kernel\Tests\Football;
 
 use Flair\Kernel\Core\Pipeline\System;
+use Flair\Kernel\Football\FootballPipeline;
 use Flair\Kernel\Football\Systems\CalendarSystem;
 use Flair\Kernel\Football\Systems\CompetitionSystem;
 use Flair\Kernel\Football\Systems\ContractSystem;
@@ -23,30 +24,69 @@ use PHPUnit\Framework\TestCase;
  * au plus un writer/remover par composant, et aucune lecture d'un
  * composant ecrit ou retire plus loin dans le pipeline.
  *
- * Aucun registre canonique type `Pipeline::SYSTEMS` n'existe encore dans
- * le noyau (docs/13- §2 n'en montre qu'un exemple illustratif, cote
- * domaine football, avec des classes qui n'existent pas) - la liste
- * ci-dessous est donc maintenue a la main et doit suivre l'ordre reel
- * declare dans `bin/demo.php`/`Harness\Simulation\PipelineFactory`.
+ * Porte aussi l'**assertion doree** sur la composition du pipeline. Le
+ * registre canonique (`Football\FootballPipeline`) etant desormais l'unique
+ * ecriture de cette liste, ce fichier en est la seconde - c'est exactement
+ * le role d'un test dore : rendre bruyant un changement de composition ou
+ * d'ordre, tous deux correctness-sensitive. Sa valeur reste modeste tant que
+ * l'ordre est ecrit a la main ; elle devient reelle au lot suivant, quand
+ * l'ordre sera *derive* et pourra donc se decaler en silence sur une simple
+ * edition de `reads()`.
  */
 final class PipelineInvariantsTest extends TestCase
 {
+    /**
+     * L'ordre canonique attendu. Doubler la liste du registre est
+     * intentionnel : une assertion doree qui lirait sa propre reference ne
+     * verifierait rien.
+     *
+     * @return list<class-string<System>>
+     */
+    private function expectedOrder(): array
+    {
+        return [
+            FacilitiesSystem::class,
+            YouthIntakeSystem::class,
+            SquadSystem::class,
+            TrainingSystem::class,
+            RetirementSystem::class,
+            FinanceSystem::class,
+            PlayerDevelopmentSystem::class,
+            CalendarSystem::class,
+            MatchSystem::class,
+            CompetitionSystem::class,
+            ContractSystem::class,
+        ];
+    }
+
     /** @return list<System> */
     private function pipeline(): array
     {
-        return [
-            new FacilitiesSystem(),
-            new YouthIntakeSystem(),
-            new SquadSystem(),
-            new TrainingSystem(),
-            new RetirementSystem(),
-            new FinanceSystem(),
-            new PlayerDevelopmentSystem(),
-            new CalendarSystem(),
-            new MatchSystem(),
-            new CompetitionSystem(),
-            new ContractSystem(),
-        ];
+        return FootballPipeline::systems();
+    }
+
+    public function testTheCanonicalPipelineHasExactlyTheExpectedSystemsInOrder(): void
+    {
+        $actual = array_map(
+            static fn (System $system): string => $system::class,
+            $this->pipeline(),
+        );
+
+        self::assertSame($this->expectedOrder(), $actual);
+    }
+
+    /**
+     * `id()` n'est pas cosmetique : c'est de lui que se derive le flux RNG
+     * d'un systeme (docs/13- §4.1). Deux systemes qui le partageraient
+     * tireraient la meme sequence pour la meme entite au meme tick - une
+     * correlation invisible, qu'aucun test de determinisme n'attraperait
+     * puisque le monde resterait parfaitement reproductible.
+     */
+    public function testEverySystemHasAUniqueId(): void
+    {
+        $ids = array_map(static fn (System $system): string => $system->id(), $this->pipeline());
+
+        self::assertSame($ids, array_values(array_unique($ids)));
     }
 
     public function testAtMostOneSystemWritesEachComponent(): void

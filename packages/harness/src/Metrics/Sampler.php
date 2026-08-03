@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Flair\Harness\Metrics;
 
-use Flair\Harness\Simulation\PipelineFactory;
+use Flair\Kernel\Football\FootballPipeline;
 use Flair\Harness\Support\WorldInspector;
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Ruleset\Ruleset;
@@ -105,7 +105,7 @@ final class Sampler
     /** @param list<int> $playerIds */
     public function run(WorldState $world, array $playerIds, int $years, int $worldSeed, Ruleset $ruleset, ?EventGraphCollector $eventGraph = null): AggregateResult
     {
-        $simulation = new Simulation(PipelineFactory::build());
+        $simulation = new Simulation(FootballPipeline::build());
 
         $clubNames = WorldInspector::clubNames($world);
 
