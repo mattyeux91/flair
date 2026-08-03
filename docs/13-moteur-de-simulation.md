@@ -161,6 +161,20 @@ Trois canaux, et trois seulement :
 
 Le canal 1 sert ce qui doit se résoudre le même jour (un match joué doit alimenter le classement du jour). Les canaux 2 et 3 servent tout le reste — et par défaut, **on utilise le canal 2**. Si tu hésites, c'est le canal 2.
 
+#### Ce que cette règle n'interdit pas : les fonctions pures partagées
+
+L'interdit porte sur un `System` qui en **piloterait** un autre : c'est ça qui détruirait l'ordonnancement. Il ne porte pas sur une fonction pure que plusieurs systèmes appellent chacun de leur côté. Deux appelants d'une même formule ne se commandent pas l'un l'autre — ils n'échangent rien, et l'ordre du pipeline reste seul maître de qui tourne quand.
+
+Le mot « indirectement » a rendu ça ambigu plus longtemps qu'il n'aurait fallu : le docblock de `Football\Support\WageModel` consacre quinze lignes à plaider son droit d'exister. Un pattern correct ne devrait pas avoir à plaider, d'où ce paragraphe.
+
+Ces fonctions vivent dans `Football\Support\` : **sans état, sans RNG, sans accès au monde**. `WageModel` en est l'exemple vivant et couvre les deux usages — une formule (`perWeekCents()`) et une lecture dérivée de plusieurs composants (`quality()`, qui agrège les trois blocs de compétences ; c'est aussi la réponse au besoin de « lentille de lecture » sur un archétype éclaté en plusieurs composants, et il n'en faut pas d'autre).
+
+Le critère d'extraction, appliqué depuis le début mais énoncé nulle part :
+
+> **On n'extrait qu'à partir de deux consommateurs réels.** Jamais un seul, jamais par anticipation.
+
+Et son symétrique, tout aussi important : deux besoins voisins ne sont pas le même besoin. `Football\MatchSystem::ratings()` n'est délibérément pas refactoré vers `WageModel` — il produit un couple attaque/défense à partir d'un sous-ensemble pondéré de compétences, pas une qualité globale, et les fusionner obligerait l'un des deux à porter une notion dont il n'a pas besoin. Même refus documenté sur `Football\Components\TrainingEffect`.
+
 ---
 
 ## 3. Le Scheduler
