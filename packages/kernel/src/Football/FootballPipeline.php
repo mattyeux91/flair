@@ -6,6 +6,7 @@ namespace Flair\Kernel\Football;
 
 use Flair\Kernel\Core\Pipeline\Pipeline;
 use Flair\Kernel\Core\Pipeline\System;
+use Flair\Kernel\Core\Pipeline\SystemGraph;
 use Flair\Kernel\Football\Systems\CalendarSystem;
 use Flair\Kernel\Football\Systems\CompetitionSystem;
 use Flair\Kernel\Football\Systems\ContractSystem;
@@ -52,23 +53,42 @@ use Flair\Kernel\Football\Systems\YouthIntakeSystem;
  *
  * ## Ordre
  *
- * L'ordre ci-dessous est significatif et contraint (`SquadSystem` doit ecrire
- * `SquadMembership` avant ses lecteurs ; `ContractSystem` doit lire les
- * competences et `Finances` apres leurs writers). Il reste ecrit a la main
- * pour l'instant ; le lot suivant le derivera d'un tri topologique des
- * declarations `reads()`/`writes()`/`removes()`, et `Football\PipelineInvariantsTest`
- * figera l'ordre calcule.
+ * L'ordre d'execution n'est plus ecrit, il est **derive** : `SystemGraph`
+ * trie `declaration()` selon les dependances de composants declarees. Un
+ * ordre qui violerait une dependance est donc corrige, pas seulement
+ * detecte, et un cycle leve au montage.
+ *
+ * La liste ci-dessous garde neanmoins son sens, parce que le tri est stable :
+ * la ou aucune dependance ne tranche, un systeme reste ou il a ete mis.
+ * Ajouter un systeme revient donc a le deposer n'importe ou - les
+ * dependances le placent, le reste ne bouge pas.
  */
 final class FootballPipeline
 {
     /**
-     * @return list<System>
+     * L'ordre d'execution reel : la declaration, triee selon ses dependances.
+     * C'est ce que tout le monde consomme.
      *
      * Expose separement de build() parce que `Football\PipelineInvariantsTest`
      * a besoin de la liste elle-meme, pas d'un `Pipeline` monte : il verifiait
      * jusqu'ici l'ordre en fouillant `Pipeline::$systems` par reflexion.
+     *
+     * @return list<System>
      */
     public static function systems(): array
+    {
+        return SystemGraph::sort(self::declaration());
+    }
+
+    /**
+     * La liste telle qu'ecrite a la main, avant tri. Publique dans le seul
+     * but de permettre a `Football\PipelineInvariantsTest` de prouver qu'elle
+     * s'accorde deja avec l'ordre derive : si une edition future la casse, le
+     * runtime continue de fonctionner (le tri corrige) mais le test proteste.
+     *
+     * @return list<System>
+     */
+    public static function declaration(): array
     {
         return [
             new FacilitiesSystem(),

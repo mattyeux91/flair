@@ -105,7 +105,23 @@ final class FootballPipeline
 }
 ```
 
-**L'ordre est une donnée d'architecture, pas un détail.** Il est déclaré, versionné, et fait partie de la définition du noyau. Le changer change le monde.
+**L'ordre est une donnée d'architecture, pas un détail.** Il est versionné et fait partie de la définition du noyau. Le changer change le monde.
+
+### L'ordre est dérivé, pas écrit
+
+Il n'est cependant plus *écrit à la main*. `Core\Pipeline\SystemGraph` le **déduit** des déclarations : une arête `A → B` existe dès que `B` lit un composant que `A` écrit ou retire, et un tri topologique en tire l'ordre d'exécution. Trois conséquences :
+
+- Un ordre qui violerait une dépendance est **corrigé**, plus seulement détecté après coup par un test.
+- **Ajouter un système, c'est le déposer n'importe où** : les dépendances le placent, et là où aucune ne tranche, il reste où on l'a mis.
+- Un **cycle lève au montage** (`PipelineCycleException`), avec un exemple d'arête et la correction attendue — casser le cycle par un événement (canal 2), jamais relâcher le tri.
+
+Le départage des ex æquo est **stable, amorcé par la liste déclarée** — jamais alphabétique. Un tri par nom rendrait le monde sensible au moindre renommage, exactement le piège dont §4.5 met en garde, et déplacerait des systèmes qu'aucune dépendance ne contraint.
+
+`creates()` est hors du graphe : un créateur ne pose ses composants que sur une entité qui n'existait pas quand le lecteur a itéré, il ne peut donc pas invalider une lecture déjà faite.
+
+> ⚠️ **Ce que le graphe ne voit pas** : seules les dépendances *par composant*. Deux systèmes abonnés au même événement dont l'ordre relatif compte ne sont pas couverts — `subscribesTo()` ne dit rien de l'ordre entre souscripteurs. `MatchSystem` passe bien avant `CompetitionSystem`, mais grâce à l'arête `MatchResult`, pas grâce à leur souscription commune à `FixtureKickoff`. Coïncidence heureuse, pas couverture.
+
+Le tri s'applique dans le registre du domaine, jamais dans `Pipeline` : celui-ci exécute l'ordre qu'on lui donne, et un test unitaire monte légitimement un pipeline partiel dans un ordre précis.
 
 **Cette liste est écrite à un seul endroit**, dont dépendent le harness, `bin/demo.php` et le futur `host` — le noyau possède les systèmes, donc il possède la liste. La leçon a été apprise à la dure : recopiée dans quatre fichiers, dont deux se déclaraient chacun « seule source de vérité », elle avait fini par diverger, et `bin/demo.php` a tourné un temps sur neuf systèmes sur onze — affichant une économie sans renouvellement de contrat que la simulation réelle n'avait pas.
 
@@ -113,7 +129,7 @@ final class FootballPipeline
 
 Le registre est un **défaut, pas un verrou** : un test unitaire monte légitimement un pipeline partiel pour isoler ce qu'il mesure.
 
-Les déclarations `reads`/`writes` permettent un test automatique : détecter deux systèmes qui écrivent le même composant, ou un système qui lit un composant écrit plus tard dans le pipeline (dépendance inversée).
+Les déclarations `reads`/`writes` permettent un test automatique : détecter deux systèmes qui écrivent le même composant, ou un système qui lit un composant écrit plus tard dans le pipeline (dépendance inversée — désormais garanti par construction, puisque c'est de ces mêmes déclarations que l'ordre est dérivé).
 
 ### ⚠️ Les déclarations sont opposables, pas documentaires
 

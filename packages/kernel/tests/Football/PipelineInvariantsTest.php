@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flair\Kernel\Tests\Football;
 
 use Flair\Kernel\Core\Pipeline\System;
+use Flair\Kernel\Core\Pipeline\SystemGraph;
 use Flair\Kernel\Football\FootballPipeline;
 use Flair\Kernel\Football\Systems\CalendarSystem;
 use Flair\Kernel\Football\Systems\CompetitionSystem;
@@ -25,13 +26,15 @@ use PHPUnit\Framework\TestCase;
  * composant ecrit ou retire plus loin dans le pipeline.
  *
  * Porte aussi l'**assertion doree** sur la composition du pipeline. Le
- * registre canonique (`Football\FootballPipeline`) etant desormais l'unique
- * ecriture de cette liste, ce fichier en est la seconde - c'est exactement
- * le role d'un test dore : rendre bruyant un changement de composition ou
- * d'ordre, tous deux correctness-sensitive. Sa valeur reste modeste tant que
- * l'ordre est ecrit a la main ; elle devient reelle au lot suivant, quand
- * l'ordre sera *derive* et pourra donc se decaler en silence sur une simple
- * edition de `reads()`.
+ * registre canonique (`Football\FootballPipeline`) etant l'unique ecriture de
+ * cette liste, ce fichier en est la seconde - c'est exactement le role d'un
+ * test dore : rendre bruyant un changement de composition ou d'ordre, tous
+ * deux correctness-sensitive.
+ *
+ * Cette assertion est devenue reellement necessaire maintenant que l'ordre
+ * est **derive** (`Core\Pipeline\SystemGraph`) : un ordre qui emerge d'un tri
+ * peut se decaler en silence sur une simple edition de `reads()`, sans qu'un
+ * seul diff de la liste ne le montre. C'est ce qu'elle attrape.
  */
 final class PipelineInvariantsTest extends TestCase
 {
@@ -73,6 +76,30 @@ final class PipelineInvariantsTest extends TestCase
         );
 
         self::assertSame($this->expectedOrder(), $actual);
+    }
+
+    /**
+     * L'ordre ecrit a la main et l'ordre derive doivent coincider.
+     *
+     * Le tri etant stable, ce n'est pas automatique : il ne deplace un systeme
+     * que si une dependance l'exige, donc une declaration mal ordonnee serait
+     * silencieusement corrigee a l'execution. Ce test rend la correction
+     * bruyante - le monde continuerait de tourner juste, mais la liste ne
+     * dirait plus la verite sur ce qui s'execute, et c'est precisement ce
+     * mensonge-la qu'on vient de supprimer partout ailleurs.
+     */
+    public function testTheHandWrittenDeclarationIsAlreadyAValidExecutionOrder(): void
+    {
+        $declared = array_map(
+            static fn (System $system): string => $system::class,
+            FootballPipeline::declaration(),
+        );
+        $derived = array_map(
+            static fn (System $system): string => $system::class,
+            SystemGraph::sort(FootballPipeline::declaration()),
+        );
+
+        self::assertSame($declared, $derived);
     }
 
     /**
@@ -144,13 +171,20 @@ final class PipelineInvariantsTest extends TestCase
     }
 
     /**
-     * `creates()` est volontairement absent du controle de dependance
-     * inversee ci-dessous, alors que `writes()`/`removes()` y sont. Un
-     * createur ne pose ses composants que sur une entite qui n'existait pas
-     * quand le lecteur a itere : il ne peut donc pas invalider une lecture
-     * deja faite. Un joueur cree par un systeme place plus loin dans le
-     * pipeline est simplement pris en compte au tick suivant - exactement le
-     * decalage que l'OutQueue impose deja aux evenements (docs/13- §2).
+     * Depuis que l'ordre est derive, ce test ne verifie plus le travail d'un
+     * humain mais la **postcondition de `SystemGraph::sort()`** : le tri
+     * garantit exactement cette propriete, donc un echec ici denonce un bug
+     * du graphe, pas une liste mal ecrite. Conserve a ce titre - c'est le
+     * test de regression de l'invariant que tout le lot promet.
+     *
+     * `creates()` en est volontairement absent, alors que `writes()`/
+     * `removes()` y sont, pour la meme raison qui l'exclut des aretes du
+     * graphe. Un createur ne pose ses composants que sur une entite qui
+     * n'existait pas quand le lecteur a itere : il ne peut donc pas invalider
+     * une lecture deja faite. Un joueur cree par un systeme place plus loin
+     * dans le pipeline est simplement pris en compte au tick suivant -
+     * exactement le decalage que l'OutQueue impose deja aux evenements
+     * (docs/13- §2).
      */
     public function testNoSystemReadsAComponentWrittenOrRemovedLaterInThePipeline(): void
     {
