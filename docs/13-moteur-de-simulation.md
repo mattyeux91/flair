@@ -339,6 +339,10 @@ Et parmi les Faits eux-mêmes, **seuls ceux qui passent le seuil de pertinence**
 
 **Snapshots** : sérialisation complète du `WorldState` à intervalle régulier (fin de saison, et toutes les N ticks). Le démarrage charge le dernier snapshot et rejoue le delta. Sans snapshot, redémarrer un monde de 10 ans coûte des minutes.
 
+> **Corollaire, et il se paie cher si on l'oublie : le `WorldState` est le _présent_, pas l'histoire.** Puisqu'il est sérialisé en entier à chaque snapshot, tout ce qu'on y laisse traîner est recopié indéfiniment. Une entité dont la raison d'être est passée doit être dépouillée par le système qui l'a créée — qui crée détruit.
+>
+> Le cas qui a servi de leçon : les entités `Fixture`/`MatchResult` n'étaient jamais retirées. Sur un monde de douze clubs, 1 320 rencontres mortes après dix ans pour 345 personnes vivantes ; à l'échelle cible de §7, ~200 000 après vingt ans. `CalendarSystem` les dépouille désormais au moment où il génère la saison suivante. **Ça ne perd rien** : le déroulé des matchs est dans l'event log, sous forme de Faits `MatchPlayed`. Garder les rencontres jouées dans l'état, c'était dupliquer l'event log dans chaque snapshot.
+
 > ⚠️ Le `WorldState` inclut le `Scheduler` et l'`OutQueue`, pas seulement les entités/composants/singletons. Raison : `step(WorldState, TickContext): StepResult` (`11-`§1) ne prend que ces deux paramètres — rien d'autre ne pourrait faire survivre le `Scheduler`/l'`OutQueue` d'un appel à l'autre. C'est aussi ce qui ferme un trou de durabilité réel : un événement seulement *planifié* (`schedule()`) n'émet aucun Fait tant qu'il n'est pas déclenché, donc un snapshot qui l'ignorerait le perdrait silencieusement à un redémarrage du Host.
 
 Stockage : PostgreSQL. `events (world_id, tick, seq, type, payload jsonb)` en append-only, index sur `(world_id, tick, seq)`. Les projections sont des tables normales, reconstructibles depuis zéro.

@@ -11,6 +11,7 @@ use Flair\Kernel\Core\Ruleset\CalendarBalance;
 use Flair\Kernel\Football\Components\Club;
 use Flair\Kernel\Football\Components\Competition;
 use Flair\Kernel\Football\Components\Fixture;
+use Flair\Kernel\Football\Components\MatchResult;
 use Flair\Kernel\Football\Events\FixtureKickoff;
 use Flair\Kernel\Football\Events\SeasonEnded;
 use Flair\Kernel\Football\Events\SeasonStarted;
@@ -56,6 +57,33 @@ use Flair\Kernel\Football\Events\SeasonStarted;
  * Seul createur de `Fixture` (`creates()`) : les entites qu'il cree
  * n'existent pas encore quand un autre systeme itere ce tick, meme
  * raisonnement que `YouthIntakeSystem` pour les joueurs promus.
+ *
+ * ## Qui cree detruit : le cycle de vie des entites de rencontre
+ *
+ * Ce systeme retire aussi les rencontres de la saison ecoulee, juste avant de
+ * generer les suivantes. Sans ca, elles s'accumulaient **sans borne** : 1 320
+ * `Fixture` et 1 188 `MatchResult` apres dix ans sur un monde de douze clubs,
+ * pour 345 personnes vivantes - et le `WorldState` est serialise en entier a
+ * chaque snapshot (docs/13- §5). A l'echelle cible (docs/13- §7, 290 clubs),
+ * c'etait ~200 000 entites mortes en vingt ans.
+ *
+ * Il retire `MatchResult` alors que `MatchSystem` en est le writer, et ce
+ * n'est pas une intrusion : il n'existe pas d'entite resultat. `MatchResult`
+ * est *porte par l'entite `Fixture`* (cf. son propre docblock), donc detruire
+ * une rencontre depouille tout ce qu'elle porte. Le couple writer != remover
+ * est deja le schema de `RetirementSystem`, qui retire les competences dont
+ * `PlayerDevelopmentSystem` est le writer.
+ *
+ * **Le moment** : le jour de generation, pas plus tot. La saison precedente
+ * est alors definitivement close (`SeasonEnded` est programme au lendemain de
+ * sa derniere journee), et une saison reste lisible d'un bloc - ce dont
+ * dependent `Football\SeasonIntegrationTest` et le harness, qui lit
+ * `Fixture::$matchday` au moment du `MatchPlayed`.
+ *
+ * **Pourquoi ne rien garder** : l'histoire du monde vit dans l'event log, pas
+ * dans le `WorldState` (docs/13- §5). `MatchPlayed` est un Fait journalise ;
+ * conserver des saisons mortes dans l'etat reviendrait a dupliquer l'event log
+ * dans chaque snapshot.
  */
 final class CalendarSystem implements System
 {
@@ -70,6 +98,10 @@ final class CalendarSystem implements System
         return [
             Competition::class,
             Club::class,
+            // Pour enumerer les rencontres de la saison ecoulee avant de les
+            // depouiller. Ce systeme en etant le seul createur et le seul
+            // remover, l'arete est reflexive : elle ne contraint pas l'ordre.
+            Fixture::class,
         ];
     }
 
@@ -82,7 +114,10 @@ final class CalendarSystem implements System
     /** @return list<class-string> */
     public function removes(): array
     {
-        return [];
+        return [
+            Fixture::class,
+            MatchResult::class,
+        ];
     }
 
     /** @return list<class-string> */
@@ -111,10 +146,34 @@ final class CalendarSystem implements System
             return;
         }
 
+        $this->clearPreviousSeason($ctx);
+
         $clubIds = $ctx->read(Club::class)->entities();
 
         foreach ($ctx->read(Competition::class)->entities() as $competitionId) {
             $this->scheduleSeason($ctx, $competitionId, $clubIds, $calendar);
+        }
+    }
+
+    /**
+     * Depouille les entites de rencontre de la saison ecoulee (voir le
+     * docblock de classe, "Qui cree detruit").
+     *
+     * Appele **avant** `scheduleSeason()`, jamais apres : les entites creees
+     * juste apres portent des identifiants neufs (`EntityIdAllocator` n'en
+     * reutilise aucun), donc l'ordre entre les deux n'est pas une subtilite
+     * d'implementation, c'est ce qui garantit qu'on ne detruit pas ce qu'on
+     * vient de creer.
+     *
+     * `MatchResult` est retire sur les memes entites, sans etre relu :
+     * `ComponentStore::remove()` sur une entite qui n'en porte pas est un
+     * no-op, et un match reporte ou jamais joue n'a pas a etre traite a part.
+     */
+    private function clearPreviousSeason(SystemContext $ctx): void
+    {
+        foreach ($ctx->read(Fixture::class)->entities() as $fixtureId) {
+            $ctx->write(MatchResult::class)->remove($fixtureId);
+            $ctx->write(Fixture::class)->remove($fixtureId);
         }
     }
 
