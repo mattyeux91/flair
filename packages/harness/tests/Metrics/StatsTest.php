@@ -54,6 +54,19 @@ final class StatsTest extends TestCase
         self::assertSame(0.0, Stats::percentile([], 50.0));
     }
 
+    /**
+     * Le domaine de `percentile()` est numerique, pas seulement flottant :
+     * `Report\TextReport` lui passe des masses salariales en **centimes**,
+     * donc des entiers. `assertSame` contre un `float` verifie les deux
+     * moities du contrat - la valeur, et le fait que le type de retour reste
+     * `float` meme quand le rang tombe pile sur un element entier.
+     */
+    public function testPercentileAcceptsIntegersAndStillReturnsAFloat(): void
+    {
+        self::assertSame(30.0, Stats::percentile([10, 20, 30, 40, 50], 50.0));
+        self::assertEqualsWithDelta(37.0, Stats::percentile([10, 20, 30, 40], 90.0), 0.0001);
+    }
+
     public function testHistogramBucketsAndSortsByBucketStart(): void
     {
         $histogram = Stats::histogram([31, 29, 30, 39, 40, 22], bucketWidth: 10);
