@@ -217,6 +217,12 @@ Le commentaire `// un club, un agent, un média` sur `observerId` ci-dessus est 
 
 **Scoping retenu pour la Phase 2** (`15-` §4 — perception/scouting et agents PNJ y sont explicitement, ce n'est pas hors périmètre) : seul le rôle **scout employé par un club** sert un besoin déjà identifié, la valorisation du marché des transferts (§ ci-dessus, `14-` §5). Coach/président relèvent de la gouvernance de club (attentes du board, licenciements, `14-` §7) et journaliste/supporter de la narration (`14-` §9, Phase 6) — tous deux hors périmètre tant que rien ne les consomme. L'architecture (`Person` + composant de rôle, jamais de sous-type) reste ouverte pour les ajouter plus tard sans rien casser.
 
+**Les trois questions, tranchées (2026-08-04).** Elles le sont dans le sens qui livre le consommateur le plus tôt ; chacune rouvre proprement plus tard.
+
+1. **Acquisition du rôle : semée au genesis.** Précédent `Facilities`/`Finances` — état externe, aucun système du noyau n'en crée. La transition retraité → scout est plus riche narrativement mais c'est un système entier, et elle retarde le seul consommateur écrit. Elle appartient à la gouvernance de club, avec coach et président.
+2. **Emploi : un nouveau composant**, distinct de `SquadMembership` — porté par la personne, pointant vers le club, comme `Contract`. Un scout n'est pas un membre d'effectif et ne doit apparaître dans aucun des parcours qui itèrent l'effectif (`TrainingSystem`, `MatchSystem`, `SquadIntegrityTest`).
+3. **`observationCount` : aucun mécanisme d'observation n'est construit en Phase 2.** C'est le point où le périmètre était le plus mal cadré. Le compteur est indexé par **paire** (observateur, sujet) : ce n'est un composant ni de l'un ni de l'autre, et son stockage naïf est en O(scouts × joueurs) — une structure relationnelle que rien, aujourd'hui, ne justifie de concevoir. Forme retenue : le scout d'un club observe en continu l'effectif de son club, `observationCount` = **ancienneté du joueur au club**, dérivée d'un champ `signedOn` ajouté à `Contract` ; tout sujet hors de l'effectif du club reste à 0. Aucun stockage nouveau, aucune structure par paire, et la propriété recherchée est là : un club connaît mieux ses joueurs que ceux des autres, **et se trompe quand même si son staff est mauvais**. « Qui va observer qui », avec son coût et ses arbitrages, est une mécanique du **jeu d'agent** : sa place est en Phase 5, dirigée par un besoin réel, pas anticipée ici.
+
 ---
 
 ## 5. Les attributs des joueurs : peu, orthogonaux, groupés par comportement de vieillissement
