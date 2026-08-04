@@ -14,9 +14,11 @@ use Flair\Kernel\Football\Components\Finances;
 use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
+use Flair\Kernel\Football\Components\Position;
 use Flair\Kernel\Football\Components\SeasonIncome;
 use Flair\Kernel\Football\Events\ContractExpired;
 use Flair\Kernel\Football\Events\ContractSigned;
+use Flair\Kernel\Football\Support\PositionModel;
 use Flair\Kernel\Football\Support\WageModel;
 
 /**
@@ -279,32 +281,106 @@ final class ContractSystem implements System
         array &$released,
     ): void {
         $budgets = $this->budgets($ctx, $balance, array_keys($expiring));
+        $wanted = $this->positionTargets($ctx, $balance);
+        $held = $this->retainedByPosition($ctx, $expiring);
 
         foreach ($expiring as $clubId => $candidates) {
             usort($candidates, static fn (int $left, int $right): int
                 => [$qualities[$right] ?? 0, $left] <=> [$qualities[$left] ?? 0, $right]);
 
-            foreach ($candidates as $playerId) {
-                $wage = WageModel::perWeekCents($qualities[$playerId] ?? 0, $balance);
-                $annual = $wage * self::WEEKS_PER_YEAR;
+            // Deux passes sur les memes candidats, deja tries par qualite
+            // decroissante : d'abord ceux dont le poste manquerait a l'effectif
+            // retenu, ensuite les autres. Sans cette premiere passe un club
+            // coupe strictement par le bas, et son gardien - souvent son joueur
+            // le moins bien note sur l'echelle marchande - part le premier. Le
+            // club se retrouve alors sans gardien, et rien ne l'y ramene
+            // puisqu'il n'est pas en deficit d'effectif.
+            $keep = [];
 
-                if ($squadSize[$clubId] >= $balance->targetSquadSize
-                    || !$this->fitsBudget($budgets[$clubId], $committedWage[$clubId], $annual)) {
-                    $released[$playerId] = $clubId;
+            foreach ([true, false] as $fillingAGap) {
+                foreach ($candidates as $playerId) {
+                    if (isset($keep[$playerId])) {
+                        continue;
+                    }
 
-                    continue;
+                    $position = $this->positionOf($ctx, $playerId);
+
+                    if ($fillingAGap && ($position === null
+                        || ($held[$clubId][$position->value] ?? 0) >= ($wanted[$position->value] ?? 0))) {
+                        continue;
+                    }
+
+                    $wage = WageModel::perWeekCents($qualities[$playerId] ?? 0, $balance);
+                    $annual = $wage * self::WEEKS_PER_YEAR;
+
+                    if (!$this->fitsBudget($budgets[$clubId], $committedWage[$clubId], $annual)) {
+                        continue;
+                    }
+
+                    // Le plafond d'effectif ne s'applique **pas** a la premiere
+                    // passe : un club au-dessus de sa cible doit couper un
+                    // milieu excedentaire, jamais son dernier gardien. C'est le
+                    // cas qui cassait reellement - tout club nait au-dessus de
+                    // sa cible (une trentaine de joueurs pour une cible de
+                    // vingt), donc sans cette exception le plafond libere en
+                    // bloc tous les contrats arrivant a terme, gardiens
+                    // compris, avant meme que la priorite par poste ne
+                    // s'applique. Le club depasse sa cible d'une saison, puis
+                    // se degonfle par le bas comme prevu.
+                    if (!$fillingAGap && $squadSize[$clubId] >= $balance->targetSquadSize) {
+                        continue;
+                    }
+
+                    $keep[$playerId] = true;
+                    $signed[$playerId] = [
+                        'clubId' => $clubId,
+                        'previousClubId' => $clubId,
+                        'wagePerWeekCents' => $wage,
+                        'expiresOnEpochDay' => $this->expiresOn($ctx, $playerId, $balance),
+                    ];
+                    $squadSize[$clubId]++;
+                    $committedWage[$clubId] += $annual;
+
+                    if ($position !== null) {
+                        $held[$clubId][$position->value] = ($held[$clubId][$position->value] ?? 0) + 1;
+                    }
                 }
+            }
 
-                $signed[$playerId] = [
-                    'clubId' => $clubId,
-                    'previousClubId' => $clubId,
-                    'wagePerWeekCents' => $wage,
-                    'expiresOnEpochDay' => $this->expiresOn($ctx, $playerId, $balance),
-                ];
-                $squadSize[$clubId]++;
-                $committedWage[$clubId] += $annual;
+            foreach ($candidates as $playerId) {
+                if (!isset($keep[$playerId])) {
+                    $released[$playerId] = $clubId;
+                }
             }
         }
+    }
+
+    /**
+     * L'effectif par poste que chaque club **garde de toute facon** : tous ses
+     * joueurs sous contrat, moins ceux dont le contrat expire aujourd'hui.
+     *
+     * C'est la reference contre laquelle un renouvellement comble un trou ou
+     * non - compter l'effectif complet ferait croire au club qu'il a deja un
+     * gardien alors que c'est precisement celui dont il doit decider.
+     *
+     * @param array<int, list<int>> $expiring
+     * @return array<int, array<string, int>>
+     */
+    private function retainedByPosition(SystemContext $ctx, array $expiring): array
+    {
+        $held = $this->squadByPosition($ctx);
+
+        foreach ($expiring as $clubId => $candidates) {
+            foreach ($candidates as $playerId) {
+                $position = $this->positionOf($ctx, $playerId);
+
+                if ($position !== null && isset($held[$clubId][$position->value])) {
+                    $held[$clubId][$position->value]--;
+                }
+            }
+        }
+
+        return $held;
     }
 
     /**
@@ -349,6 +425,8 @@ final class ContractSystem implements System
         }
 
         $pool = $this->unattached($ctx, $qualities, $released);
+        $squadByPosition = $this->squadByPosition($ctx);
+        $wanted = $this->positionTargets($ctx, $balance);
 
         while ($pool !== []) {
             $needy = [];
@@ -366,12 +444,23 @@ final class ContractSystem implements System
             $anySigned = false;
 
             foreach ($needy as $clubId) {
-                foreach ($pool as $index => $playerId) {
+                // Deux passes : d'abord un joueur dont le poste manque a ce
+                // club, ensuite n'importe qui. Sans ca les effectifs derivent
+                // vers des compositions aleatoires - un club a trois gardiens
+                // et zero attaquant - puisque le vivier est trie par qualite
+                // seule. C'est la version minimale de la "gap analysis" de
+                // docs/14- §5 : combler un trou, pas evaluer un marche.
+                $index = $this->pick($ctx, $pool, $clubId, $squadByPosition, $wanted, $qualities, $balance, $budgets, $committedWage, onlyDeficit: true)
+                    ?? $this->pick($ctx, $pool, $clubId, $squadByPosition, $wanted, $qualities, $balance, $budgets, $committedWage, onlyDeficit: false);
+
+                if ($index !== null) {
+                    $playerId = $pool[$index];
                     $wage = WageModel::perWeekCents($qualities[$playerId] ?? 0, $balance);
                     $annual = $wage * self::WEEKS_PER_YEAR;
+                    $position = $this->positionOf($ctx, $playerId);
 
-                    if (!$this->fitsBudget($budgets[$clubId], $committedWage[$clubId], $annual)) {
-                        continue;
+                    if ($position !== null) {
+                        $squadByPosition[$clubId][$position->value] = ($squadByPosition[$clubId][$position->value] ?? 0) + 1;
                     }
 
                     $signed[$playerId] = [
@@ -384,8 +473,6 @@ final class ContractSystem implements System
                     $squadSize[$clubId]++;
                     $committedWage[$clubId] += $annual;
                     $anySigned = true;
-
-                    break;
                 }
             }
 
@@ -393,6 +480,136 @@ final class ContractSystem implements System
                 return;
             }
         }
+    }
+
+    /**
+     * L'indice, dans le vivier, du meilleur joueur que ce club puisse signer -
+     * ou `null` s'il n'y en a aucun.
+     *
+     * Le vivier etant deja trie par qualite decroissante et le salaire etant
+     * monotone en qualite, le premier joueur finançable rencontre est le
+     * meilleur que le club puisse s'offrir.
+     *
+     * `$onlyDeficit` restreint aux joueurs dont le poste manque au club. Un
+     * joueur sans competences (donc sans poste derivable) n'est jamais un
+     * comble-trou, mais reste signable a la seconde passe.
+     *
+     * @param array<int, int> $pool cles creusees par les `unset()` des tours precedents, donc jamais une `list`
+     * @param array<int, array<string, int>> $squadByPosition
+     * @param array<string, int> $wanted
+     * @param array<int, int> $qualities
+     * @param array<int, int|null> $budgets
+     * @param array<int, int> $committedWage
+     */
+    private function pick(
+        SystemContext $ctx,
+        array $pool,
+        int $clubId,
+        array $squadByPosition,
+        array $wanted,
+        array $qualities,
+        ContractBalance $balance,
+        array $budgets,
+        array $committedWage,
+        bool $onlyDeficit,
+    ): ?int {
+        foreach ($pool as $index => $playerId) {
+            $annual = WageModel::perWeekCents($qualities[$playerId] ?? 0, $balance) * self::WEEKS_PER_YEAR;
+
+            if (!$this->fitsBudget($budgets[$clubId], $committedWage[$clubId], $annual)) {
+                continue;
+            }
+
+            if ($onlyDeficit) {
+                $position = $this->positionOf($ctx, $playerId);
+
+                if ($position === null) {
+                    continue;
+                }
+
+                $held = $squadByPosition[$clubId][$position->value] ?? 0;
+
+                if ($held >= ($wanted[$position->value] ?? 0)) {
+                    continue;
+                }
+            }
+
+            return $index;
+        }
+
+        return null;
+    }
+
+    /**
+     * L'effectif de chaque club ventile par poste, le poste d'un joueur etant
+     * **derive** de ses competences (`PositionModel::bestPosition()`) et jamais
+     * stocke - cf. docs/12- §4.
+     *
+     * @return array<int, array<string, int>> clubId -> [valeur du poste -> effectif]
+     */
+    private function squadByPosition(SystemContext $ctx): array
+    {
+        $byClub = [];
+
+        foreach ($ctx->read(Contract::class)->entities() as $playerId) {
+            $contract = $ctx->read(Contract::class)->get($playerId);
+            $position = $this->positionOf($ctx, $playerId);
+
+            if ($contract === null || $position === null) {
+                continue;
+            }
+
+            $byClub[$contract->clubId][$position->value] = ($byClub[$contract->clubId][$position->value] ?? 0) + 1;
+        }
+
+        return $byClub;
+    }
+
+    /**
+     * Combien de joueurs par poste un club cherche a tenir : les places de la
+     * formation, mises a l'echelle de `targetSquadSize`. Un 4-4-2 pour vingt
+     * joueurs donne deux gardiens, huit defenseurs, huit milieux, quatre
+     * attaquants - un remplacant a chaque poste, ce qui est precisement ce qui
+     * evite qu'un club se retrouve sans gardien.
+     *
+     * L'arrondi vers le haut fait que la somme depasse legerement l'effectif
+     * cible : c'est une cible **par poste**, pas une repartition d'un total,
+     * et `targetSquadSize` reste le seul plafond dur.
+     *
+     * @return array<string, int>
+     */
+    private function positionTargets(SystemContext $ctx, ContractBalance $balance): array
+    {
+        $positions = $ctx->ruleset()->balance->position;
+        $onPitch = 0;
+        $targets = [];
+
+        foreach (Position::cases() as $position) {
+            $onPitch += PositionModel::slots($position, $positions);
+        }
+
+        foreach (Position::cases() as $position) {
+            $slots = PositionModel::slots($position, $positions);
+            $targets[$position->value] = $onPitch > 0
+                ? (int) ceil($slots * $balance->targetSquadSize / $onPitch)
+                : 0;
+        }
+
+        return $targets;
+    }
+
+    /** Le poste ou ce joueur note le mieux, ou `null` s'il n'a pas de competences. */
+    private function positionOf(SystemContext $ctx, int $playerId): ?Position
+    {
+        $physical = $ctx->read(PlayerPhysicalSkills::class)->get($playerId);
+        $technical = $ctx->read(PlayerTechnicalSkills::class)->get($playerId);
+        $mental = $ctx->read(PlayerMentalSkills::class)->get($playerId);
+
+        if ($physical === null || $technical === null || $mental === null) {
+            return null;
+        }
+
+        return PositionModel::bestPosition($physical, $technical, $mental);
     }
 
     /**

@@ -18,9 +18,11 @@ use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
 use Flair\Kernel\Football\Components\PlayerPotentials;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
+use Flair\Kernel\Football\Components\Position;
 use Flair\Kernel\Football\Components\SquadMembership;
 use Flair\Kernel\Football\Events\YouthPlayerPromoted;
 use Flair\Kernel\Football\Generation\PlayerFactory;
+use Flair\Kernel\Football\Support\PositionModel;
 
 /**
  * L'arrivee des jeunes (docs/12- §7, docs/15- §4) : purement periodique,
@@ -64,12 +66,24 @@ use Flair\Kernel\Football\Generation\PlayerFactory;
  *
  * ## Position dans le pipeline
  *
- * En premier. Les joueurs promus font partie du monde des ce tick :
- * `TrainingSystem` lit leur `SquadMembership` et `PlayerDevelopmentSystem`
- * leurs competences dans le meme tick, par le canal 1 (composant ecrit tot,
- * lu plus loin - docs/13- §2). Aucune inversion de dependance : ce systeme
- * n'ecrit que sur des entites qui n'existaient pas quand qui que ce soit a
- * itere.
+ * **Derivee, jamais ecrite** (`Core\Pipeline\SystemGraph`). Ce systeme a
+ * longtemps ete premier ; depuis qu'il lit l'effectif en place pour savoir
+ * quel poste manque au club (`neededArchetype()`), le tri topologique le place
+ * apres les writers de `SquadMembership` et des competences. C'est
+ * exactement ce que l'ordre derive est cense faire : une declaration
+ * `reads()` de plus, et l'ordre se recalcule sans que personne n'arbitre a la
+ * main.
+ *
+ * Les deux contraintes qui comptent restent satisfaites : les recrues du jour
+ * sont visibles de `MatchSystem` (elles peuvent jouer le jour meme) et de
+ * `ContractSystem`, qui arbitre son mercato en les comptant - c'est ce que
+ * suppose `ContractBalance::$renewalDayOfYear` en partageant la date de
+ * l'intake. Ce qu'on perd est immateriel : une recrue n'est ni entrainee ni
+ * developpee le jour de sa promotion, mais des le lendemain, et le
+ * developpement est un pas stochastique de ±1 par jour.
+ *
+ * Aucune inversion de dependance : ce systeme n'ecrit que sur des entites qui
+ * n'existaient pas quand qui que ce soit a itere.
  *
  * Seul createur de joueurs a l'execution (`creates()`, cf. le docblock de
  * `System`) : il ne `set()` jamais un composant d'une entite preexistante,
@@ -94,6 +108,15 @@ final class YouthIntakeSystem implements System
         return [
             Club::class,
             Facilities::class,
+            // Lus pour savoir quel poste manque au club (`neededArchetype()`).
+            // `SquadMembership` est aussi dans `creates()` : ce systeme lit
+            // l'effectif **deja en place** pour decider, puis y ajoute des
+            // entites neuves. Aucun conflit de writer - il ne `set()` jamais le
+            // composant d'une entite preexistante (cf. docblock de la classe).
+            SquadMembership::class,
+            PlayerPhysicalSkills::class,
+            PlayerTechnicalSkills::class,
+            PlayerMentalSkills::class,
         ];
     }
 
@@ -215,6 +238,70 @@ final class YouthIntakeSystem implements System
     }
 
     /**
+     * Le poste qu'un centre de formation doit produire pour ce club, ou `null`
+     * s'il n'y a pas d'urgence - auquel cas `PlayerFactory` tire librement.
+     *
+     * ## Pourquoi le hasard seul ne suffit pas
+     *
+     * Avec une part de gardiens a 10 % et des effectifs stationnaires autour de
+     * dix-sept joueurs, un club en compte **1,8 en moyenne**. Une moyenne de
+     * 1,8 avec de la variance, ce n'est pas "chaque club a des gardiens",
+     * c'est "un club a zero gardien de temps en temps" - mesure : premier club
+     * sans gardien des l'annee 3. Ni le mercato ni le genesis n'y peuvent quoi
+     * que ce soit, c'est un probleme d'approvisionnement.
+     *
+     * Un centre de formation produit ce dont son club a besoin : c'est vrai du
+     * vrai football, et c'est la seule reponse a la source. Augmenter la part
+     * globale de gardiens ne ferait que deplacer le seuil de malchance.
+     *
+     * **Mesure a graines appariees** (3 graines, 20 saisons, 500 joueurs /
+     * 18 clubs), en debranchant ce choix pour ne garder qu'un tirage aveugle :
+     * club-annees sans gardien **7,87 % -> 1,39 %**, soit un facteur 5,7. Le
+     * reliquat n'est pas rattrapable ici - une cohorte de 1,2 recrue par club
+     * et par an est parfois vide, et le monde n'a qu'un jour administratif
+     * annuel pour reagir. Il se fermera avec le marche des transferts
+     * (docs/14- §5), ou un club qui a besoin d'un gardien en achete un ; le
+     * garde-fou en attendant est
+     * `Harness\Tests\Regression\FieldableSquadTest`.
+     *
+     * Le besoin est evalue contre les places de la formation, pas contre une
+     * cible d'effectif : un club sans gardien en veut un, un club qui en a deja
+     * un n'est plus en urgence et laisse le hasard decider. Le poste d'un
+     * joueur est **derive** de ses competences (docs/12- §4), jamais stocke.
+     */
+    private function neededArchetype(SystemContext $ctx, int $clubId): ?Position
+    {
+        $held = array_fill_keys(array_map(static fn (Position $p): string => $p->value, Position::cases()), 0);
+
+        foreach ($ctx->read(SquadMembership::class)->entities() as $playerId) {
+            if ($ctx->read(SquadMembership::class)->get($playerId)?->clubId !== $clubId) {
+                continue;
+            }
+
+            $physical = $ctx->read(PlayerPhysicalSkills::class)->get($playerId);
+            $technical = $ctx->read(PlayerTechnicalSkills::class)->get($playerId);
+            $mental = $ctx->read(PlayerMentalSkills::class)->get($playerId);
+
+            if ($physical !== null && $technical !== null && $mental !== null) {
+                $held[PositionModel::bestPosition($physical, $technical, $mental)->value]++;
+            }
+        }
+
+        $positions = $ctx->ruleset()->balance->position;
+
+        // Ordre de declaration de `Position`, donc gardien d'abord : un ordre
+        // total est obligatoire (docs/12- §2), et le poste le plus rare est
+        // aussi celui dont l'absence coute le plus cher.
+        foreach (Position::cases() as $position) {
+            if ($held[$position->value] < PositionModel::slots($position, $positions)) {
+                return $position;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Arrondi stochastique de l'effectif attendu : `floor(x)` joueurs, plus
      * un de plus avec la probabilite `x - floor(x)`. Un `round()` sec
      * ecraserait la calibration - avec 1,2 attendu, tous les clubs
@@ -248,7 +335,14 @@ final class YouthIntakeSystem implements System
     private function promote(SystemContext $ctx, int $clubId, SimDate $birthDate, YouthIntakeBalance $intake, Rng $rng): void
     {
         $playerId = $ctx->createEntity();
-        $blueprint = $this->players->drawRookie($rng, "Joueur {$playerId}", $birthDate, $intake);
+        $blueprint = $this->players->drawRookie(
+            $rng,
+            "Joueur {$playerId}",
+            $birthDate,
+            $intake,
+            $ctx->ruleset()->balance->position,
+            $this->neededArchetype($ctx, $clubId),
+        );
         $contract = $ctx->ruleset()->balance->contract;
         $shortest = max(1, $contract->minDurationYears);
         $longest = max($shortest, $contract->maxDurationYears);

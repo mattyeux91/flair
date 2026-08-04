@@ -60,18 +60,25 @@ final readonly class ContractBalance
          * riche d'accumuler un effectif sans fin.
          *
          * **Aucun plancher symetrique**, et c'est un choix mesure. Un club
-         * arbitre librement entre peu de bons joueurs et beaucoup de moyens,
-         * et concentrer est legerement avantageux puisque
-         * `Football\MatchSystem` note la **moyenne** de l'effectif quand le
-         * budget en contraint le **total** (correlation quasi monotone
-         * observee sur 40 saisons : 14 joueurs a 60,3 de qualite moyenne pour
-         * le meilleur club, 18 a 50,8 pour le dernier). Un `minSquadSize = 16`
-         * a ete essaye pour le corriger : sur six graines appariees il ne
+         * arbitre librement entre peu de bons joueurs et beaucoup de moyens.
+         * Un `minSquadSize = 16` a ete essaye : sur six graines appariees il ne
          * change pas le Gini des titres (0,521 contre 0,557) et **detruit** le
-         * seul gain consistant du lot, la rotation du top 5 (49,2 % contre
-         * 53,3 %, et 4 graines sur 6 au lieu de 6 sur 6). Retire. La vraie
-         * correction appartient au moteur de match - ne noter que les onze
-         * meilleurs - et demande `PositionAffinity`, hors perimetre Phase 2.
+         * seul gain consistant du lot des contrats, la rotation du top 5
+         * (49,2 % contre 53,3 %, et 4 graines sur 6 au lieu de 6 sur 6).
+         * Retire.
+         *
+         * Ce paragraphe justifiait aussi l'absence de plancher par le fait que
+         * concentrer le budget etait avantageux, `Football\MatchSystem` notant
+         * la **moyenne** de l'effectif. **Ce n'est plus vrai depuis le lot des
+         * postes (2026-08-04)** : le systeme note le onze aligne, donc la
+         * valeur marginale d'un joueur est positive jusqu'au onzieme et nulle
+         * au-dela, jamais negative. La mesure sur `minSquadSize` reste valide
+         * telle quelle, mais son motif d'origine a disparu.
+         *
+         * Ce plafond n'est plus le seul frein a la composition : depuis le meme
+         * lot, un club comble d'abord ses **postes manquants** avant de prendre
+         * le meilleur joueur disponible, et ne libere jamais son dernier joueur
+         * a un poste dont il a besoin - meme au-dessus de sa cible d'effectif.
          *
          * Calibre sur la population stationnaire mesuree en Phase 0 (~320
          * joueurs pour 18 clubs, soit ~17,8 par club, docs/15- §4) avec une

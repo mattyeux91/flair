@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flair\Kernel\Football\Generation;
 
+use Flair\Kernel\Core\Ruleset\PositionBalance;
 use Flair\Kernel\Core\Ruleset\YouthIntakeBalance;
 use Flair\Kernel\Core\Support\Rng;
 use Flair\Kernel\Core\Support\SimDate;
@@ -12,6 +13,9 @@ use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
 use Flair\Kernel\Football\Components\PlayerPotentials;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
+use Flair\Kernel\Football\Components\Position;
+use Flair\Kernel\Football\Support\AttributeCeilings;
+use Flair\Kernel\Football\Support\PositionModel;
 
 /**
  * La loi de talent du monde, en un seul endroit (docs/12- §7).
@@ -32,13 +36,25 @@ use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
  * dernier point, qui contraint la forme de la loi de talent). Rend un
  * `PlayerBlueprint` que l'appelant ecrit lui-meme.
  *
- * Simplification assumee, heritee du premier jet du harness : a l'interieur
- * d'une categorie, tous les attributs demarrent a la meme valeur (un
- * `pace` et un `strength` egaux au depart). Les attributs ne divergent
- * qu'ensuite, sous les tirages independants de PlayerDevelopmentSystem. A
- * corriger le jour ou les postes existeront - c'est le poste qui justifie
- * qu'un joueur demarre fort en `finishing` et faible en `defending`, et il
- * n'existe pas encore.
+ * ## Le poste fait les competences - a la naissance, et seulement la
+ *
+ * Un joueur recoit un **archetype** (`Football\Components\Position`) tire selon
+ * `PositionBalance`, et ses competences de depart en decoulent : elles partent
+ * d'une fraction du plafond **de chaque attribut**
+ * (`Football\Support\PositionModel::ceilings()`), pas d'une valeur unique par
+ * categorie. Un gardien demarre donc fort en `reflexes` et faible en
+ * `finishing`.
+ *
+ * Cette causalite est obligatoire **a la generation**, et elle est
+ * arithmetique et non esthetique : seize tirages independants se concentrent
+ * autour de leur moyenne et ne produisent jamais de specialiste. Il faut un
+ * archetype pour imposer la correlation. Ensuite la causalite s'inverse - le
+ * poste **joue** se derive des competences du moment
+ * (`PositionModel::bestPosition()`) et n'est jamais stocke.
+ *
+ * L'archetype ne fait pas que dessiner le depart : il fixe surtout les
+ * **plafonds**, donc le profil tient toute la carriere. Sans ca,
+ * `PlayerDevelopmentSystem` le dissoudrait en une dizaine d'annees simulees.
  */
 final class PlayerFactory
 {
@@ -48,17 +64,23 @@ final class PlayerFactory
      * (`YouthIntakeBalance::$startingSkillRatio`) - loin du potentiel, c'est
      * PlayerDevelopmentSystem qui l'y amenera.
      */
-    public function drawRookie(Rng $rng, string $name, SimDate $birthDate, YouthIntakeBalance $balance): PlayerBlueprint
-    {
-        $potentials = $this->drawPotentials($rng, $balance);
-        $baseline = (int) round($potentials->ceiling * $balance->startingSkillRatio);
+    public function drawRookie(
+        Rng $rng,
+        string $name,
+        SimDate $birthDate,
+        YouthIntakeBalance $balance,
+        PositionBalance $positions,
+        ?Position $archetype = null,
+    ): PlayerBlueprint {
+        $potentials = $this->drawPotentials($rng, $balance, $positions, $archetype);
+        $ceilings = $potentials->ceilings;
 
         return new PlayerBlueprint(
             person: new Person($name, $birthDate),
             potentials: $potentials,
-            physical: $this->drawPhysical($rng, $baseline, $balance),
-            technical: $this->drawTechnical($rng, $baseline, $balance),
-            mental: $this->drawMental($rng, $baseline, $balance),
+            physical: $this->drawPhysical($rng, $ceilings, $balance),
+            technical: $this->drawTechnical($rng, $ceilings, $balance),
+            mental: $this->drawMental($rng, $ceilings, $balance),
         );
     }
 
@@ -69,17 +91,91 @@ final class PlayerFactory
      * potentiel qu'une recrue, mais surement pas ses competences de debutant
      * (il a deja vecu dix ans de progression). C'est l'appelant qui decide
      * du niveau de competence correspondant a l'age qu'il simule.
+     *
+     * Rend le couple complet **niveau + forme** : le `ceiling` seul ne suffit
+     * plus a decrire un potentiel depuis que l'archetype existe, et un
+     * appelant qui n'obtiendrait que le niveau produirait des joueurs sans
+     * profil.
+     *
+     * `$archetype` permet a l'appelant de l'imposer plutot que de le tirer.
+     * C'est ce dont la generation du monde initial a besoin : un tirage
+     * independant par joueur laisse, par pur hasard, des clubs entiers sans
+     * gardien - avec une trentaine de joueurs par club et une part de gardiens
+     * a 10 %, environ un club sur dix-huit. Un monde ne doit pas **naitre**
+     * infirme ; les promotions annuelles, elles, tirent bien au hasard.
      */
-    public function drawPotentials(Rng $rng, YouthIntakeBalance $balance): PlayerPotentials
-    {
+    public function drawPotentials(
+        Rng $rng,
+        YouthIntakeBalance $balance,
+        PositionBalance $positions,
+        ?Position $archetype = null,
+    ): PlayerPotentials {
+        $ceiling = $this->drawTalent($rng, $balance);
+        $shape = $archetype ?? $this->drawArchetype($rng, $positions);
+
         return new PlayerPotentials(
-            ceiling: $this->drawTalent($rng, $balance),
+            ceiling: $ceiling,
+            archetype: $shape,
+            ceilings: PositionModel::ceilings($ceiling, $shape, spread: $this->drawSpread($rng, $shape, $positions), balance: $positions),
             physicalPeakAge: $this->uniformInt($rng, $balance->physicalPeakAgeMin, $balance->physicalPeakAgeMax),
             technicalPeakAge: $this->uniformInt($rng, $balance->technicalPeakAgeMin, $balance->technicalPeakAgeMax),
             mentalPeakAge: $this->uniformInt($rng, $balance->mentalPeakAgeMin, $balance->mentalPeakAgeMax),
             growthRate: $this->uniform($rng, $balance->growthRateMin, $balance->growthRateMax),
             fragility: $this->uniform($rng, $balance->fragilityMin, $balance->fragilityMax),
         );
+    }
+
+    /**
+     * La repartition du talent entre les attributs du profil : un facteur par
+     * attribut, tire uniformement dans `[1 - profileSpread, 1 + profileSpread]`
+     * puis **normalise** pour que la contrainte de budget tienne.
+     *
+     * C'est la normalisation qui en fait un arbitrage plutot qu'un cadeau :
+     * sans elle, un joueur chanceux serait meilleur partout a la fois. Avec
+     * elle, un plafond de passe au-dessus de la moyenne se paie sur le tacle,
+     * et deux milieux de meme potentiel cessent d'etre le meme joueur.
+     *
+     * Les attributs hors profil ne sont pas tires : ils ne comptent dans aucune
+     * note, donc les disperser n'ajouterait que du bruit invisible.
+     *
+     * @return array<string, float>
+     */
+    private function drawSpread(Rng $rng, Position $archetype, PositionBalance $positions): array
+    {
+        $raw = [];
+
+        foreach (PositionModel::weights($archetype) as $attribute => $_weight) {
+            $raw[$attribute] = $this->uniform($rng, 1.0 - $positions->profileSpread, 1.0 + $positions->profileSpread);
+        }
+
+        return PositionModel::normalizeSpread($archetype, $raw);
+    }
+
+    /**
+     * L'archetype, tire selon les parts de `PositionBalance` par inversion de
+     * la fonction de repartition - un seul tirage, borne, comme le choix de
+     * score de `PoissonMatchEngine`.
+     *
+     * Le dernier poste absorbe le reliquat plutot que de faire confiance aux
+     * parts pour sommer exactement a 1 : un `Ruleset` mal rempli produit alors
+     * une population legerement deformee, jamais une exception au milieu d'un
+     * run de mille saisons - meme choix defensif que le clamp de `meritShare`
+     * dans `Football\FinanceSystem`.
+     */
+    private function drawArchetype(Rng $rng, PositionBalance $positions): Position
+    {
+        $target = $this->unitInterval($rng);
+        $cumulative = 0.0;
+
+        foreach (Position::cases() as $position) {
+            $cumulative += PositionModel::generationShare($position, $positions);
+
+            if ($target < $cumulative) {
+                return $position;
+            }
+        }
+
+        return Position::Attacker;
     }
 
     /**
@@ -98,49 +194,53 @@ final class PlayerFactory
         return (int) round($balance->ceilingMin + $lowest * ($balance->ceilingMax - $balance->ceilingMin));
     }
 
-    private function drawPhysical(Rng $rng, int $baseline, YouthIntakeBalance $balance): PlayerPhysicalSkills
+    private function drawPhysical(Rng $rng, AttributeCeilings $ceilings, YouthIntakeBalance $balance): PlayerPhysicalSkills
     {
-        $value = $this->jitter($rng, $baseline, $balance);
-
         return new PlayerPhysicalSkills(
-            pace: $value,
-            stamina: $value,
-            strength: $value,
-            reflexes: $value,
+            pace: $this->startingValue($rng, $ceilings->pace, $balance),
+            stamina: $this->startingValue($rng, $ceilings->stamina, $balance),
+            strength: $this->startingValue($rng, $ceilings->strength, $balance),
+            reflexes: $this->startingValue($rng, $ceilings->reflexes, $balance),
         );
     }
 
-    private function drawTechnical(Rng $rng, int $baseline, YouthIntakeBalance $balance): PlayerTechnicalSkills
+    private function drawTechnical(Rng $rng, AttributeCeilings $ceilings, YouthIntakeBalance $balance): PlayerTechnicalSkills
     {
-        $value = $this->jitter($rng, $baseline, $balance);
-
         return new PlayerTechnicalSkills(
-            technique: $value,
-            passing: $value,
-            finishing: $value,
-            defending: $value,
-            positioning: $value,
-            handling: $value,
-            distribution: $value,
+            technique: $this->startingValue($rng, $ceilings->technique, $balance),
+            passing: $this->startingValue($rng, $ceilings->passing, $balance),
+            finishing: $this->startingValue($rng, $ceilings->finishing, $balance),
+            defending: $this->startingValue($rng, $ceilings->defending, $balance),
+            positioning: $this->startingValue($rng, $ceilings->positioning, $balance),
+            handling: $this->startingValue($rng, $ceilings->handling, $balance),
+            distribution: $this->startingValue($rng, $ceilings->distribution, $balance),
         );
     }
 
-    private function drawMental(Rng $rng, int $baseline, YouthIntakeBalance $balance): PlayerMentalSkills
+    private function drawMental(Rng $rng, AttributeCeilings $ceilings, YouthIntakeBalance $balance): PlayerMentalSkills
     {
-        $value = $this->jitter($rng, $baseline, $balance);
-
         return new PlayerMentalSkills(
-            vision: $value,
-            composure: $value,
-            leadership: $value,
-            discipline: $value,
-            command: $value,
+            vision: $this->startingValue($rng, $ceilings->vision, $balance),
+            composure: $this->startingValue($rng, $ceilings->composure, $balance),
+            leadership: $this->startingValue($rng, $ceilings->leadership, $balance),
+            discipline: $this->startingValue($rng, $ceilings->discipline, $balance),
+            command: $this->startingValue($rng, $ceilings->command, $balance),
         );
     }
 
-    /** Ecarte le niveau de depart d'une categorie autour du niveau de reference, en restant dans l'echelle 1-100 des competences. */
-    private function jitter(Rng $rng, int $baseline, YouthIntakeBalance $balance): int
+    /**
+     * Le niveau de depart d'**un** attribut : une fraction de son propre
+     * plafond (`startingSkillRatio`), ecartee par un bruit borne, en restant
+     * dans l'echelle 1-100 des competences (docs/12- §5).
+     *
+     * Un tirage par attribut, et non plus un par categorie partage entre tous
+     * ses attributs. C'est le plafond par attribut qui porte le profil - un
+     * gardien demarre bas en `finishing` parce que son plafond de finition est
+     * bas, pas parce qu'on l'aurait bruite vers le bas.
+     */
+    private function startingValue(Rng $rng, int $ceiling, YouthIntakeBalance $balance): int
     {
+        $baseline = (int) round($ceiling * $balance->startingSkillRatio);
         $offset = $this->uniformInt($rng, -$balance->startingSkillJitter, $balance->startingSkillJitter);
 
         return max(1, min(100, $baseline + $offset));

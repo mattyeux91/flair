@@ -100,10 +100,36 @@ Finances des clubs, grand livre monétaire, contrats, marché des transferts mul
 
 > **Reste à faire dans la phase — ordre révisé le 2026-08-04.**
 >
-> 1. **Les onze meilleurs dans `MatchSystem`** (ci-dessus). Petit, autonome, mesuré sur 6 graines appariées — rotation du top 5 et Gini des titres, en appliquant la leçon de méthode du lot précédent (test du signe avant la moyenne).
+> 1. ~~Les onze meilleurs dans `MatchSystem`~~ — **absorbé par le lot des postes, fait le 2026-08-04** (voir ci-dessous). Il ne tenait pas debout séparément : il aurait fallu écrire une sélection d'onze fondée sur un agrégat aveugle aux postes, que le lot suivant aurait réécrite intégralement.
 > 2. **Perception/scouting**, périmètre réduit (note de conception ci-dessous et `12-` §4) : rôle scout semé au genesis, composant d'emploi distinct de `SquadMembership`, `signedOn` sur `Contract`, fonction pure de bruit dans `Football\Support\`, et une seule bascule — `ContractSystem::quality()` passe de la vérité cachée à l'estimation. **Aucun mécanisme d'observation** : « qui observe qui » est une mécanique du jeu d'agent, Phase 5. Mesurable immédiatement : faire varier la qualité du staff sur graines appariées doit changer les effectifs, donc les classements.
 > 3. **Marché des transferts et inflation — un seul lot, pas deux.** L'ordre précédent listait `marketInflationTarget` et son régulateur *après* le marché, comme un troisième morceau. C'est intenable : le seul prix du monde est aujourd'hui `WageModel = base × clamp(qualité/référence)` avec `base` constante du `Ruleset`. Le niveau de prix ne peut pas dériver, donc **l'inflation vaut identiquement zéro par construction** et un régulateur ne régulerait rien. L'inflation devient une grandeur mesurable exactement quand de l'argent poursuit un actif rare, c'est-à-dire avec les indemnités de transfert — et `indice_inflation_global` est déjà, dans `14-` §5, un facteur de la formule de valorisation, hors du clamp. Il se conçoit **dans** le lot marché, pas greffé sur un marché déjà calibré sans lui. Contenu : indemnités, valorisation `14-` §5 sur qualité **perçue**, négociation multi-tours et agents PNJ, `marketInflationTarget` et son régulateur.
 >
+> **Lot des postes — fait le 2026-08-04, et pourquoi il s'est intercalé.** Le marché de `14-` §5 a pour étape 1 « chaque club évalue son effectif **par poste** » et une valorisation contenant `rareté_poste` : sans postes, tous les clubs veulent la même chose — le plus gros nombre — et le marché dégénère en enchère sur un scalaire, exactement le « marché qui converge instantanément, économiquement correct et ludiquement mort » que ce document interdit. **Ce sont les postes qui créent une demande hétérogène, et la demande hétérogène est ce qui fait qu'un marché est un marché.**
+>
+> L'audit qui a déclenché le lot : sur seize attributs, **sept ne décidaient de rien**, `reflexes` servait de compétence défensive à tous les joueurs de champ, et la génération donnait la même valeur à tous les attributs d'une catégorie. Le monde n'avait **aucune différenciation de joueur** — un niveau scalaire plus du bruit.
+>
+> Contenu : `Position` (GK/DEF/MID/ATT), `Football\Support\PositionModel` (matrice de contribution façon Hattrick, source de vérité unique des poids), `Ruleset\PositionBalance`, un potentiel qui plafonne une **composition** et non chaque compétence (`12-` §5 bis), le onze composé par poste dans `MatchSystem`, `WageModel::quality()` devenue « note au meilleur poste », et une conscience minimale des postes dans `ContractSystem` et `YouthIntakeSystem`.
+>
+> **Mesures.** Différenciation *entre* postes : écart-type des seize attributs à l'intérieur d'un même joueur, à l'âge du pic, **4,0 → 16,7**. Différenciation *dans* un poste : écart-type entre les cinq attributs du profil, **1,5 → 8,6** — deux milieux de même potentiel cessent d'être le même joueur. Approvisionnement en gardiens, à graines appariées : club-années sans gardien **7,87 % → 1,39 %**.
+>
+> **Campagne à graines appariées (6 graines, 40 saisons, 500 joueurs / 18 clubs), avant/après sur le même code de harness.** Le résultat est celui **enregistré avant l'implémentation** : aucun effet sur l'équilibre compétitif, aucune régression Phase 0.
+>
+> | Grandeur | Avant | Après | Test du signe |
+> |---|---|---|---|
+> | Gini des titres | 0,568 | 0,531 | **3 hausses / 3 baisses** — aucun effet |
+> | Rotation du top 5 | 54,2 % | 53,3 % | **3 hausses / 3 baisses** — aucun effet |
+> | Victoires à domicile | 42,6 % | 42,0 % | 6 baisses sur 6, ampleur ~0,6 pt |
+> | Nuls | 29,0 % | 29,4 % | stable |
+> | Population finale | 319 | 320 | stable |
+>
+> Le seul effet consistant est une baisse de **0,6 point** des victoires à domicile, très à l'intérieur des ±8 points du critère Phase 0 : les notes d'attaque et de défense montent toutes deux (un onze sélectionné vaut mieux qu'un effectif moyenné), donc leur différence — la seule chose que lit Dixon-Coles — se comprime légèrement. **Aucun recalibrage de `strengthScale` n'a été nécessaire**, contrairement au risque annoncé au moment de planifier le lot.
+>
+> Le coût CPU est nul à la mesure : 59 s par run de 40 saisons contre 57 s avant.
+>
+> ⚠️ **Piège de méthode rencontré, à ne pas refaire.** La première campagne a rendu des chiffres *identiques au centième sur les six graines*. Cause : le worktree de référence pointait vers le kernel courant, `packages/harness/vendor/flair/kernel` étant un lien **relatif** (`../../../kernel/`) qui, avec un `vendor` lui-même symlinké, résout dans l'arbre principal. Pour une comparaison avant/après réelle il faut **copier** les `vendor`, pas les lier — et un résultat trop parfaitement identique doit toujours faire soupçonner le dispositif de mesure avant la conclusion.
+>
+> **Limites assumées, à ne pas oublier :** le poste dérivé coïncide avec l'archétype dans 100 % des cas (la causalité « les compétences font le poste » est correcte mais inerte) ; une seule formation, aucune tactique ; et 1,39 % de club-années sans gardien qu'aucun mécanisme actuel ne peut rattraper — c'est le marché des transferts qui fermera ce trou, garde-fou en attendant : `Harness\Tests\Regression\FieldableSquadTest`.
+
 > Effet secondaire du lot 3 qui vaut d'être noté : les indemnités rendent `MonetaryConservationTest` **non trivial pour la première fois**. Tant qu'aucun argent ne change de mains entre clubs, l'invariant ne peut pas casser sur le chemin qui, dans `14-` §6, est précisément celui qui doit conserver — la moitié « conservation » du critère de sortie n'est réellement éprouvée qu'à partir de là.
 
 > **Note de conception à ne pas perdre (2026-08-02), avant d'écrire la perception :** `observerId` (`12-` §4) doit être une **personne** (`Person` + composant de rôle — scout/coach/président/journaliste/supporter), jamais un attribut de `Club` — c'est le cas d'école qui justifie l'ECS (`12-` §1 : joueur → entraîneur → président, même entité). Aucun rôle non-joueur n'existe encore dans le monde : ni le composant de rôle, ni la relation d'emploi club↔personne, ni le mécanisme qui fait avancer `observationCount`. Pour cette phase, seul le rôle **scout employé par un club** est nécessaire (sert la valorisation du marché, `14-` §5). Le premier consommateur est déjà écrit et l'attend : `Football\ContractSystem::quality()` lit aujourd'hui les compétences vraies pour décider d'un renouvellement — **simplification de périmètre, pas une affirmation de conception**. Un club n'a pas d'yeux : c'est un staff qui perçoit, et un mauvais staff doit pouvoir se tromper sur son propre joueur. Quand `Person` + rôle existeront, c'est cette méthode qui passera de la vérité cachée à une estimation bruitée, et rien d'autre dans le système n'aura à changer — coach/président (gouvernance de club, `14-` §7) et journaliste/supporter (narration, Phase 6) peuvent attendre. Détail complet dans `12-modele-du-monde.md` §4.
@@ -135,6 +161,17 @@ Client d'incarnation : recruter un client, le scouter, le placer, négocier, gé
 ### Phase 6 — Profondeur
 
 Moteur L1 Markov, narration émergente, multi-pays, coupes continentales, médias.
+
+> **Note de conception à reprendre plus tard (2026-08-04) — les centres de formation.** Le lot des postes a rendu `YouthIntakeSystem` partiellement **dirigé par le besoin** : un club dont il manque un poste promeut à ce poste. C'est mesuré efficace (club-années sans gardien 7,87 % → 1,39 % à graines appariées) mais **volontariste** : une académie ne produit pas à la commande.
+>
+> Direction retenue pour y revenir, à ne pas perdre :
+>
+> - Les centres de formation forment des joueurs **au hasard**, sans regarder le besoin du club.
+> - Les meilleurs clubs ont les **premiers choix** — une draft inversée.
+> - Pour que ça tienne, l'offre doit **excéder la demande** : les académies produisent nettement plus de joueurs que les effectifs n'en absorbent.
+> - Les joueurs en trop restent **sans club** et partent à la retraite selon leur **personnalité**, ce qui donne enfin un rôle décisionnel aux attributs mentaux aujourd'hui dormants (`leadership`, `discipline`).
+>
+> Ça remplace deux bricolages du lot des postes : le pilotage par le besoin ci-dessus, et la distribution imposée des archétypes au genesis (`Harness\Population\PopulationFactory::archetypeDeal()`). Ça suppose aussi que le marché des transferts existe, sans quoi un joueur sans club n'a aucun chemin de retour.
 
 ---
 

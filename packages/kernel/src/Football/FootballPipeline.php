@@ -92,12 +92,12 @@ final class FootballPipeline
     {
         return [
             new FacilitiesSystem(),
-            new YouthIntakeSystem(),
             new SquadSystem(),
             new TrainingSystem(),
             new RetirementSystem(),
             new FinanceSystem(),
             new PlayerDevelopmentSystem(),
+            new YouthIntakeSystem(),
             new CalendarSystem(),
             new MatchSystem(),
             new CompetitionSystem(),

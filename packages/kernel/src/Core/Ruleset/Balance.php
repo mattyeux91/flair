@@ -46,6 +46,7 @@ final readonly class Balance
         public FinanceBalance $finance = new FinanceBalance(),
         public FacilitiesBalance $facilities = new FacilitiesBalance(),
         public ContractBalance $contract = new ContractBalance(),
+        public PositionBalance $position = new PositionBalance(),
     ) {
     }
 }
