@@ -11,6 +11,7 @@ use Flair\Kernel\Core\Ruleset\YouthIntakeBalance;
 use Flair\Kernel\Core\Support\Rng;
 use Flair\Kernel\Core\Support\SimDate;
 use Flair\Kernel\Football\Components\Club;
+use Flair\Kernel\Football\Components\Contract;
 use Flair\Kernel\Football\Components\Facilities;
 use Flair\Kernel\Football\Components\Person;
 use Flair\Kernel\Football\Components\PlayerMentalSkills;
@@ -39,7 +40,9 @@ use Flair\Kernel\Football\Generation\PlayerFactory;
  * d'identifiant au moment du tirage. La cle ne peut donc pas etre le joueur
  * produit : c'est le **club producteur** (`$ctx->rng($clubId)`). Ce qui
  * tombe juste sur le plan du domaine, un centre de formation appartenant a
- * un club, et permet de moduler la promotion par `Facilities`.
+ * un club, et permet de repartir la promotion selon `Facilities` (voir
+ * `averageQuality()` : une part d'un vivier national de taille fixe, jamais
+ * un multiplicateur du volume total).
  *
  * Ce n'est pas qu'une commodite d'implementation : l'alternative - un
  * intake mondial asservi a une cible de population - **garantirait** la
@@ -116,6 +119,7 @@ final class YouthIntakeSystem implements System
             PlayerTechnicalSkills::class,
             PlayerMentalSkills::class,
             SquadMembership::class,
+            Contract::class,
         ];
     }
 
@@ -138,23 +142,76 @@ final class YouthIntakeSystem implements System
         }
 
         $birthDate = new SimDate((int) round($ctx->tick - $intake->intakeAgeYears * 365));
+        $clubIds = $ctx->read(Club::class)->entities();
+        $averageQuality = $this->averageQuality($ctx, $clubIds);
 
-        foreach ($ctx->components(Club::class)->entities() as $clubId) {
+        foreach ($clubIds as $clubId) {
             $rng = $ctx->rng($clubId);
-            // Club sans `Facilities` -> qualite neutre, pas d'exclusion : un
-            // club sans donnee d'installations a quand meme un centre de
-            // formation moyen. Effet identique a TrainingSystem, qui saute
-            // ces clubs et laisse PlayerDevelopmentSystem appliquer son
-            // propre defaut neutre.
-            $facilities = $ctx->components(Facilities::class)->get($clubId);
-            $quality = $facilities === null ? 1.0 : $facilities->quality;
+            $share = $this->quality($ctx, $clubId) / $averageQuality;
 
-            $count = $this->cohortSize($intake->baseIntakePerClub * $quality, $rng);
+            $count = $this->cohortSize($intake->baseIntakePerClub * $share, $rng);
 
             for ($i = 0; $i < $count; $i++) {
                 $this->promote($ctx, $clubId, $birthDate, $intake, $rng);
             }
         }
+    }
+
+    /**
+     * Un club sans `Facilities` a quand meme un centre de formation moyen :
+     * qualite neutre plutot qu'exclusion. Meme defaut que `TrainingSystem`,
+     * qui saute ces clubs et laisse `PlayerDevelopmentSystem` appliquer le
+     * sien.
+     */
+    private function quality(SystemContext $ctx, int $clubId): float
+    {
+        return $ctx->read(Facilities::class)->get($clubId)->quality ?? 1.0;
+    }
+
+    /**
+     * Qualite moyenne du monde, denominateur de la part de chaque club.
+     *
+     * **Le vivier national est de taille fixe** : un club promeut
+     * `baseIntakePerClub x quality / moyenne`, donc le total du monde vaut
+     * toujours `baseIntakePerClub x nombre de clubs`, quelles que soient les
+     * installations. Les bons centres captent une plus grosse *part* du
+     * vivier, ils ne l'agrandissent pas.
+     *
+     * Ce n'est pas une subtilite d'equilibrage, c'est ce qui empeche le monde
+     * d'osciller. Depuis que `Football\FacilitiesSystem` rend les
+     * installations dynamiques, une modulation non normalisee refermerait la
+     * boucle `installations -> jeunes -> effectif -> masse salariale ->
+     * argent -> installations`, dont le retour porte le **delai d'une
+     * carriere** (~15 ans). Une contre-reaction retardee de ce gain oscille -
+     * mesure a l'appui, la population balancait entre 224 et 381 sur 60
+     * saisons, et deux calibrages successifs n'en ont change que l'amplitude,
+     * jamais l'existence. La normalisation coupe le lien entre installations
+     * et effectif **total** tout en gardant l'effet entre clubs.
+     *
+     * Se defend aussi dans la fiction : le nombre de jeunes talentueux d'un
+     * pays tient a sa demographie, pas a la generosite de ses clubs - ceux-ci
+     * se disputent lesquels percent.
+     *
+     * Somme dans l'ordre de `$clubIds` (deja trie par `EntityId` croissant) :
+     * une somme de flottants n'est pas associative, l'ordre fait donc partie
+     * du determinisme, pas seulement de la convention (docs/12- §2).
+     *
+     * @param list<int> $clubIds trie par EntityId croissant
+     */
+    private function averageQuality(SystemContext $ctx, array $clubIds): float
+    {
+        if ($clubIds === []) {
+            return 1.0;
+        }
+
+        $total = 0.0;
+        foreach ($clubIds as $clubId) {
+            $total += $this->quality($ctx, $clubId);
+        }
+
+        // `Facilities::MIN_QUALITY` etant strictement positif et le defaut
+        // neutre valant 1.0, la moyenne ne peut pas etre nulle.
+        return $total / \count($clubIds);
     }
 
     /**
@@ -174,17 +231,40 @@ final class YouthIntakeSystem implements System
         return $guaranteed + ($roll < (int) ($remainder * 10_000) ? 1 : 0);
     }
 
+    /**
+     * Le contrat d'une recrue est au **salaire forfaitaire** de
+     * `YouthIntakeBalance::$basePlayerWagePerWeekCents`, jamais indexe sur sa
+     * qualite par `Football\Support\WageModel` comme le sont les
+     * renouvellements et les signatures de `Football\ContractSystem`. Ce n'est
+     * pas un oubli : un premier contrat d'academie est standardise dans le
+     * vrai football, et le joueur passe au prix du marche a son premier
+     * renouvellement - ce qui donne au centre de formation son interet
+     * economique, quelques annees de talent paye en dessous de sa valeur.
+     *
+     * La duree, elle, est tiree comme partout ailleurs
+     * (`ContractBalance::$minDurationYears`) : sans terme, le jeune ne
+     * reviendrait jamais sur le marche.
+     */
     private function promote(SystemContext $ctx, int $clubId, SimDate $birthDate, YouthIntakeBalance $intake, Rng $rng): void
     {
         $playerId = $ctx->createEntity();
         $blueprint = $this->players->drawRookie($rng, "Joueur {$playerId}", $birthDate, $intake);
+        $contract = $ctx->ruleset()->balance->contract;
+        $shortest = max(1, $contract->minDurationYears);
+        $longest = max($shortest, $contract->maxDurationYears);
+        $years = $shortest + (int) ($rng->nextUint32() % ($longest - $shortest + 1));
 
-        $ctx->components(Person::class)->set($playerId, $blueprint->person);
-        $ctx->components(PlayerPotentials::class)->set($playerId, $blueprint->potentials);
-        $ctx->components(PlayerPhysicalSkills::class)->set($playerId, $blueprint->physical);
-        $ctx->components(PlayerTechnicalSkills::class)->set($playerId, $blueprint->technical);
-        $ctx->components(PlayerMentalSkills::class)->set($playerId, $blueprint->mental);
-        $ctx->components(SquadMembership::class)->set($playerId, new SquadMembership($clubId));
+        $ctx->write(Person::class)->set($playerId, $blueprint->person);
+        $ctx->write(PlayerPotentials::class)->set($playerId, $blueprint->potentials);
+        $ctx->write(PlayerPhysicalSkills::class)->set($playerId, $blueprint->physical);
+        $ctx->write(PlayerTechnicalSkills::class)->set($playerId, $blueprint->technical);
+        $ctx->write(PlayerMentalSkills::class)->set($playerId, $blueprint->mental);
+        $ctx->write(SquadMembership::class)->set($playerId, new SquadMembership($clubId));
+        $ctx->write(Contract::class)->set($playerId, new Contract(
+            $clubId,
+            $intake->basePlayerWagePerWeekCents,
+            new SimDate($ctx->tick + $years * 365),
+        ));
 
         $ctx->emit(new YouthPlayerPromoted($playerId, $clubId), entityId: $playerId);
     }

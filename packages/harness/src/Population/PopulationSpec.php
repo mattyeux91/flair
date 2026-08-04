@@ -14,6 +14,9 @@ namespace Flair\Harness\Population;
  * clubs synthetiques (Population\ClubFactory) - une qualite d'installations
  * uniforme sur tous les clubs, premier jet volontairement simple (pas de
  * variance entre clubs dans ce lot, cf. docblock ClubFactory).
+ * `startingBalanceCents` suit le meme principe (Phase 2) : un solde initial
+ * uniforme, seede par ClubFactory, pas un levier de Ruleset - c'est un
+ * parametre de generation du monde, pas un levier d'equilibrage du jeu.
  */
 final readonly class PopulationSpec
 {
@@ -23,6 +26,7 @@ final readonly class PopulationSpec
         public int $seed,
         public int $clubCount = 18,
         public float $facilitiesQuality = 1.0,
+        public int $startingBalanceCents = 10_000_000,
     ) {
     }
 }

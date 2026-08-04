@@ -63,7 +63,7 @@ interface System
 {
     public function id(): string;
 
-    /** @return list<class-string> déclaré → vérifiable, documenté */
+    /** @return list<class-string> déclaré → opposable (voir plus bas) */
     public function reads(): array;
 
     /** @return list<class-string> composants mutés en place via ComponentStore::set() */
@@ -82,10 +82,12 @@ interface System
     public function update(SystemContext $ctx): void;
 }
 
-// Ordre du pipeline — donnée d'architecture, versionnée avec le noyau
-final class Pipeline
+// Composition du pipeline — donnée d'architecture, versionnée avec le noyau.
+// Vit côté domaine (`Football\FootballPipeline`), jamais sur la classe
+// `Pipeline` elle-même, qui est générique et ne doit rien savoir du football.
+final class FootballPipeline
 {
-    public const SYSTEMS = [
+    public static function systems(): array { return [
         TimeSystem::class,            // avance le calendrier, déclenche les événements datés
         IntentIngestionSystem::class, // valide et applique les intentions (humaines et PNJ)
         ContractSystem::class,        // échéances, clauses, renouvellements
@@ -99,13 +101,53 @@ final class Pipeline
         FanSystem::class,             // humeur, affluence, abonnements
         NarrativeSystem::class,       // détecte les histoires dans le flux d'événements
         NpcDecisionSystem::class,     // les PNJ produisent leurs intentions du tick suivant
-    ];
+    ]; }
 }
 ```
 
-**L'ordre est une donnée d'architecture, pas un détail.** Il est déclaré, versionné, et fait partie de la définition du noyau. Le changer change le monde.
+**L'ordre est une donnée d'architecture, pas un détail.** Il est versionné et fait partie de la définition du noyau. Le changer change le monde.
 
-Les déclarations `reads`/`writes` permettent un test automatique : détecter deux systèmes qui écrivent le même composant, ou un système qui lit un composant écrit plus tard dans le pipeline (dépendance inversée).
+### L'ordre est dérivé, pas écrit
+
+Il n'est cependant plus *écrit à la main*. `Core\Pipeline\SystemGraph` le **déduit** des déclarations : une arête `A → B` existe dès que `B` lit un composant que `A` écrit ou retire, et un tri topologique en tire l'ordre d'exécution. Trois conséquences :
+
+- Un ordre qui violerait une dépendance est **corrigé**, plus seulement détecté après coup par un test.
+- **Ajouter un système, c'est le déposer n'importe où** : les dépendances le placent, et là où aucune ne tranche, il reste où on l'a mis.
+- Un **cycle lève au montage** (`PipelineCycleException`), avec un exemple d'arête et la correction attendue — casser le cycle par un événement (canal 2), jamais relâcher le tri.
+
+Le départage des ex æquo est **stable, amorcé par la liste déclarée** — jamais alphabétique. Un tri par nom rendrait le monde sensible au moindre renommage, exactement le piège dont §4.5 met en garde, et déplacerait des systèmes qu'aucune dépendance ne contraint.
+
+`creates()` est hors du graphe : un créateur ne pose ses composants que sur une entité qui n'existait pas quand le lecteur a itéré, il ne peut donc pas invalider une lecture déjà faite.
+
+> ⚠️ **Ce que le graphe ne voit pas** : seules les dépendances *par composant*. Deux systèmes abonnés au même événement dont l'ordre relatif compte ne sont pas couverts — `subscribesTo()` ne dit rien de l'ordre entre souscripteurs. `MatchSystem` passe bien avant `CompetitionSystem`, mais grâce à l'arête `MatchResult`, pas grâce à leur souscription commune à `FixtureKickoff`. Coïncidence heureuse, pas couverture.
+
+Le tri s'applique dans le registre du domaine, jamais dans `Pipeline` : celui-ci exécute l'ordre qu'on lui donne, et un test unitaire monte légitimement un pipeline partiel dans un ordre précis.
+
+**Cette liste est écrite à un seul endroit**, dont dépendent le harness, `bin/demo.php` et le futur `host` — le noyau possède les systèmes, donc il possède la liste. La leçon a été apprise à la dure : recopiée dans quatre fichiers, dont deux se déclaraient chacun « seule source de vérité », elle avait fini par diverger, et `bin/demo.php` a tourné un temps sur neuf systèmes sur onze — affichant une économie sans renouvellement de contrat que la simulation réelle n'avait pas.
+
+> ⚠️ **Ne jamais auto-découvrir les systèmes** en scannant le répertoire. C'est de l'I/O, interdite dans le noyau (`11-` §1), mais la vraie raison est ailleurs : un monde est épinglé à `(kernelVersion, rulesetVersion)`. Avec la découverte automatique, déposer un fichier changerait le comportement de **tous** les mondes existants sans qu'aucun diff ne le montre, et la comparaison à graines appariées perdrait sa variable de contrôle. Ajouter un système doit rester un acte explicite et visible.
+
+Le registre est un **défaut, pas un verrou** : un test unitaire monte légitimement un pipeline partiel pour isoler ce qu'il mesure.
+
+Les déclarations `reads`/`writes` permettent un test automatique : détecter deux systèmes qui écrivent le même composant, ou un système qui lit un composant écrit plus tard dans le pipeline (dépendance inversée — désormais garanti par construction, puisque c'est de ces mêmes déclarations que l'ordre est dérivé).
+
+### ⚠️ Les déclarations sont opposables, pas documentaires
+
+Ce test automatique a un angle mort qu'il faut nommer, parce qu'il est invisible : **il compare des déclarations à des déclarations.** Il ne peut structurellement pas détecter un système qui touche un composant qu'il n'a pas déclaré. Tant que rien ne contraint le corps des méthodes, les quatre listes sont des commentaires — et tout ce qui se déduit d'elles se déduit d'un mensonge possible.
+
+D'où la règle : **`SystemContext` refuse tout accès non déclaré** (`UndeclaredAccessException`). L'accès au monde est scindé en deux handles dont le type porte la permission :
+
+```php
+$ctx->read(Facilities::class)->get($clubId);         // exige reads()
+$ctx->write(Facilities::class)->set($clubId, $new);  // exige writes()/creates()/removes()
+```
+
+- `read()` renvoie un `ComponentReader` — il n'a **physiquement pas** de `set()`, donc la faute est une erreur d'analyse statique et pas seulement une exception au premier tick.
+- `write()` renvoie un `GuardedComponentWriter`, qui n'expose **pas** `get()` : lire passe obligatoirement par `read()`, sinon `reads()` recommencerait à pourrir. Ce n'est pas cosmétique — `reads()` est ce dont se déduisent les dépendances entre systèmes. Les deux handles ne forment pas une paire symétrique : le lecteur est une capacité de l'ECS, l'écrivain un garde qui ne vaut que pour un système et un tick — d'où le préfixe, et d'où le fait qu'ils ne vivent pas dans le même dossier.
+- Un **singleton** se déclare comme un composant : `MonetaryMass` figure dans les `reads()`/`writes()` de `FinanceSystem`.
+- `creates()` devient vérifiable plutôt que déclaratif : `createEntity()` retient les entités qu'il rend, et `set()` sur un composant déclaré en `creates()` seul exige que l'entité soit de celles-là. La portée « ce système, ce tick » tombe juste sans effort, puisque le pipeline construit un `SystemContext` par système et par tick.
+
+La restriction porte sur `SystemContext`, **jamais sur l'ECS** : `WorldState`/`ComponentStore` gardent un accès libre, parce que worldgen et le harness écrivent le monde initial sans être des systèmes.
 
 ### Communication entre systèmes
 
@@ -118,6 +160,20 @@ Trois canaux, et trois seulement :
 > **Un système écoute, il ne commande pas.** Aucun système n'appelle jamais un autre système, directement ou indirectement. Ça détruirait l'ordonnancement, la testabilité et le déterminisme d'un coup.
 
 Le canal 1 sert ce qui doit se résoudre le même jour (un match joué doit alimenter le classement du jour). Les canaux 2 et 3 servent tout le reste — et par défaut, **on utilise le canal 2**. Si tu hésites, c'est le canal 2.
+
+#### Ce que cette règle n'interdit pas : les fonctions pures partagées
+
+L'interdit porte sur un `System` qui en **piloterait** un autre : c'est ça qui détruirait l'ordonnancement. Il ne porte pas sur une fonction pure que plusieurs systèmes appellent chacun de leur côté. Deux appelants d'une même formule ne se commandent pas l'un l'autre — ils n'échangent rien, et l'ordre du pipeline reste seul maître de qui tourne quand.
+
+Le mot « indirectement » a rendu ça ambigu plus longtemps qu'il n'aurait fallu : le docblock de `Football\Support\WageModel` consacre quinze lignes à plaider son droit d'exister. Un pattern correct ne devrait pas avoir à plaider, d'où ce paragraphe.
+
+Ces fonctions vivent dans `Football\Support\` : **sans état, sans RNG, sans accès au monde**. `WageModel` en est l'exemple vivant et couvre les deux usages — une formule (`perWeekCents()`) et une lecture dérivée de plusieurs composants (`quality()`, qui agrège les trois blocs de compétences ; c'est aussi la réponse au besoin de « lentille de lecture » sur un archétype éclaté en plusieurs composants, et il n'en faut pas d'autre).
+
+Le critère d'extraction, appliqué depuis le début mais énoncé nulle part :
+
+> **On n'extrait qu'à partir de deux consommateurs réels.** Jamais un seul, jamais par anticipation.
+
+Et son symétrique, tout aussi important : deux besoins voisins ne sont pas le même besoin. `Football\MatchSystem::ratings()` n'est délibérément pas refactoré vers `WageModel` — il produit un couple attaque/défense à partir d'un sous-ensemble pondéré de compétences, pas une qualité globale, et les fusionner obligerait l'un des deux à porter une notion dont il n'a pas besoin. Même refus documenté sur `Football\Components\TrainingEffect`.
 
 ---
 
@@ -282,6 +338,10 @@ Tout ce qui circule dans les files n'a pas vocation à devenir de l'histoire :
 Et parmi les Faits eux-mêmes, **seuls ceux qui passent le seuil de pertinence** sont émis. Sans cette discipline, `FatigueChanged` sur 8 000 joueurs × 365 ticks inonde l'event store de 3 millions d'entrées de bruit par saison. Voir `16-evenements-et-cascades.md` §2.
 
 **Snapshots** : sérialisation complète du `WorldState` à intervalle régulier (fin de saison, et toutes les N ticks). Le démarrage charge le dernier snapshot et rejoue le delta. Sans snapshot, redémarrer un monde de 10 ans coûte des minutes.
+
+> **Corollaire, et il se paie cher si on l'oublie : le `WorldState` est le _présent_, pas l'histoire.** Puisqu'il est sérialisé en entier à chaque snapshot, tout ce qu'on y laisse traîner est recopié indéfiniment. Une entité dont la raison d'être est passée doit être dépouillée par le système qui l'a créée — qui crée détruit.
+>
+> Le cas qui a servi de leçon : les entités `Fixture`/`MatchResult` n'étaient jamais retirées. Sur un monde de douze clubs, 1 320 rencontres mortes après dix ans pour 345 personnes vivantes ; à l'échelle cible de §7, ~200 000 après vingt ans. `CalendarSystem` les dépouille désormais au moment où il génère la saison suivante. **Ça ne perd rien** : le déroulé des matchs est dans l'event log, sous forme de Faits `MatchPlayed`. Garder les rencontres jouées dans l'état, c'était dupliquer l'event log dans chaque snapshot.
 
 > ⚠️ Le `WorldState` inclut le `Scheduler` et l'`OutQueue`, pas seulement les entités/composants/singletons. Raison : `step(WorldState, TickContext): StepResult` (`11-`§1) ne prend que ces deux paramètres — rien d'autre ne pourrait faire survivre le `Scheduler`/l'`OutQueue` d'un appel à l'autre. C'est aussi ce qui ferme un trou de durabilité réel : un événement seulement *planifié* (`schedule()`) n'émet aucun Fait tant qu'il n'est pas déclenché, donc un snapshot qui l'ignorerait le perdrait silencieusement à un redémarrage du Host.
 

@@ -44,6 +44,12 @@ namespace Flair\Harness\Metrics;
  * `Football\Components\Standings` au fil du run, aucun ne se derive de
  * `$samples`.
  *
+ * `cumulativeIncomeByClub` suit la meme logique de transport : Sampler cumule
+ * `Football\Components\SeasonIncome` une fois par annee simulee, et
+ * CompetitiveBalance en tire le Gini des revenus. Un **flux** cumule, pas le
+ * stock `Finances` - voir le docblock de `SeasonIncome` pour pourquoi un
+ * solde de club ne peut pas servir a ce calcul.
+ *
  * `goalsPerMatchHistogram`/`matchResultDistribution`/`scorelineFrequency`
  * agregent **tout le run** (plus stable statistiquement qu'une seule
  * saison), contrairement a `seasonHistory` qui detaille chaque saison
@@ -63,6 +69,10 @@ final readonly class AggregateResult
      * @param array{homeWin: int, draw: int, awayWin: int} $matchResultDistribution
      * @param array<string, int> $scorelineFrequency "buts_domicile-buts_exterieur" (ou 'autre') -> nombre de matchs
      * @param list<array{season: int, standings: list<array{clubId: int, clubName: string, played: int, won: int, drawn: int, lost: int, goalsFor: int, goalsAgainst: int, points: int}>, matches: list<array{matchday: int, homeClub: string, awayClub: string, homeGoals: int, awayGoals: int}>}> $seasonHistory une entree par saison achevee, dans l'ordre chronologique (jamais la toute derniere saison d'un run, qui ne joue structurellement aucun match - cf. docblock de Sampler)
+     * @param array<string, int> $cumulativeIncomeByClub nom de club -> total des revenus de saison percus sur le run
+     * @param array<string, float> $finalFacilitiesByClub nom de club -> qualite d'installations en fin de run
+     * @param array<int, array{transfers: int, unattached: int, wageBillCents: int}> $marketByYear annee simulee -> activite du mercato de cette annee et etat de l'emploi en fin d'annee
+     * @param array<string, int> $finalWageBillByClub nom de club -> masse salariale annuelle engagee en fin de run
      */
     public function __construct(
         public array $curves,
@@ -73,6 +83,10 @@ final readonly class AggregateResult
         public array $matchResultDistribution = ['homeWin' => 0, 'draw' => 0, 'awayWin' => 0],
         public array $scorelineFrequency = [],
         public array $seasonHistory = [],
+        public array $cumulativeIncomeByClub = [],
+        public array $finalFacilitiesByClub = [],
+        public array $marketByYear = [],
+        public array $finalWageBillByClub = [],
     ) {
     }
 
@@ -85,6 +99,10 @@ final readonly class AggregateResult
      * @param array{homeWin: int, draw: int, awayWin: int} $matchResultDistribution
      * @param array<string, int> $scorelineFrequency
      * @param list<array{season: int, standings: list<array{clubId: int, clubName: string, played: int, won: int, drawn: int, lost: int, goalsFor: int, goalsAgainst: int, points: int}>, matches: list<array{matchday: int, homeClub: string, awayClub: string, homeGoals: int, awayGoals: int}>}> $seasonHistory
+     * @param array<string, int> $cumulativeIncomeByClub
+     * @param array<string, float> $finalFacilitiesByClub
+     * @param array<int, array{transfers: int, unattached: int, wageBillCents: int}> $marketByYear
+     * @param array<string, int> $finalWageBillByClub
      */
     public static function fromSamples(
         array $samples,
@@ -95,6 +113,10 @@ final readonly class AggregateResult
         array $matchResultDistribution = ['homeWin' => 0, 'draw' => 0, 'awayWin' => 0],
         array $scorelineFrequency = [],
         array $seasonHistory = [],
+        array $cumulativeIncomeByClub = [],
+        array $finalFacilitiesByClub = [],
+        array $marketByYear = [],
+        array $finalWageBillByClub = [],
     ): self {
         $byCategoryThenAge = [];
         foreach ($samples as $sample) {
@@ -125,6 +147,10 @@ final readonly class AggregateResult
             $matchResultDistribution,
             $scorelineFrequency,
             $seasonHistory,
+            $cumulativeIncomeByClub,
+            $finalFacilitiesByClub,
+            $marketByYear,
+            $finalWageBillByClub,
         );
     }
 }

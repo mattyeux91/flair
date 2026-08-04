@@ -10,9 +10,12 @@ declare(strict_types=1);
  * Phase 1) - juste un point d'entree rapide pour observer le comportement
  * reel des systemes, sans repasser par la suite de tests.
  *
- * A completer au meme rythme que les systemes du domaine football : chaque
- * nouveau System rejoint le Pipeline construit plus bas, sans rien changer
- * au reste du script.
+ * Monte le pipeline canonique (`Football\FootballPipeline`) : un systeme
+ * ajoute au domaine arrive ici sans que personne y pense. Ce script en a
+ * justement eu besoin - il a tourne un temps sur neuf systemes sur onze,
+ * `SquadSystem` et `ContractSystem` n'ayant jamais rejoint sa copie de la
+ * liste, et affichait donc une economie sans renouvellement de contrat ni
+ * gestion d'effectif, que la simulation reelle n'a pas.
  *
  * Usage : php bin/demo.php
  */
@@ -20,7 +23,6 @@ declare(strict_types=1);
 require __DIR__ . '/../vendor/autoload.php';
 
 use Flair\Kernel\Core\Ecs\WorldState;
-use Flair\Kernel\Core\Pipeline\Pipeline;
 use Flair\Kernel\Core\Ruleset\Balance;
 use Flair\Kernel\Core\Ruleset\CalendarBalance;
 use Flair\Kernel\Core\Ruleset\Ruleset;
@@ -29,7 +31,10 @@ use Flair\Kernel\Core\Simulation\TickContext;
 use Flair\Kernel\Core\Support\SimDate;
 use Flair\Kernel\Football\Components\Club;
 use Flair\Kernel\Football\Components\Competition;
+use Flair\Kernel\Football\Components\Contract;
 use Flair\Kernel\Football\Components\Facilities;
+use Flair\Kernel\Football\Components\Finances;
+use Flair\Kernel\Football\Components\SeasonIncome;
 use Flair\Kernel\Football\Components\Person;
 use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
@@ -39,13 +44,7 @@ use Flair\Kernel\Football\Components\SquadMembership;
 use Flair\Kernel\Football\Components\Standings;
 use Flair\Kernel\Football\Events\PlayerRetired;
 use Flair\Kernel\Football\Events\YouthPlayerPromoted;
-use Flair\Kernel\Football\Systems\CalendarSystem;
-use Flair\Kernel\Football\Systems\CompetitionSystem;
-use Flair\Kernel\Football\Systems\MatchSystem;
-use Flair\Kernel\Football\Systems\PlayerDevelopmentSystem;
-use Flair\Kernel\Football\Systems\RetirementSystem;
-use Flair\Kernel\Football\Systems\TrainingSystem;
-use Flair\Kernel\Football\Systems\YouthIntakeSystem;
+use Flair\Kernel\Football\FootballPipeline;
 
 function demoCreateCompetition(WorldState $world): int
 {
@@ -54,6 +53,12 @@ function demoCreateCompetition(WorldState $world): int
 
     return $competition;
 }
+
+const DEMO_STARTING_BALANCE_CENTS = 10_000_000;
+const DEMO_WAGE_PER_WEEK_CENTS = 50_000;
+// Assez loin pour que la demo montre le vieillissement et l'entrainement sans
+// que ses quelques joueurs partent au premier mercato (Football\ContractSystem).
+const DEMO_CONTRACT_EXPIRY_TICK = 10_000;
 
 /** @return array<string, int> nom -> entityId */
 function demoCreateClubs(WorldState $world): array
@@ -69,6 +74,7 @@ function demoCreateClubs(WorldState $world): array
         $club = $world->createEntity();
         $world->components(Club::class)->set($club, new Club($name));
         $world->components(Facilities::class)->set($club, new Facilities($quality));
+        $world->components(Finances::class)->set($club, new Finances(DEMO_STARTING_BALANCE_CENTS));
         $clubs[$name] = $club;
     }
 
@@ -93,6 +99,7 @@ function demoCreatePlayers(WorldState $world, int $atTick, array $clubs): array
     foreach ($definitions as $name => $definition) {
         $entity = $world->createEntity();
         $birthDay = (int) round($atTick - $definition['age'] * 365);
+        $clubId = $clubs[$definition['club']];
 
         $world->components(Person::class)->set($entity, new Person($name, new SimDate($birthDay)));
         $world->components(PlayerPhysicalSkills::class)->set($entity, new PlayerPhysicalSkills(
@@ -125,7 +132,8 @@ function demoCreatePlayers(WorldState $world, int $atTick, array $clubs): array
             growthRate: 0.4,
             fragility: $definition['fragility'],
         ));
-        $world->components(SquadMembership::class)->set($entity, new SquadMembership($clubs[$definition['club']]));
+        $world->components(SquadMembership::class)->set($entity, new SquadMembership($clubId));
+        $world->components(Contract::class)->set($entity, new Contract($clubId, DEMO_WAGE_PER_WEEK_CENTS, new SimDate(DEMO_CONTRACT_EXPIRY_TICK)));
 
         $players[$name] = $entity;
     }
@@ -193,6 +201,19 @@ function demoPrintStandings(WorldState $world, int $competitionId, array $clubs)
     }
 }
 
+/** @param array<string, int> $clubs nom -> entityId */
+function demoPrintFinances(WorldState $world, array $clubs): void
+{
+    echo "  finances :\n";
+    foreach ($clubs as $name => $clubId) {
+        $finances = $world->components(Finances::class)->get($clubId);
+        $balance = $finances === null ? 'n/a' : number_format($finances->balanceCents / 100, 2, ',', ' ') . ' EUR';
+        $income = $world->components(SeasonIncome::class)->get($clubId);
+        $earned = $income === null ? 'n/a' : number_format($income->cents / 100, 2, ',', ' ') . ' EUR';
+        echo sprintf("    %-14s solde=%s  revenu de saison=%s\n", $name, $balance, $earned);
+    }
+}
+
 const DEMO_YEARS = 40;
 const DEMO_TICKS_PER_YEAR = 365;
 const DEMO_WORLD_SEED = 42;
@@ -202,15 +223,7 @@ $competition = demoCreateCompetition($world);
 $clubs = demoCreateClubs($world);
 $players = demoCreatePlayers($world, atTick: 1, clubs: $clubs);
 
-$simulation = new Simulation(new Pipeline([
-    new YouthIntakeSystem(),
-    new TrainingSystem(),
-    new RetirementSystem(),
-    new PlayerDevelopmentSystem(),
-    new CalendarSystem(),
-    new MatchSystem(),
-    new CompetitionSystem(),
-]));
+$simulation = new Simulation(FootballPipeline::build());
 // Saison generee des le premier tick simule (pas au tick 0, jamais atteint
 // par la boucle ci-dessous) et journees rapprochees : seulement 2 clubs en
 // demo, pas besoin de l'espacement realiste d'une vraie saison.
@@ -254,5 +267,6 @@ for ($year = 1; $year <= DEMO_YEARS; $year++) {
     demoPrintSnapshot($world, $players);
     demoPrintPopulation($world, $clubs, $promotions);
     demoPrintStandings($world, $competition, $clubs);
+    demoPrintFinances($world, $clubs);
     $promotions = [];
 }

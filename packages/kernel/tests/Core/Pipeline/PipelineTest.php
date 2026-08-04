@@ -123,6 +123,10 @@ final class PipelineTest extends TestCase
                     $ctx->schedule(new PipelineTestEventX(), atTick: $ctx->tick + 1, entityId: 0);
                 }
             },
+            // Un singleton s'oppose comme un composant : sans ces deux
+            // declarations, singleton()/setSingleton() refusent (docs/13- §2).
+            reads: [PipelineTestCounter::class],
+            writes: [PipelineTestCounter::class],
         );
         $reactor = new PipelineTestRecordingSystem('reactor', subscribesTo: [PipelineTestEventX::class]);
 
@@ -194,12 +198,18 @@ final class PipelineTestRecordingSystem implements System
     /** @var list<string> */
     public array $log = [];
 
-    /** @param list<class-string> $subscribesTo */
+    /**
+     * @param list<class-string> $subscribesTo
+     * @param list<class-string> $reads
+     * @param list<class-string> $writes
+     */
     public function __construct(
         private readonly string $name,
         private readonly array $subscribesTo = [],
         private readonly ?\Closure $onHandle = null,
         private readonly ?\Closure $onUpdate = null,
+        private readonly array $reads = [],
+        private readonly array $writes = [],
     ) {
     }
 
@@ -210,12 +220,12 @@ final class PipelineTestRecordingSystem implements System
 
     public function reads(): array
     {
-        return [];
+        return $this->reads;
     }
 
     public function writes(): array
     {
-        return [];
+        return $this->writes;
     }
 
     public function removes(): array

@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace Flair\Harness\Population;
 
 use Flair\Kernel\Core\Ecs\WorldState;
+use Flair\Kernel\Core\Ruleset\ContractBalance;
 use Flair\Kernel\Core\Ruleset\YouthIntakeBalance;
 use Flair\Kernel\Core\Support\Rng;
 use Flair\Kernel\Core\Support\SimDate;
+use Flair\Kernel\Football\Components\Contract;
 use Flair\Kernel\Football\Components\Person;
 use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
@@ -15,6 +17,7 @@ use Flair\Kernel\Football\Components\PlayerPotentials;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
 use Flair\Kernel\Football\Components\SquadMembership;
 use Flair\Kernel\Football\Generation\PlayerFactory;
+use Flair\Kernel\Football\Support\WageModel;
 
 /**
  * Construit la population initiale du harness : des clubs synthetiques
@@ -65,12 +68,13 @@ final class PopulationFactory
     }
 
     /** @return list<int> identifiants des entites joueur creees */
-    public function populate(WorldState $world, PopulationSpec $spec, int $atTick = 1, ?YouthIntakeBalance $talent = null): array
+    public function populate(WorldState $world, PopulationSpec $spec, int $atTick = 1, ?YouthIntakeBalance $talent = null, ?ContractBalance $contracts = null): array
     {
         $rng = new Rng($spec->seed);
         $talent ??= new YouthIntakeBalance();
+        $contracts ??= new ContractBalance();
 
-        $clubIds = $spec->clubCount > 0 ? $this->clubs->create($world, $spec->clubCount, $spec->facilitiesQuality) : [];
+        $clubIds = $spec->clubCount > 0 ? $this->clubs->create($world, $spec->clubCount, $spec->facilitiesQuality, $spec->startingBalanceCents) : [];
         if ($clubIds !== []) {
             $this->competitions->create($world);
         }
@@ -78,23 +82,19 @@ final class PopulationFactory
         $playerIds = [];
         for ($i = 0; $i < $spec->playerCount; $i++) {
             $clubId = $clubIds === [] ? null : $clubIds[$i % \count($clubIds)];
-            $playerIds[] = $this->createPlayer($world, $rng, $atTick, $talent, $clubId);
+            $playerIds[] = $this->createPlayer($world, $rng, $atTick, $talent, $contracts, $clubId);
         }
 
         return $playerIds;
     }
 
-    private function createPlayer(WorldState $world, Rng $rng, int $atTick, YouthIntakeBalance $talent, ?int $clubId): int
+    private function createPlayer(WorldState $world, Rng $rng, int $atTick, YouthIntakeBalance $talent, ContractBalance $contracts, ?int $clubId): int
     {
         $entity = $world->createEntity();
 
         $startAge = $this->uniform($rng, self::YOUNGEST_START_AGE, self::OLDEST_START_AGE);
         $birthDay = (int) round($atTick - $startAge * 365);
         $world->components(Person::class)->set($entity, new Person("Joueur {$entity}", new SimDate($birthDay)));
-
-        if ($clubId !== null) {
-            $world->components(SquadMembership::class)->set($entity, new SquadMembership($clubId));
-        }
 
         $potentials = $this->players->drawPotentials($rng, $talent);
         $world->components(PlayerPotentials::class)->set($entity, $potentials);
@@ -129,7 +129,45 @@ final class PopulationFactory
             command: $mental,
         ));
 
+        if ($clubId !== null) {
+            $this->employ($world, $rng, $entity, $atTick, $contracts, $clubId);
+        }
+
         return $entity;
+    }
+
+    /**
+     * L'embauche au genesis, posee **apres** les competences parce qu'elle en
+     * depend : le salaire passe par `Football\Support\WageModel`, comme tout
+     * renouvellement de `Football\ContractSystem`. Un monde qui demarrerait au
+     * salaire forfaitaire verrait sa masse salariale glisser pendant les
+     * quatre premieres annees, a mesure que les contrats initiaux seraient
+     * renegocies au prix du marche - la ligne de base du grand livre ne serait
+     * comparable a rien.
+     *
+     * L'echeance est **etalee** sur toute la duree maximale d'un contrat, sans
+     * quoi tout le monde arriverait a terme la meme annee : le monde entier
+     * changerait de club en bloc tous les quatre ans au lieu de tourner
+     * continument. Elle peut tomber dans le passe proche (`atTick` inclus),
+     * ce qui met simplement le joueur sur le marche au premier mercato.
+     */
+    private function employ(WorldState $world, Rng $rng, int $entity, int $atTick, ContractBalance $contracts, int $clubId): void
+    {
+        $quality = WageModel::quality(
+            $world->components(PlayerPhysicalSkills::class)->get($entity),
+            $world->components(PlayerTechnicalSkills::class)->get($entity),
+            $world->components(PlayerMentalSkills::class)->get($entity),
+        );
+
+        $span = max(1, $contracts->maxDurationYears) * 365;
+        $expiresOn = $atTick + (int) ($rng->nextUint32() % $span);
+
+        $world->components(SquadMembership::class)->set($entity, new SquadMembership($clubId));
+        $world->components(Contract::class)->set($entity, new Contract(
+            $clubId,
+            WageModel::perWeekCents($quality, $contracts),
+            new SimDate($expiresOn),
+        ));
     }
 
     /**

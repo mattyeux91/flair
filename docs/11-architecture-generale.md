@@ -277,7 +277,7 @@ Pas de la récitation : voici où chaque principe mord dans *ce* projet.
 - ❌ Pas de lecture directe du `WorldState` par un client.
 - ❌ Pas de dépendance croisée entre mondes.
 - ❌ Pas de `rand()`/`mt_rand()`/`random_int()`, `time()`/`new DateTime()`, `getenv()`, ni d'accès disque ou réseau dans le noyau.
-- ❌ **Un système n'appelle jamais un autre système**, directement ou indirectement. Il émet un événement.
+- ❌ **Un système n'appelle jamais un autre système**, directement ou indirectement. Il émet un événement. *(N'interdit pas les fonctions pures partagées — voir `13-` §2, « Ce que cette règle n'interdit pas ».)*
 - ❌ **Un événement n'est jamais traité dans le tick qui l'a produit.** Il part en OutQueue.
 
 Ces sept interdits sont testables automatiquement. Ils doivent l'être.

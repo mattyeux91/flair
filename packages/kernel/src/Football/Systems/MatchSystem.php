@@ -109,7 +109,7 @@ final class MatchSystem implements System
         $rng = $ctx->rng($event->fixtureId);
         $score = $this->engine->play($rng, $attackHome, $defenseHome, $attackAway, $defenseAway, $ctx->ruleset()->balance->match);
 
-        $ctx->components(MatchResult::class)->set($event->fixtureId, new MatchResult(
+        $ctx->write(MatchResult::class)->set($event->fixtureId, new MatchResult(
             $event->competitionId,
             $event->homeClubId,
             $event->awayClubId,
@@ -139,15 +139,15 @@ final class MatchSystem implements System
         $defenseSum = 0.0;
         $count = 0;
 
-        foreach ($ctx->components(SquadMembership::class)->entities() as $playerId) {
-            $membership = $ctx->components(SquadMembership::class)->get($playerId);
+        foreach ($ctx->read(SquadMembership::class)->entities() as $playerId) {
+            $membership = $ctx->read(SquadMembership::class)->get($playerId);
 
             if ($membership === null || $membership->clubId !== $clubId) {
                 continue;
             }
 
-            $physical = $ctx->components(PlayerPhysicalSkills::class)->get($playerId);
-            $technical = $ctx->components(PlayerTechnicalSkills::class)->get($playerId);
+            $physical = $ctx->read(PlayerPhysicalSkills::class)->get($playerId);
+            $technical = $ctx->read(PlayerTechnicalSkills::class)->get($playerId);
 
             if ($physical === null || $technical === null) {
                 continue;

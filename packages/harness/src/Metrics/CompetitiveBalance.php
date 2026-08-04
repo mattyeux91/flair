@@ -11,17 +11,25 @@ namespace Flair\Harness\Metrics;
  * simplement standings[0].
  *
  * Repond au "test qui compte" de docs/14-algorithmes.md §7 : Gini des titres
- * (0 = egalite parfaite entre tous les clubs, 1 = un seul club rafle tout) et
+ * (0 = egalite parfaite entre tous les clubs, 1 = un seul club rafle tout),
  * taux de rotation du top 5 (0 = memes 5 clubs chaque saison, 1 = renouvellement
- * total d'une saison a l'autre). Le Gini des revenus et l'inflation du meme
- * test ne sont pas mesurables ici - aucune economie n'existe avant la Phase 2.
+ * total d'une saison a l'autre) et Gini des revenus.
+ *
+ * Le Gini des revenus ne se derive pas de `seasonHistory` : il se calcule sur
+ * les revenus cumules que Sampler releve dans
+ * `Football\Components\SeasonIncome`, passes en second argument. Il vaut donc
+ * 0.0 quand l'appelant ne les fournit pas - une repartition parfaitement
+ * egale, ce qui est exactement le monde par defaut
+ * (`FinanceBalance::$meritShare = 0.0`). L'inflation, quatrieme metrique du
+ * meme test, reste non mesurable : aucun prix n'existe encore dans le monde.
  */
 final class CompetitiveBalance
 {
     /**
      * @param list<array{season: int, standings: list<array{clubId: int, clubName: string, played: int, won: int, drawn: int, lost: int, goalsFor: int, goalsAgainst: int, points: int}>, matches: list<array{matchday: int, homeClub: string, awayClub: string, homeGoals: int, awayGoals: int}>}> $seasonHistory
+     * @param array<string, int> $cumulativeIncomeByClub nom de club -> revenus de saison cumules sur le run (AggregateResult::$cumulativeIncomeByClub)
      */
-    public static function analyze(array $seasonHistory): CompetitiveBalanceResult
+    public static function analyze(array $seasonHistory, array $cumulativeIncomeByClub = []): CompetitiveBalanceResult
     {
         /** @var array<string, true> $universe */
         $universe = [];
@@ -49,17 +57,19 @@ final class CompetitiveBalance
             topFiveTurnoverRate: self::topFiveTurnoverRate($seasonHistory),
             distinctChampions: $distinctChampions,
             seasonsMeasured: \count($seasonHistory),
+            giniOfRevenues: self::gini(array_values($cumulativeIncomeByClub)),
         );
     }
 
     /**
-     * @return array{titlesByClub: array<string, int>, giniOfTitles: float, topFiveTurnoverRate: float|null, distinctChampions: int, seasonsMeasured: int}
+     * @return array{titlesByClub: array<string, int>, giniOfTitles: float, giniOfRevenues: float, topFiveTurnoverRate: float|null, distinctChampions: int, seasonsMeasured: int}
      */
     public static function toArray(CompetitiveBalanceResult $result): array
     {
         return [
             'titlesByClub' => $result->titlesByClub,
             'giniOfTitles' => $result->giniOfTitles,
+            'giniOfRevenues' => $result->giniOfRevenues,
             'topFiveTurnoverRate' => $result->topFiveTurnoverRate,
             'distinctChampions' => $result->distinctChampions,
             'seasonsMeasured' => $result->seasonsMeasured,

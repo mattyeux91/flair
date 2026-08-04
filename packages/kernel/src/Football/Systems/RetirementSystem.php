@@ -29,6 +29,18 @@ use Flair\Kernel\Football\Events\PlayerRetired;
  * retirant des composants, pas en detruisant l'entite), et un Fait
  * `PlayerRetired` est emis (irreversible, 16- §2).
  *
+ * **La relation d'emploi n'est pas retiree ici.** Ce systeme a possede
+ * `Contract` jusqu'a l'arrivee de `Football\SquadSystem`, qui est desormais
+ * seul writer et seul remover de `Contract` et `SquadMembership` et qui
+ * nettoie les deux en reagissant a `PlayerRetired`. Deux removers du meme
+ * composant sont interdits (`Football\PipelineInvariantsTest`), et la
+ * frontiere ainsi tracee se tient : ce systeme possede l'archetype "joueur"
+ * (competences et potentiels), `SquadSystem` possede le lien a un employeur -
+ * lien qu'un entraineur ou un president aura aussi le jour ou ces roles
+ * existeront. Un retraite garde donc son contrat un tick de plus, et peut
+ * etre paye une derniere fois : un versement reel, comptabilise comme puits,
+ * sans effet sur l'invariant de conservation monetaire.
+ *
  * Seul systeme qui `remove()` ces quatre composants : distinct de
  * `PlayerDevelopmentSystem`, qui les `set()` mais ne les retire jamais.
  * Cette separation evite qu'un meme systeme cumule deux responsabilites
@@ -89,9 +101,9 @@ final class RetirementSystem implements System
         $now = new SimDate($ctx->tick);
         $retirement = $ctx->ruleset()->balance->retirement;
 
-        foreach ($ctx->components(PlayerPotentials::class)->entities() as $entityId) {
-            $person = $ctx->components(Person::class)->get($entityId);
-            $potential = $ctx->components(PlayerPotentials::class)->get($entityId);
+        foreach ($ctx->read(PlayerPotentials::class)->entities() as $entityId) {
+            $person = $ctx->read(Person::class)->get($entityId);
+            $potential = $ctx->read(PlayerPotentials::class)->get($entityId);
 
             if ($person === null || $potential === null) {
                 continue;
@@ -101,10 +113,10 @@ final class RetirementSystem implements System
             $rng = $ctx->rng($entityId);
 
             if ($ageYears >= $retirement->retirementEligibleAge && $this->retires($ageYears, $potential->fragility, $retirement, $rng)) {
-                $ctx->components(PlayerPotentials::class)->remove($entityId);
-                $ctx->components(PlayerPhysicalSkills::class)->remove($entityId);
-                $ctx->components(PlayerTechnicalSkills::class)->remove($entityId);
-                $ctx->components(PlayerMentalSkills::class)->remove($entityId);
+                $ctx->write(PlayerPotentials::class)->remove($entityId);
+                $ctx->write(PlayerPhysicalSkills::class)->remove($entityId);
+                $ctx->write(PlayerTechnicalSkills::class)->remove($entityId);
+                $ctx->write(PlayerMentalSkills::class)->remove($entityId);
                 $ctx->emit(new PlayerRetired($entityId, (int) $ageYears), entityId: $entityId);
             }
         }

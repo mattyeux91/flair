@@ -8,6 +8,7 @@ use Flair\Harness\Metrics\AggregateResult;
 use Flair\Harness\Metrics\CompetitiveBalance;
 use Flair\Harness\Metrics\CompetitiveBalanceResult;
 use Flair\Harness\Metrics\EventGraphResult;
+use Flair\Harness\Metrics\Stats;
 
 /**
  * Rendu console d'un AggregateResult - tables et barres ASCII, meme esprit
@@ -39,7 +40,9 @@ final class TextReport
         $output .= $this->renderStandings($lastSeason['standings'] ?? [], "Classement ({$seasonLabel})");
         $output .= $this->renderRecentMatches($lastSeason['matches'] ?? [], "Matchs de la {$seasonLabel}");
 
-        $output .= $this->renderCompetitiveBalance(CompetitiveBalance::analyze($result->seasonHistory));
+        $output .= $this->renderCompetitiveBalance(CompetitiveBalance::analyze($result->seasonHistory, $result->cumulativeIncomeByClub));
+        $output .= $this->renderFacilities($result->finalFacilitiesByClub);
+        $output .= $this->renderMarket($result->marketByYear, $result->finalWageBillByClub);
 
         return $output;
     }
@@ -75,9 +78,13 @@ final class TextReport
         $output .= $this->renderRecentMatches($modifiedSeason['matches'] ?? [], 'Matchs recents, modifie' . ($modifiedSeason !== null ? " (saison {$modifiedSeason['season']})" : ''));
 
         $output .= "-- Equilibre competitif, baseline --\n";
-        $output .= $this->renderCompetitiveBalance(CompetitiveBalance::analyze($baseline->seasonHistory));
+        $output .= $this->renderCompetitiveBalance(CompetitiveBalance::analyze($baseline->seasonHistory, $baseline->cumulativeIncomeByClub));
+        $output .= $this->renderFacilities($baseline->finalFacilitiesByClub, 'Installations, baseline');
+        $output .= $this->renderMarket($baseline->marketByYear, $baseline->finalWageBillByClub, 'Marche, baseline');
         $output .= "-- Equilibre competitif, modifie --\n";
-        $output .= $this->renderCompetitiveBalance(CompetitiveBalance::analyze($modified->seasonHistory));
+        $output .= $this->renderCompetitiveBalance(CompetitiveBalance::analyze($modified->seasonHistory, $modified->cumulativeIncomeByClub));
+        $output .= $this->renderFacilities($modified->finalFacilitiesByClub, 'Installations, modifie');
+        $output .= $this->renderMarket($modified->marketByYear, $modified->finalWageBillByClub, 'Marche, modifie');
 
         return $output;
     }
@@ -323,9 +330,95 @@ final class TextReport
 
         $output .= sprintf("Champions distincts : %d\n", $balance->distinctChampions);
         $output .= sprintf("Gini des titres : %.3f (0 = egalite parfaite, 1 = monopole)\n", $balance->giniOfTitles);
+        $output .= sprintf("Gini des revenus : %.3f (0 = tous le meme revenu, 1 = un club encaisse tout)\n", $balance->giniOfRevenues);
         $output .= $balance->topFiveTurnoverRate !== null
             ? sprintf("Rotation du top 5 : %.1f%%\n", $balance->topFiveTurnoverRate * 100)
             : "Rotation du top 5 : donnees insuffisantes (moins de 2 saisons)\n";
+
+        return $output . "\n";
+    }
+
+    /**
+     * Qualite d'installations en fin de run - l'observable de la boucle
+     * "revenus -> installations -> joueurs -> resultats" (docs/14- §7).
+     *
+     * **La moyenne d'abord, pas la mediane.** `Football\YouthIntakeSystem`
+     * promeut `baseIntakePerClub x quality` jeunes par club : le volume total
+     * de promotions du monde, donc la stationnarite de la population (critere
+     * de sortie de la Phase 0), depend de la **somme** des qualites, jamais de
+     * la valeur du club median. La distribution etant fortement asymetrique -
+     * quelques clubs riches tirent tres au-dessus pendant que la masse stagne
+     * un peu en dessous - une mediane a 0.909 a coexiste en mesure avec une
+     * population en hausse de 18%. La mediane reste affichee, mais pour lire
+     * le club typique, pas pour calibrer.
+     *
+     * L'ecart min/max, lui, dit si les clubs se stratifient.
+     *
+     * @param array<string, float> $byClub
+     */
+    private function renderFacilities(array $byClub, string $title = 'Installations'): string
+    {
+        if ($byClub === []) {
+            return "{$title} : aucune donnee.\n\n";
+        }
+
+        $qualities = array_values($byClub);
+        sort($qualities);
+
+        return sprintf(
+            "-- %s (%d club(s)) --\nmoyenne=%.3f (pilote l'intake)  min=%.3f  mediane=%.3f  max=%.3f  ecart=%.3f\n\n",
+            $title,
+            \count($qualities),
+            Stats::mean($qualities),
+            $qualities[0],
+            Stats::percentile($qualities, 50.0),
+            $qualities[\count($qualities) - 1],
+            $qualities[\count($qualities) - 1] - $qualities[0],
+        );
+    }
+
+    /**
+     * Le marche du travail : mobilite, chomage, et ce que les clubs se sont
+     * engages a payer (`Football\ContractSystem`).
+     *
+     * Les cinq dernieres annees seulement - les premieres d'un run sont un
+     * transitoire ou la population initiale, plus nombreuse que ce que les
+     * budgets peuvent payer, se degonfle. Les lire comme un regime permanent
+     * ferait conclure a un chomage de masse qui n'existe pas.
+     *
+     * @param array<int, array{transfers: int, unattached: int, wageBillCents: int}> $byYear
+     * @param array<string, int> $byClub masse salariale annuelle engagee, par club
+     */
+    private function renderMarket(array $byYear, array $byClub, string $title = 'Marche'): string
+    {
+        if ($byYear === []) {
+            return "{$title} : aucune donnee.\n\n";
+        }
+
+        $output = "-- {$title} (5 dernieres annees) --\n";
+        $output .= sprintf("%5s  %10s  %10s  %14s\n", 'annee', 'transferts', 'sans club', 'masse sal. (E)');
+
+        foreach (\array_slice($byYear, -5, null, true) as $year => $row) {
+            $output .= sprintf(
+                "%5d  %10d  %10d  %14s\n",
+                $year,
+                $row['transfers'],
+                $row['unattached'],
+                number_format($row['wageBillCents'] / 100, 0, ',', ' '),
+            );
+        }
+
+        if ($byClub !== []) {
+            $bills = array_values($byClub);
+            sort($bills);
+            $output .= sprintf(
+                "masse salariale par club (E) : min=%s  mediane=%s  max=%s  rapport=%.2f\n",
+                number_format($bills[0] / 100, 0, ',', ' '),
+                number_format(Stats::percentile($bills, 50.0) / 100, 0, ',', ' '),
+                number_format($bills[\count($bills) - 1] / 100, 0, ',', ' '),
+                $bills[0] > 0 ? $bills[\count($bills) - 1] / $bills[0] : 0.0,
+            );
+        }
 
         return $output . "\n";
     }

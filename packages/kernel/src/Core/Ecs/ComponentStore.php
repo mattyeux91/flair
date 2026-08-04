@@ -11,9 +11,16 @@ namespace Flair\Kernel\Core\Ecs;
  * un systeme n'edite jamais un composant en place, il en ecrit un nouveau
  * via set().
  *
+ * Acces complet, sans controle de declaration : c'est le stockage brut, et
+ * worldgen/harness l'ecrivent legitimement via WorldState (ils ne sont pas
+ * des systemes). Un System, lui, n'y touche jamais directement - il passe
+ * par SystemContext::read()/write(), qui opposent ses declarations
+ * (docs/13- §2).
+ *
  * @template T
+ * @implements ComponentReader<T>
  */
-final class ComponentStore
+final class ComponentStore implements ComponentReader
 {
     /** @var array<int, T> */
     private array $components = [];

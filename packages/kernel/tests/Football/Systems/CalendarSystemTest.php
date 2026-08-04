@@ -12,7 +12,9 @@ use Flair\Kernel\Core\Ruleset\Ruleset;
 use Flair\Kernel\Football\Components\Club;
 use Flair\Kernel\Football\Components\Competition;
 use Flair\Kernel\Football\Components\Fixture;
+use Flair\Kernel\Football\Components\MatchResult;
 use Flair\Kernel\Football\Events\FixtureKickoff;
+use Flair\Kernel\Football\Events\SeasonEnded;
 use Flair\Kernel\Football\Events\SeasonStarted;
 use Flair\Kernel\Football\Systems\CalendarSystem;
 use PHPUnit\Framework\TestCase;
@@ -104,12 +106,84 @@ final class CalendarSystemTest extends TestCase
 
         $balance = new CalendarBalance(seasonStartDayOfYear: 10);
 
+        $perSeason = [];
         foreach ([10, 375, 740] as $tick) {
             $this->runTick($world, $tick, $balance);
+            $perSeason[] = $world->components(Fixture::class)->entities();
         }
 
-        // 2 clubs -> 2 fixtures par saison (1 aller + 1 retour), 3 saisons.
-        self::assertCount(6, $world->components(Fixture::class)->entities());
+        // 2 clubs -> 2 fixtures par saison (1 aller + 1 retour). Le compte est
+        // **stationnaire** : la saison ecoulee est depouillee avant que la
+        // suivante soit generee, sinon les rencontres mortes s'accumuleraient
+        // sans borne dans le WorldState (docs/13- §5, snapshot complet).
+        foreach ($perSeason as $season => $fixtureIds) {
+            self::assertCount(2, $fixtureIds, "Saison {$season}");
+        }
+
+        // Le compte de 2 sur les saisons 2 et 3 epingle aussi l'ordre interne :
+        // si le depouillement passait *apres* la generation, il detruirait les
+        // rencontres tout juste creees et on lirait 0 - panne silencieuse,
+        // puisqu'aucun match ne serait simplement joue.
+        //
+        // Et ce sont bien de nouvelles rencontres a chaque fois. Sans cette
+        // assertion, un systeme qui ne ferait plus rien du tout passerait le
+        // controle de compte ci-dessus : c'est elle qui teste la recurrence.
+        self::assertSame([], array_intersect($perSeason[0], $perSeason[1]));
+        self::assertSame([], array_intersect($perSeason[1], $perSeason[2]));
+    }
+
+    public function testGeneratingASeasonStripsThePreviousOnesFixturesAndResults(): void
+    {
+        $world = new WorldState();
+        $this->addCompetition($world, 'Ligue Test');
+        $this->addClub($world, 'A');
+        $this->addClub($world, 'B');
+
+        $balance = new CalendarBalance(seasonStartDayOfYear: 10);
+        $this->runTick($world, tick: 10, balance: $balance);
+
+        $firstSeason = $world->components(Fixture::class)->entities();
+        self::assertCount(2, $firstSeason);
+
+        // Une des deux rencontres a ete jouee : elle porte un resultat, qui
+        // doit disparaitre avec elle. C'est le point qui justifie que
+        // CalendarSystem retire un composant dont MatchSystem est le writer.
+        $world->components(MatchResult::class)->set(
+            $firstSeason[0],
+            new MatchResult(competitionId: 1, homeClubId: 2, awayClubId: 3, matchday: 0, homeGoals: 1, awayGoals: 0),
+        );
+
+        $this->runTick($world, tick: 375, balance: $balance);
+
+        foreach ($firstSeason as $fixtureId) {
+            self::assertNull($world->components(Fixture::class)->get($fixtureId));
+            self::assertNull($world->components(MatchResult::class)->get($fixtureId));
+        }
+
+        self::assertCount(0, $world->components(MatchResult::class)->entities());
+    }
+
+    public function testNothingIsStrippedOutsideTheGenerationDay(): void
+    {
+        $world = new WorldState();
+        $this->addCompetition($world, 'Ligue Test');
+        $this->addClub($world, 'A');
+        $this->addClub($world, 'B');
+
+        $balance = new CalendarBalance(seasonStartDayOfYear: 10);
+        $this->runTick($world, tick: 10, balance: $balance);
+
+        $fixtures = $world->components(Fixture::class)->entities();
+        $world->components(MatchResult::class)->set(
+            $fixtures[0],
+            new MatchResult(competitionId: 1, homeClubId: 2, awayClubId: 3, matchday: 0, homeGoals: 2, awayGoals: 2),
+        );
+
+        // Un jour de match ordinaire, en pleine saison.
+        $this->runTick($world, tick: 120, balance: $balance);
+
+        self::assertSame($fixtures, $world->components(Fixture::class)->entities());
+        self::assertNotNull($world->components(MatchResult::class)->get($fixtures[0]));
     }
 
     public function testEmitsASeasonStartedFactPerCompetition(): void
@@ -125,6 +199,58 @@ final class CalendarSystemTest extends TestCase
         self::assertCount(1, $events);
         self::assertInstanceOf(SeasonStarted::class, $events[0]);
         self::assertSame($competition, $events[0]->competitionId);
+    }
+
+    /**
+     * Le tick de `SeasonEnded` est ce qui date le sacre du champion dans
+     * l'event log. L'emettre au demarrage de la saison suivante (ce que
+     * faisait la premiere version) le decalait de 120 jours au calibrage de
+     * reference - une date fausse gravee dans un journal que la Phase 3
+     * persiste et la Phase 4 rejoue.
+     */
+    public function testSchedulesSeasonEndedForTheDayAfterTheLastMatchday(): void
+    {
+        $world = new WorldState();
+        $competition = $this->addCompetition($world, 'Ligue Test');
+        foreach (['A', 'B', 'C', 'D'] as $name) {
+            $this->addClub($world, $name);
+        }
+
+        $balance = new CalendarBalance(seasonStartDayOfYear: 0, firstMatchdayOffsetDays: 14, matchdayIntervalDays: 7);
+        $this->runTick($world, tick: 0, balance: $balance);
+
+        // 4 clubs -> 6 journees (indices 0 a 5), la derniere a 14 + 5*7 = 49.
+        self::assertSame([], $this->seasonEndedDueBy($world, 49), 'la saison ne peut pas finir le jour de la derniere journee : le classement n\'est complet qu\'a la fin de ce tick');
+
+        $atDayAfter = $this->seasonEndedDueBy($world, 50);
+        self::assertCount(1, $atDayAfter);
+        self::assertSame($competition, $atDayAfter[0]->competitionId);
+    }
+
+    public function testACompetitionWithTooFewClubsToPlayStillEndsItsSeason(): void
+    {
+        $world = new WorldState();
+        $this->addCompetition($world, 'Ligue Test');
+        $this->addClub($world, 'Seul au monde');
+
+        $this->runTick($world, tick: 0, balance: new CalendarBalance(seasonStartDayOfYear: 0));
+
+        self::assertSame([], $world->components(Fixture::class)->entities());
+        self::assertCount(1, $this->seasonEndedDueBy($world, 1), 'sans fin de saison, les clubs d\'un monde degenere ne toucheraient jamais leurs revenus');
+    }
+
+    /**
+     * Draine le Scheduler jusqu'a `$tick` et ne garde que les `SeasonEnded` -
+     * les `FixtureKickoff` du meme lot ne nous interessent pas ici.
+     *
+     * @return list<SeasonEnded>
+     */
+    private function seasonEndedDueBy(WorldState $world, int $tick): array
+    {
+        return array_values(array_filter(
+            $world->scheduler()->drainDueBy($tick),
+            static fn (object $event): bool => $event instanceof SeasonEnded,
+        ));
     }
 
     public function testDoesNothingOutsideTheSeasonStartDay(): void

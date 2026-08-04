@@ -145,9 +145,9 @@ final class PlayerDevelopmentSystem implements System
         $development = $ctx->ruleset()->balance->playerDevelopment;
         $developmentRate = $ctx->ruleset()->balance->developmentRate;
 
-        foreach ($ctx->components(PlayerPotentials::class)->entities() as $entityId) {
-            $person = $ctx->components(Person::class)->get($entityId);
-            $potential = $ctx->components(PlayerPotentials::class)->get($entityId);
+        foreach ($ctx->read(PlayerPotentials::class)->entities() as $entityId) {
+            $person = $ctx->read(Person::class)->get($entityId);
+            $potential = $ctx->read(PlayerPotentials::class)->get($entityId);
 
             if ($person === null || $potential === null) {
                 continue;
@@ -156,16 +156,16 @@ final class PlayerDevelopmentSystem implements System
             $ageYears = $now->yearsSince($person->birthDate);
             $rng = $ctx->rng($entityId);
 
-            $trainingEffect = $ctx->components(TrainingEffect::class)->get($entityId);
+            $trainingEffect = $ctx->read(TrainingEffect::class)->get($entityId);
             $quality = $trainingEffect === null ? 1.0 : $trainingEffect->quality;
 
             $physicalAgeFactor = $this->ageFactor($ageYears, $potential->physicalPeakAge, $development);
             $technicalAgeFactor = $this->ageFactor($ageYears, $potential->technicalPeakAge, $development);
             $mentalAgeFactor = $this->ageFactor($ageYears, $potential->mentalPeakAge, $development);
 
-            $physical = $ctx->components(PlayerPhysicalSkills::class)->get($entityId);
+            $physical = $ctx->read(PlayerPhysicalSkills::class)->get($entityId);
             if ($physical !== null) {
-                $ctx->components(PlayerPhysicalSkills::class)->set($entityId, new PlayerPhysicalSkills(
+                $ctx->write(PlayerPhysicalSkills::class)->set($entityId, new PlayerPhysicalSkills(
                     pace: $this->nextValue($physical->pace, $potential, $physicalAgeFactor, $developmentRate, $development->physicalDeclineMultiplier, $quality, $rng),
                     stamina: $this->nextValue($physical->stamina, $potential, $physicalAgeFactor, $developmentRate, $development->physicalDeclineMultiplier, $quality, $rng),
                     strength: $this->nextValue($physical->strength, $potential, $physicalAgeFactor, $developmentRate, $development->physicalDeclineMultiplier, $quality, $rng),
@@ -173,9 +173,9 @@ final class PlayerDevelopmentSystem implements System
                 ));
             }
 
-            $technical = $ctx->components(PlayerTechnicalSkills::class)->get($entityId);
+            $technical = $ctx->read(PlayerTechnicalSkills::class)->get($entityId);
             if ($technical !== null) {
-                $ctx->components(PlayerTechnicalSkills::class)->set($entityId, new PlayerTechnicalSkills(
+                $ctx->write(PlayerTechnicalSkills::class)->set($entityId, new PlayerTechnicalSkills(
                     technique: $this->nextValue($technical->technique, $potential, $technicalAgeFactor, $developmentRate, $development->technicalDeclineMultiplier, $quality, $rng),
                     passing: $this->nextValue($technical->passing, $potential, $technicalAgeFactor, $developmentRate, $development->technicalDeclineMultiplier, $quality, $rng),
                     finishing: $this->nextValue($technical->finishing, $potential, $technicalAgeFactor, $developmentRate, $development->technicalDeclineMultiplier, $quality, $rng),
@@ -186,9 +186,9 @@ final class PlayerDevelopmentSystem implements System
                 ));
             }
 
-            $mental = $ctx->components(PlayerMentalSkills::class)->get($entityId);
+            $mental = $ctx->read(PlayerMentalSkills::class)->get($entityId);
             if ($mental !== null) {
-                $ctx->components(PlayerMentalSkills::class)->set($entityId, new PlayerMentalSkills(
+                $ctx->write(PlayerMentalSkills::class)->set($entityId, new PlayerMentalSkills(
                     vision: $this->nextValue($mental->vision, $potential, $mentalAgeFactor, $developmentRate, $development->mentalDeclineMultiplier, $quality, $rng),
                     composure: $this->nextValue($mental->composure, $potential, $mentalAgeFactor, $developmentRate, $development->mentalDeclineMultiplier, $quality, $rng),
                     leadership: $this->nextValue($mental->leadership, $potential, $mentalAgeFactor, $developmentRate, $development->mentalDeclineMultiplier, $quality, $rng),

@@ -7,7 +7,10 @@ namespace Flair\Harness\Support;
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Football\Components\Club;
 use Flair\Kernel\Football\Components\Competition;
+use Flair\Kernel\Football\Components\Contract;
 use Flair\Kernel\Football\Components\Facilities;
+use Flair\Kernel\Football\Components\Finances;
+use Flair\Kernel\Football\Components\SeasonIncome;
 use Flair\Kernel\Football\Components\Person;
 use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
@@ -93,7 +96,7 @@ final class WorldInspector
      * inconnue, retraitee - RetirementSystem retire ses composants - ou
      * id appartenant a une autre categorie d'entite comme un club).
      *
-     * @return array{id: int, name: string, birthDayTick: int, club: string|null, physical: array<string, int>, technical: array<string, int>, mental: array<string, int>, potentials: array<string, int|float>}|null
+     * @return array{id: int, name: string, birthDayTick: int, club: string|null, wagePerWeekCents: int|null, physical: array<string, int>, technical: array<string, int>, mental: array<string, int>, potentials: array<string, int|float>}|null
      */
     public static function player(WorldState $world, int $playerId): ?array
     {
@@ -107,6 +110,7 @@ final class WorldInspector
         $mental = $world->components(PlayerMentalSkills::class)->get($playerId);
         $potentials = $world->components(PlayerPotentials::class)->get($playerId);
         $membership = $world->components(SquadMembership::class)->get($playerId);
+        $contract = $world->components(Contract::class)->get($playerId);
         $clubName = $membership !== null
             ? (self::clubNames($world)[$membership->clubId] ?? "Club #{$membership->clubId}")
             : null;
@@ -116,6 +120,7 @@ final class WorldInspector
             'name' => $person->name,
             'birthDayTick' => $person->birthDate->epochDay,
             'club' => $clubName,
+            'wagePerWeekCents' => $contract?->wagePerWeekCents,
             'physical' => $physical === null ? [] : [
                 'pace' => $physical->pace,
                 'stamina' => $physical->stamina,
@@ -154,7 +159,7 @@ final class WorldInspector
      * SquadMembership - pas d'index inverse cote club, cf. son docblock).
      * `null` si aucun composant `Club` n'existe pour cet id.
      *
-     * @return array{id: int, name: string, facilitiesQuality: float|null, roster: list<int>}|null
+     * @return array{id: int, name: string, facilitiesQuality: float|null, balanceCents: int|null, seasonIncomeCents: int|null, roster: list<int>}|null
      */
     public static function club(WorldState $world, int $clubId): ?array
     {
@@ -164,6 +169,8 @@ final class WorldInspector
         }
 
         $facilities = $world->components(Facilities::class)->get($clubId);
+        $finances = $world->components(Finances::class)->get($clubId);
+        $seasonIncome = $world->components(SeasonIncome::class)->get($clubId);
 
         $roster = [];
         foreach ($world->components(SquadMembership::class)->entities() as $playerId) {
@@ -176,6 +183,8 @@ final class WorldInspector
             'id' => $clubId,
             'name' => $club->name,
             'facilitiesQuality' => $facilities?->quality,
+            'balanceCents' => $finances?->balanceCents,
+            'seasonIncomeCents' => $seasonIncome?->cents,
             'roster' => $roster,
         ];
     }

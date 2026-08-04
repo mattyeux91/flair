@@ -112,7 +112,7 @@ final class ComponentStore
 ### Composants transverses
 
 - `Relationship { a, b, affinity, history[] }` — le tissu social. Un composant à part entière, pas un champ.
-- `Perception { observerId, subjectId, estimate, confidence }` — voir §4.
+- `Perception { observerId, subjectId, estimate, confidence }` — voir §4. **Dérivé à la lecture, jamais stocké**, et `observerId` est toujours une personne.
 - `Tag` — marqueurs légers (`wonderkid`, `clubLegend`, `troublemaker`) posés par les systèmes, consommés par la narration.
 
 ---
@@ -202,6 +202,26 @@ $estimate = $trueValue + $noise * $sigma;
 ```
 
 On ne stocke donc pas les estimations : on stocke `observationCount` et `scoutQuality`, et on **dérive** l'estimation à la lecture (dans la projection). Gain : coût mémoire nul, stabilité parfaite, et la « révélation » progressive est gratuite.
+
+### `observerId` est une personne, jamais un club — note de conception (2026-08-02)
+
+Le commentaire `// un club, un agent, un média` sur `observerId` ci-dessus est trompeur tel quel : un club n'est pas de nature à percevoir quoi que ce soit, c'est une **personne** qui perçoit — scout, coach, journaliste, supporter, président — et le club s'appuie (ou non) sur ces personnes pour recruter, superviser, etc. C'est très exactement le cas d'école de §1 : *« un joueur prend sa retraite, devient entraîneur adjoint, puis entraîneur principal, puis président »*. `observerId` doit donc être l'`EntityId` d'une entité portant `Person`, à laquelle un composant de rôle est attaché (`CoachSkills`/`ScoutingRole`/... — cf. §1 et le tableau de §5) — jamais un attribut porté par `Club` lui-même.
+
+**Ce que ça laisse à concevoir avant que la formule ci-dessus ait un sens**, découvert en discutant la priorité de ce lot plutôt qu'en l'implémentant à l'aveugle :
+
+1. **Comment une personne acquiert un rôle non-joueur.** Semée directement au genesis (même précédent que `Facilities`/`Finances` : état externe, aucun système du noyau n'en crée), ou par transition depuis un joueur retraité (plus riche narrativement, mais un système à part entière — `RetirementSystem` retire déjà les composants de compétences, il resterait à décider qui y attache un rôle et quand).
+2. **La relation d'emploi club ↔ personne.** `SquadMembership` lie un joueur à un club dans un sens précis (effectif) ; l'emploi d'un scout par un club est une relation différente, un nouveau composant à concevoir, pas une réutilisation de `SquadMembership`.
+3. **Le mécanisme qui fait avancer `observationCount`.** La formule le prend comme un acquis, mais rien ne l'incrémente sans une action d'observation explicite (qui regarde qui, à quelle fréquence) — c'est le vrai cœur mécanique du scouting, pas la formule de bruit qui vient après.
+
+**Le premier consommateur existe déjà, et il attend (2026-08-02).** `Football\ContractSystem::quality()` décide chaque année quels joueurs un club prolonge et lesquels il laisse partir — en lisant les compétences **vraies**. C'est une **simplification de périmètre, jamais une affirmation de conception** : ce n'est pas « un club connaît forcément bien ses propres joueurs ». Un club n'a pas d'yeux ; c'est son staff qui perçoit, et un club au staff médiocre doit pouvoir se tromper sur son propre joueur — le prolonger trop cher, ou laisser filer le bon. Le jour où `Person` + rôle existeront, c'est cette méthode qui passera de la vérité cachée à une estimation bruitée par `observerId`, et rien d'autre dans ce système n'aura à changer. C'est aussi ce qui rend le lot de perception immédiatement mesurable au harness : un staff qui se trompe produit des effectifs différents, donc des classements différents.
+
+**Scoping retenu pour la Phase 2** (`15-` §4 — perception/scouting et agents PNJ y sont explicitement, ce n'est pas hors périmètre) : seul le rôle **scout employé par un club** sert un besoin déjà identifié, la valorisation du marché des transferts (§ ci-dessus, `14-` §5). Coach/président relèvent de la gouvernance de club (attentes du board, licenciements, `14-` §7) et journaliste/supporter de la narration (`14-` §9, Phase 6) — tous deux hors périmètre tant que rien ne les consomme. L'architecture (`Person` + composant de rôle, jamais de sous-type) reste ouverte pour les ajouter plus tard sans rien casser.
+
+**Les trois questions, tranchées (2026-08-04).** Elles le sont dans le sens qui livre le consommateur le plus tôt ; chacune rouvre proprement plus tard.
+
+1. **Acquisition du rôle : semée au genesis.** Précédent `Facilities`/`Finances` — état externe, aucun système du noyau n'en crée. La transition retraité → scout est plus riche narrativement mais c'est un système entier, et elle retarde le seul consommateur écrit. Elle appartient à la gouvernance de club, avec coach et président.
+2. **Emploi : un nouveau composant**, distinct de `SquadMembership` — porté par la personne, pointant vers le club, comme `Contract`. Un scout n'est pas un membre d'effectif et ne doit apparaître dans aucun des parcours qui itèrent l'effectif (`TrainingSystem`, `MatchSystem`, `SquadIntegrityTest`).
+3. **`observationCount` : aucun mécanisme d'observation n'est construit en Phase 2.** C'est le point où le périmètre était le plus mal cadré. Le compteur est indexé par **paire** (observateur, sujet) : ce n'est un composant ni de l'un ni de l'autre, et son stockage naïf est en O(scouts × joueurs) — une structure relationnelle que rien, aujourd'hui, ne justifie de concevoir. Forme retenue : le scout d'un club observe en continu l'effectif de son club, `observationCount` = **ancienneté du joueur au club**, dérivée d'un champ `signedOn` ajouté à `Contract` ; tout sujet hors de l'effectif du club reste à 0. Aucun stockage nouveau, aucune structure par paire, et la propriété recherchée est là : un club connaît mieux ses joueurs que ceux des autres, **et se trompe quand même si son staff est mauvais**. « Qui va observer qui », avec son coût et ses arbitrages, est une mécanique du **jeu d'agent** : sa place est en Phase 5, dirigée par un besoin réel, pas anticipée ici.
 
 ---
 

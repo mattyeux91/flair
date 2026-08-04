@@ -79,9 +79,44 @@ final class CompetitiveBalanceTest extends TestCase
 
         self::assertSame([], $result->titlesByClub);
         self::assertSame(0.0, $result->giniOfTitles);
+        self::assertSame(0.0, $result->giniOfRevenues);
         self::assertNull($result->topFiveTurnoverRate);
         self::assertSame(0, $result->distinctChampions);
         self::assertSame(0, $result->seasonsMeasured);
+    }
+
+    public function testGiniOfRevenuesIsZeroWhenEveryClubEarnsTheSame(): void
+    {
+        $result = CompetitiveBalance::analyze(
+            [$this->season(1, ['A', 'B', 'C'])],
+            ['A' => 70_000_000, 'B' => 70_000_000, 'C' => 70_000_000],
+        );
+
+        self::assertSame(0.0, $result->giniOfRevenues);
+    }
+
+    public function testGiniOfRevenuesRisesWithTheSpreadBetweenClubs(): void
+    {
+        $history = [$this->season(1, ['A', 'B', 'C'])];
+
+        $mild = CompetitiveBalance::analyze($history, ['A' => 80, 'B' => 70, 'C' => 60]);
+        $steep = CompetitiveBalance::analyze($history, ['A' => 150, 'B' => 45, 'C' => 15]);
+
+        self::assertGreaterThan(0.0, $mild->giniOfRevenues);
+        self::assertGreaterThan($mild->giniOfRevenues, $steep->giniOfRevenues);
+    }
+
+    /**
+     * Le Gini des revenus ne se derive pas de `seasonHistory` : un appelant
+     * qui ne fournit pas les revenus cumules doit obtenir 0.0 (repartition
+     * parfaitement egale), pas une erreur ni une valeur inventee a partir du
+     * classement.
+     */
+    public function testGiniOfRevenuesDefaultsToZeroWhenIncomesAreNotProvided(): void
+    {
+        $result = CompetitiveBalance::analyze([$this->season(1, ['A', 'B', 'C'])]);
+
+        self::assertSame(0.0, $result->giniOfRevenues);
     }
 
     /**

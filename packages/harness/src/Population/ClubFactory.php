@@ -7,6 +7,7 @@ namespace Flair\Harness\Population;
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Football\Components\Club;
 use Flair\Kernel\Football\Components\Facilities;
+use Flair\Kernel\Football\Components\Finances;
 
 /**
  * Cree des clubs synthetiques pour le harness - sans clubs (`Club` +
@@ -25,7 +26,7 @@ use Flair\Kernel\Football\Components\Facilities;
 final class ClubFactory
 {
     /** @return list<int> identifiants des entites club creees */
-    public function create(WorldState $world, int $count, float $facilitiesQuality): array
+    public function create(WorldState $world, int $count, float $facilitiesQuality, int $startingBalanceCents): array
     {
         $clubIds = [];
 
@@ -33,6 +34,7 @@ final class ClubFactory
             $entity = $world->createEntity();
             $world->components(Club::class)->set($entity, new Club("Club synthetique {$i}"));
             $world->components(Facilities::class)->set($entity, new Facilities($facilitiesQuality));
+            $world->components(Finances::class)->set($entity, new Finances($startingBalanceCents));
             $clubIds[] = $entity;
         }
 

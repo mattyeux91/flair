@@ -38,7 +38,18 @@ final class Stats
      * Percentile par interpolation lineaire entre les deux rangs encadrants
      * (methode "linear interpolation of the empirical CDF").
      *
-     * @param list<float> $values
+     * `int|float` et pas `float` seul : le domaine reel de cette fonction est
+     * numerique, et une partie des grandeurs mesurees par le harness sont des
+     * entiers par nature - `Report\TextReport` lui passe des masses salariales
+     * **en centimes**. Les convertir au site d'appel serait du bruit pour
+     * satisfaire une signature plus etroite que l'implementation, laquelle
+     * interpole deja vers `float` et le declare en type de retour.
+     *
+     * `mean()`/`stddev()` gardent volontairement `list<float>` : aucun
+     * appelant ne leur passe d'entiers, et elargir par symetrie serait
+     * generaliser sans second consommateur.
+     *
+     * @param list<int|float> $values
      * @param float $percentile 0-100
      */
     public static function percentile(array $values, float $percentile): float

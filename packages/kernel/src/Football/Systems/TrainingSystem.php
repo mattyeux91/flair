@@ -98,20 +98,20 @@ final class TrainingSystem implements System
     {
         $trainingRate = $ctx->ruleset()->balance->trainingRate;
 
-        foreach ($ctx->components(SquadMembership::class)->entities() as $entityId) {
-            $membership = $ctx->components(SquadMembership::class)->get($entityId);
+        foreach ($ctx->read(SquadMembership::class)->entities() as $entityId) {
+            $membership = $ctx->read(SquadMembership::class)->get($entityId);
             if ($membership === null) {
                 continue;
             }
 
-            $facilities = $ctx->components(Facilities::class)->get($membership->clubId);
+            $facilities = $ctx->read(Facilities::class)->get($membership->clubId);
             if ($facilities === null) {
                 continue;
             }
 
             $modifier = max(self::MIN_MODIFIER, min(self::MAX_MODIFIER, $trainingRate * $facilities->quality));
 
-            $ctx->components(TrainingEffect::class)->set($entityId, new TrainingEffect($modifier));
+            $ctx->write(TrainingEffect::class)->set($entityId, new TrainingEffect($modifier));
         }
     }
 }
