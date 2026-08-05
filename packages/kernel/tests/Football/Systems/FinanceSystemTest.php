@@ -435,7 +435,7 @@ final class FinanceSystemTest extends TestCase
     {
         $player = $world->createEntity();
         $world->components(Person::class)->set($player, new Person('Joueur Test', new SimDate(0)));
-        $world->components(Contract::class)->set($player, new Contract($clubId, $wagePerWeekCents, new SimDate(self::NEVER_EXPIRES)));
+        $world->components(Contract::class)->set($player, new Contract($clubId, $wagePerWeekCents, new SimDate(self::NEVER_EXPIRES), new SimDate(1)));
 
         return $player;
     }
@@ -459,7 +459,7 @@ final class FinanceSystemTest extends TestCase
             growthRate: 0.3,
             fragility: 0.8,
         ));
-        $world->components(Contract::class)->set($player, new Contract($clubId, $wagePerWeekCents, new SimDate(self::NEVER_EXPIRES)));
+        $world->components(Contract::class)->set($player, new Contract($clubId, $wagePerWeekCents, new SimDate(self::NEVER_EXPIRES), new SimDate(1)));
 
         return $player;
     }

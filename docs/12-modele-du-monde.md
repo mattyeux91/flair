@@ -209,6 +209,16 @@ $estimate = $trueValue + $noise * $sigma;
 
 On ne stocke donc pas les estimations : on stocke `observationCount` et `scoutQuality`, et on **dérive** l'estimation à la lecture (dans la projection). Gain : coût mémoire nul, stabilité parfaite, et la « révélation » progressive est gratuite.
 
+> **La formule livrée diffère sur un point, et il est important (2026-08-05).** L'esquisse ci-dessus met `scoutQuality` **dans** le facteur d'observation : à `observationCount = 0`, le jugement du scout n'a plus aucun effet, et *tous* les clubs jugent un joueur qu'ils n'ont jamais eu sous les yeux aussi mal les uns que les autres. Un bon recruteur ne servirait alors qu'à apprendre plus vite sur les joueurs déjà maison — l'inverse du métier de scout, et le contraire de ce dont le marché des transferts a besoin. Forme implémentée dans `Football\Support\PerceptionModel` :
+>
+> ```
+> sigma = erreurDeBase / sqrt(facteurDeJugement × (1 + nbObservations))
+> ```
+>
+> Les deux effets subsistent — le jugement aide toujours, l'observation compose — et l'esquisse est retrouvée à un facteur près.
+>
+> Deux autres écarts d'implémentation, mineurs mais à connaître : `z` n'est **pas** gaussien mais une somme de quatre uniformes (Irwin-Hall sur les quatre octets du hash), pour ne pas introduire de fonction transcendante dans le noyau — même arbitrage que le `Beta(1, k)` de `PlayerFactory` ; et le hash ne prend pas le `worldSeed` en paramètre explicite mais passe par `Core\SystemContext::stableHash()`, qui replie le `worldSeed` (resté privé) et est volontairement **invariante par tick et indépendante du système appelant** — sans quoi la valorisation d'un joueur par le marché le percevrait autrement que le système de contrats, le même jour, dans le même monde.
+
 ### `observerId` est une personne, jamais un club — note de conception (2026-08-02)
 
 Le commentaire `// un club, un agent, un média` sur `observerId` ci-dessus est trompeur tel quel : un club n'est pas de nature à percevoir quoi que ce soit, c'est une **personne** qui perçoit — scout, coach, journaliste, supporter, président — et le club s'appuie (ou non) sur ces personnes pour recruter, superviser, etc. C'est très exactement le cas d'école de §1 : *« un joueur prend sa retraite, devient entraîneur adjoint, puis entraîneur principal, puis président »*. `observerId` doit donc être l'`EntityId` d'une entité portant `Person`, à laquelle un composant de rôle est attaché (`CoachSkills`/`ScoutingRole`/... — cf. §1 et le tableau de §5) — jamais un attribut porté par `Club` lui-même.
@@ -227,7 +237,19 @@ Le commentaire `// un club, un agent, un média` sur `observerId` ci-dessus est 
 
 1. **Acquisition du rôle : semée au genesis.** Précédent `Facilities`/`Finances` — état externe, aucun système du noyau n'en crée. La transition retraité → scout est plus riche narrativement mais c'est un système entier, et elle retarde le seul consommateur écrit. Elle appartient à la gouvernance de club, avec coach et président.
 2. **Emploi : un nouveau composant**, distinct de `SquadMembership` — porté par la personne, pointant vers le club, comme `Contract`. Un scout n'est pas un membre d'effectif et ne doit apparaître dans aucun des parcours qui itèrent l'effectif (`TrainingSystem`, `MatchSystem`, `SquadIntegrityTest`).
-3. **`observationCount` : aucun mécanisme d'observation n'est construit en Phase 2.** C'est le point où le périmètre était le plus mal cadré. Le compteur est indexé par **paire** (observateur, sujet) : ce n'est un composant ni de l'un ni de l'autre, et son stockage naïf est en O(scouts × joueurs) — une structure relationnelle que rien, aujourd'hui, ne justifie de concevoir. Forme retenue : le scout d'un club observe en continu l'effectif de son club, `observationCount` = **ancienneté du joueur au club**, dérivée d'un champ `signedOn` ajouté à `Contract` ; tout sujet hors de l'effectif du club reste à 0. Aucun stockage nouveau, aucune structure par paire, et la propriété recherchée est là : un club connaît mieux ses joueurs que ceux des autres, **et se trompe quand même si son staff est mauvais**. « Qui va observer qui », avec son coût et ses arbitrages, est une mécanique du **jeu d'agent** : sa place est en Phase 5, dirigée par un besoin réel, pas anticipée ici.
+3. **`observationCount` : aucun mécanisme d'observation n'est construit en Phase 2.** (Voir « Livré » ci-dessous : c'est bien cette forme qui a été implémentée.) C'est le point où le périmètre était le plus mal cadré. Le compteur est indexé par **paire** (observateur, sujet) : ce n'est un composant ni de l'un ni de l'autre, et son stockage naïf est en O(scouts × joueurs) — une structure relationnelle que rien, aujourd'hui, ne justifie de concevoir. Forme retenue : le scout d'un club observe en continu l'effectif de son club, `observationCount` = **ancienneté du joueur au club**, dérivée d'un champ `signedOn` ajouté à `Contract` ; tout sujet hors de l'effectif du club reste à 0. Aucun stockage nouveau, aucune structure par paire, et la propriété recherchée est là : un club connaît mieux ses joueurs que ceux des autres, **et se trompe quand même si son staff est mauvais**. « Qui va observer qui », avec son coût et ses arbitrages, est une mécanique du **jeu d'agent** : sa place est en Phase 5, dirigée par un besoin réel, pas anticipée ici.
+
+### Livré le 2026-08-05 — ce qui existe maintenant dans le monde
+
+Les trois réponses ci-dessus ont été implémentées telles quelles. Détail classe par classe dans `packages/kernel/README.md` (§ « Perception ») ; ce qui compte pour le **modèle du monde** :
+
+- **Deux composants nouveaux, et la séparation qu'ils portent.** `Employment(clubId)` est la relation d'emploi d'une personne par un club ; `Scout(judgement)` est le rôle. C'est la **présence** de `Scout` qui fait d'une personne un scout — aucun sous-type, aucun enum de rôle, conformément à §1. Coach, président, journaliste, supporter s'ajouteront comme composants frères sur des personnes qui portent déjà `Employment`, sans toucher à une ligne existante.
+- **`observerId` est bien une personne.** C'est l'`EntityId` du scout qui entre dans la dérivation du bruit, jamais celui du club. Conséquence testable : deux clubs qui échangeraient leurs scouts échangeraient leurs erreurs.
+- **Un club sans observateur n'est pas omniscient**, il est le pire observateur du monde (`PerceptionBalance::$unstaffedJudgement`). L'inverse aurait réintroduit par la petite porte l'affirmation fausse que ce lot supprime.
+- **Le poste reste vrai.** Seule la *note* d'un joueur est perçue ; l'archétype dérivé de ses compétences, lui, est lu sur la vérité — comme tout ce que lit le moteur de match, parce qu'un match n'est pas une opinion. Se tromper sur le poste d'un joueur est une extension possible, notée comme telle.
+- **Le seul consommateur est `Football\ContractSystem`**, comme annoncé. Le prochain sera la valorisation du marché des transferts, qui doit obtenir *la même* estimation que lui pour un même observateur — d'où une dérivation de bruit indépendante du système appelant.
+
+Ce qui reste explicitement non construit : le mécanisme d'observation (« qui observe qui »), tout rôle autre que scout, l'embauche et la progression du staff, et toute exposition de la perception à un client.
 
 ---
 

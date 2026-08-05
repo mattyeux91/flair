@@ -118,10 +118,16 @@ final class SquadSystem implements System
     public function handle(DomainEvent $event, SystemContext $ctx): void
     {
         if ($event instanceof ContractSigned) {
+            // `signedOn` est le tick de l'**application**, pas celui de la
+            // decision : l'ecart est d'un tick (docs/13- §2, un evenement n'est
+            // jamais traite dans le tick qui l'a produit), et c'est celui-la que
+            // le monde doit retenir. L'evenement `ContractSigned` n'a donc rien
+            // a porter de plus - le systeme applicateur connait le tick.
             $ctx->write(Contract::class)->set($event->playerId, new Contract(
                 $event->clubId,
                 $event->wagePerWeekCents,
                 new SimDate($event->expiresOnEpochDay),
+                new SimDate($ctx->tick),
             ));
             $ctx->write(SquadMembership::class)->set($event->playerId, new SquadMembership($event->clubId));
 

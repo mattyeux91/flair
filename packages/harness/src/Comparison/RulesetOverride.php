@@ -11,6 +11,7 @@ use Flair\Kernel\Core\Ruleset\ContractBalance;
 use Flair\Kernel\Core\Ruleset\FacilitiesBalance;
 use Flair\Kernel\Core\Ruleset\FinanceBalance;
 use Flair\Kernel\Core\Ruleset\MatchBalance;
+use Flair\Kernel\Core\Ruleset\PerceptionBalance;
 use Flair\Kernel\Core\Ruleset\PlayerDevelopmentBalance;
 use Flair\Kernel\Core\Ruleset\RetirementBalance;
 use Flair\Kernel\Core\Ruleset\Ruleset;
@@ -138,6 +139,13 @@ final class RulesetOverride
     ];
 
     /** @var list<string> */
+    public const array PERCEPTION_FIELDS = [
+        'baseErrorPoints',
+        'judgementReference',
+        'unstaffedJudgement',
+    ];
+
+    /** @var list<string> */
     public const array ALL_FIELDS = [
         ...self::GLOBAL_FIELDS,
         ...self::RETIREMENT_FIELDS,
@@ -149,6 +157,7 @@ final class RulesetOverride
         ...self::FINANCE_FIELDS,
         ...self::FACILITIES_FIELDS,
         ...self::CONTRACT_FIELDS,
+        ...self::PERCEPTION_FIELDS,
     ];
 
     /**
@@ -168,6 +177,7 @@ final class RulesetOverride
         'Finances' => self::FINANCE_FIELDS,
         'Installations' => self::FACILITIES_FIELDS,
         'Contrats' => self::CONTRACT_FIELDS,
+        'Perception' => self::PERCEPTION_FIELDS,
         'Global' => self::GLOBAL_FIELDS,
     ];
 
@@ -216,6 +226,13 @@ final class RulesetOverride
             finance: self::withFinance($balance->finance, $overrides),
             facilities: self::withFacilities($balance->facilities, $overrides),
             contract: self::withContract($balance->contract, $overrides),
+            // `position` n'est pas surchargeable (aucun `POSITION_FIELDS`) mais
+            // doit tout de meme etre **reconduit** : ce `new Balance(...)`
+            // reconstruit le groupe entier, donc un champ omis ici repart
+            // silencieusement a son defaut. Inoffensif tant que personne ne
+            // s'ecarte des defauts, faux des la premiere campagne sur les postes.
+            position: $balance->position,
+            perception: self::withPerception($balance->perception, $overrides),
         ));
     }
 
@@ -339,6 +356,25 @@ final class RulesetOverride
             wageMultiplierMin: $overrides['wageMultiplierMin'] ?? $base->wageMultiplierMin,
             wageMultiplierMax: $overrides['wageMultiplierMax'] ?? $base->wageMultiplierMax,
             wageBudgetShare: $overrides['wageBudgetShare'] ?? $base->wageBudgetShare,
+        );
+    }
+
+    /**
+     * `baseErrorPoints` a 0 est l'interrupteur de mesure du lot de perception :
+     * il rend tout observateur exact, donc reproduit le comportement d'avant le
+     * lot **sans** changer la population (les scouts restent semes, seule leur
+     * erreur disparait). C'est ce qui permet de comparer omniscience et
+     * perception a graines appariees, en un seul processus, sans le detour par
+     * deux arbres de travail.
+     *
+     * @param array<string, float> $overrides
+     */
+    private static function withPerception(PerceptionBalance $base, array $overrides): PerceptionBalance
+    {
+        return new PerceptionBalance(
+            baseErrorPoints: $overrides['baseErrorPoints'] ?? $base->baseErrorPoints,
+            judgementReference: isset($overrides['judgementReference']) ? (int) round($overrides['judgementReference']) : $base->judgementReference,
+            unstaffedJudgement: isset($overrides['unstaffedJudgement']) ? (int) round($overrides['unstaffedJudgement']) : $base->unstaffedJudgement,
         );
     }
 }

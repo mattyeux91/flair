@@ -358,6 +358,7 @@ final class YouthIntakeSystem implements System
             $clubId,
             $intake->basePlayerWagePerWeekCents,
             new SimDate($ctx->tick + $years * 365),
+            new SimDate($ctx->tick),
         ));
 
         $ctx->emit(new YouthPlayerPromoted($playerId, $clubId), entityId: $playerId);

@@ -9,6 +9,7 @@ use Flair\Kernel\Core\Messaging\DomainEvent;
 use Flair\Kernel\Football\Components\Club;
 use Flair\Kernel\Football\Components\Competition;
 use Flair\Kernel\Football\Components\Contract;
+use Flair\Kernel\Football\Components\Employment;
 use Flair\Kernel\Football\Components\Facilities;
 use Flair\Kernel\Football\Components\Finances;
 use Flair\Kernel\Football\Components\Fixture;
@@ -18,6 +19,7 @@ use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
 use Flair\Kernel\Football\Components\PlayerPotentials;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
+use Flair\Kernel\Football\Components\Scout;
 use Flair\Kernel\Football\Components\SeasonIncome;
 use Flair\Kernel\Football\Components\SquadMembership;
 use Flair\Kernel\Football\Components\Standings;
@@ -62,6 +64,8 @@ final class WorldHasher
         PlayerPotentials::class,
         TrainingEffect::class,
         SquadMembership::class,
+        Employment::class,
+        Scout::class,
         Club::class,
         Facilities::class,
         Finances::class,

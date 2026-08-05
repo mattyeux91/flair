@@ -24,6 +24,13 @@ declare(strict_types=1);
  *   php bin/aggregate.php --players=500 --years=40 --seed=42 --clubs=18 \
  *       --set retirementFragilityWeight=0.30 --set trainingRate=1.5
  *
+ * Deux experiences distinctes autour de la perception, a ne pas confondre :
+ *   --set baseErrorPoints=0            perception contre omniscience, meme
+ *                                      population : c'est bien une comparaison
+ *                                      a graines appariees.
+ *   --scout-judgement-spread=0         tous les scouts egaux : change la
+ *                                      population, donc deux runs separes.
+ *
  * Pas de plafond de taille ici (contrairement a public/index.php) : le CLI
  * n'a pas de contrainte requete/reponse HTTP. Pour un run plus rapide sur de
  * gros volumes, `opcache.jit` (desactive par defaut en CLI) donne ~2,5x sans
@@ -45,14 +52,19 @@ use Flair\Harness\Report\TextReport;
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Ruleset\Ruleset;
 
-$options = getopt('', ['players:', 'years:', 'seed:', 'clubs:', 'facilities-quality:', 'set:', 'event-graph']);
+$options = getopt('', ['players:', 'years:', 'seed:', 'clubs:', 'facilities-quality:', 'scout-judgement-spread:', 'set:', 'event-graph']);
 
+// `--scout-judgement-spread` n'est **pas** un `--set` : il change la population
+// (le jugement des scouts est une donnee du monde, pas un levier de Ruleset -
+// cf. PopulationSpec), donc il ne peut pas etre compare a graines appariees.
+// L'experience "tous les scouts egaux" est deux runs, a lire cote a cote.
 $spec = new PopulationSpec(
     playerCount: (int) ($options['players'] ?? 500),
     years: (int) ($options['years'] ?? 40),
     seed: (int) ($options['seed'] ?? 42),
     clubCount: (int) ($options['clubs'] ?? 18),
     facilitiesQuality: (float) ($options['facilities-quality'] ?? 1.0),
+    scoutJudgementSpread: (int) ($options['scout-judgement-spread'] ?? 25),
 );
 
 $baselineRuleset = new Ruleset('harness');

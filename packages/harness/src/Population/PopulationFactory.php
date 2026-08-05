@@ -74,6 +74,7 @@ final class PopulationFactory
         private readonly PlayerFactory $players = new PlayerFactory(),
         private readonly ClubFactory $clubs = new ClubFactory(),
         private readonly CompetitionFactory $competitions = new CompetitionFactory(),
+        private readonly StaffFactory $staff = new StaffFactory(),
     ) {
     }
 
@@ -103,6 +104,13 @@ final class PopulationFactory
             $archetype = $deal[$rank % \count($deal)];
             $playerIds[] = $this->createPlayer($world, $rng, $atTick, $talent, $contracts, $positions, $archetype, $clubId);
         }
+
+        // Le staff **apres** les joueurs, deliberement : les identifiants des
+        // entites joueur restent donc exactement ceux d'avant l'arrivee des
+        // scouts, et avec eux tous les flux RNG qui en derivent. C'est ce qui
+        // garde comparables les mesures deja enregistrees (docs/15- §4) au lieu
+        // de decaler le monde entier pour une entite par club.
+        $this->staff->create($world, $rng, $clubIds, $spec->scoutJudgementMean, $spec->scoutJudgementSpread);
 
         return $playerIds;
     }
@@ -203,6 +211,13 @@ final class PopulationFactory
      * renegocies au prix du marche - la ligne de base du grand livre ne serait
      * comparable a rien.
      *
+     * Le salaire du genesis est calcule sur la qualite **vraie**, alors que tout
+     * renouvellement passe par la qualite percue (docs/12- §4). Ce n'est pas une
+     * incoherence : au genesis aucun observateur n'existe encore (le staff est
+     * seme apres les joueurs), et cette valeur n'est pas une decision de club
+     * mais un point de depart d'echelle salariale - le monde doit demarrer la ou
+     * il convergera. Les erreurs d'evaluation apparaissent au premier mercato.
+     *
      * L'echeance est **etalee** sur toute la duree maximale d'un contrat, sans
      * quoi tout le monde arriverait a terme la meme annee : le monde entier
      * changerait de club en bloc tous les quatre ans au lieu de tourner
@@ -225,6 +240,16 @@ final class PopulationFactory
             $clubId,
             WageModel::perWeekCents($quality, $contracts),
             new SimDate($expiresOn),
+            // Anciennete **derivee** de l'echeance deja tiree, jamais tiree a
+            // part : un tirage de plus decalerait tout le flux RNG du genesis et
+            // changerait la population entiere, ce qui rendrait incomparables
+            // toutes les mesures deja enregistrees. L'etalement de l'echeance
+            // suffit d'ailleurs a etaler l'anciennete - un joueur proche du
+            // terme est un joueur arrive depuis longtemps. `epochDay` peut etre
+            // negatif dans un monde qui demarre au tick 1 : « signe avant le
+            // debut du monde » est la lecture honnete d'une population de
+            // genesis, et seule la difference de deux dates est jamais lue.
+            new SimDate($expiresOn - $span),
         ));
     }
 

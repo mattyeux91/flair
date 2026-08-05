@@ -29,6 +29,12 @@ namespace Flair\Kernel\Core\Ruleset;
  * pour combien de temps. La regle "un systeme ne depend jamais des leviers
  * d'un autre" est precisement ce qui impose cette coupure plutot qu'un groupe
  * unique.
+ *
+ * `perception` suit la meme coupure : il ne dit ni ce qu'un joueur vaut
+ * (`contract`) ni qui l'observe (le monde, docs/12- §4), seulement **de combien
+ * un observateur se trompe** - un levier qu'aucun autre groupe ne partage, et
+ * que plusieurs systemes finiront par lire (les contrats aujourd'hui, la
+ * valorisation du marche ensuite).
  */
 final readonly class Balance
 {
@@ -47,6 +53,7 @@ final readonly class Balance
         public FacilitiesBalance $facilities = new FacilitiesBalance(),
         public ContractBalance $contract = new ContractBalance(),
         public PositionBalance $position = new PositionBalance(),
+        public PerceptionBalance $perception = new PerceptionBalance(),
     ) {
     }
 }

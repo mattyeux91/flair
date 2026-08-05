@@ -6,7 +6,7 @@ Détail classe par classe des systèmes/composants simulés : `packages/kernel/R
 
 ## Arborescence
 
-- **`src/Population/`** — construction d'un monde initial : `PopulationFactory` (orchestre les deux suivantes + répartit les joueurs sur les clubs, round-robin, via `SquadMembership`), `ClubFactory` (clubs synthétiques + `Facilities`, qualité uniforme — sans clubs, `TrainingSystem`/`YouthIntakeSystem` restent incalibrables), `CompetitionFactory` (l'unique compétition de la Phase 0, sans quoi `CalendarSystem` n'a rien à planifier), `PopulationSpec` (paramètres d'un run, regroupés pour ne pas faire grossir une liste positionnelle sur les trois points d'appel qui en ont besoin).
+- **`src/Population/`** — construction d'un monde initial : `StaffFactory` (un recruteur par club — `Person` + `Employment` + `Scout` —, appelé **en dernier** par `PopulationFactory` pour que les identifiants des joueurs restent ceux d'avant l'arrivée du staff), `PopulationFactory` (orchestre les autres + répartit les joueurs sur les clubs, round-robin, via `SquadMembership`), `ClubFactory` (clubs synthétiques + `Facilities`, qualité uniforme — sans clubs, `TrainingSystem`/`YouthIntakeSystem` restent incalibrables), `CompetitionFactory` (l'unique compétition de la Phase 0, sans quoi `CalendarSystem` n'a rien à planifier), `PopulationSpec` (paramètres d'un run, regroupés pour ne pas faire grossir une liste positionnelle sur les trois points d'appel qui en ont besoin).
 - **`src/Simulation/`** — `PipelineFactory` (seule source de vérité pour l'ordre du pipeline football, vérifié par `Tests\Simulation\PipelineFactoryTest`), `StepRunner` (enveloppe interactive tick-par-tick pour `bin/sandbox.php`, sans agrégation — ce n'est pas son rôle).
 - **`src/Metrics/`** — `Sampler` (fait tourner une simulation complète et échantillonne courbes/pyramide/scores/historique de saisons — voir son docblock pour le détail des invariants suivis), `Stats` (fonctions statistiques pures), `AggregateResult` (sortie agrégée, indépendante du format de rendu), `CompetitiveBalance`/`CompetitiveBalanceResult` (Gini des titres + rotation du top 5, post-traitement pur sur `AggregateResult::$seasonHistory`, `docs/14-` §7), `EventGraphCollector`/`EventGraphResult` (volume d'événements par type + backlog annuel du `Scheduler`, opt-in via `Sampler::run(..., $eventGraph)`, `docs/16-` §6 — voir la limitation documentée sur la profondeur de cascade et les entités sur-modifiées, non mesurables sans changer le contrat du noyau).
 - **`src/Comparison/`** — `PairedSeedComparison` (rejoue le même jeu de graines avec deux `Ruleset`, isole l'effet du bruit, `docs/13-` §4.0), `RulesetOverride` (construit un `Ruleset` modifié à partir d'un ensemble de champs de calibration, tous groupes de `Balance` confondus).
@@ -46,6 +46,7 @@ Construit une population synthétique, fait tourner tout le pipeline football su
 | `--seed` | 42 | Graine du monde — même graine ⇒ même population, mêmes tirages |
 | `--clubs` | 18 | Nombre de clubs synthétiques (0 = pas de clubs, désactive calendrier/match/classement/formation) |
 | `--facilities-quality` | 1.0 | Qualité d'installations uniforme sur tous les clubs (échelle `[0.5, 2.0]`) |
+| `--scout-judgement-spread` | 25 | Dispersion du jugement des recruteurs autour de 50 (`0` = tous les scouts égaux). **Change la population**, donc pas comparable à graines appariées — voir plus bas |
 | `--set champ=valeur` | — | **Répétable.** Bascule automatiquement le mode (voir plus bas) |
 | `--event-graph` | — | Flag (pas de valeur). Ajoute la section "graphe d'événements" au rapport |
 
@@ -64,6 +65,16 @@ Construit une population synthétique, fait tourner tout le pipeline football su
 | Calendrier | `seasonStartDayOfYear`, `firstMatchdayOffsetDays`, `matchdayIntervalDays` |
 | Match | `homeAdvantage`, `strengthScale`, `lowScoreCorrelation`, `maxSimulatedGoals` |
 | Classement | `pointsForWin`, `pointsForDraw` |
+| Finances | `clubIncomePerSeasonCents`, `meritShare`, `facilityUpkeepPerQualityPointCents`, `facilityInvestmentReserveCents`, `facilityInvestmentMaxPerSeasonCents`, `wagePaymentDayOfWeek` |
+| Installations | `centsPerQualityPoint`, `qualityDecayPerSeason` |
+| Contrats | `renewalDayOfYear`, `minDurationYears`, `maxDurationYears`, `targetSquadSize`, `baseWagePerWeekCents`, `referenceQuality`, `wageMultiplierMin/Max`, `wageBudgetShare` |
+| Perception | `baseErrorPoints`, `judgementReference`, `unstaffedJudgement` |
+
+`PositionBalance` est le seul groupe **non** surchargeable : la matrice de contribution des postes n'est pas un réglage mais la définition d'un poste (`docs/12-` §5 bis).
+
+**Deux expériences distinctes autour de la perception, à ne pas confondre :**
+- `--set baseErrorPoints=0` — perception contre omniscience, **même population des deux côtés** : c'est bien une comparaison à graines appariées, et l'interrupteur de mesure du lot de perception.
+- `--scout-judgement-spread=0` — tous les recruteurs égaux : le jugement d'un scout est une donnée du **monde**, pas un levier de `Ruleset` (voir `Population\PopulationSpec`), donc ce changement régénère la population et demande **deux runs séparés** à lire côte à côte.
 
 Un champ inconnu ou une valeur hors bornes (`talentSkew`, `baseIntakePerClub` — les deux seuls champs qui bornent une boucle de tirage RNG) fait échouer la commande avant toute simulation.
 
@@ -74,6 +85,7 @@ Un champ inconnu ou une valeur hors bornes (`talentSkew`, `baseIntakePerClub` �
 4. Distribution des buts par match, répartition domicile/nul/extérieur, scores exacts triés par fréquence — à comparer aux proportions réelles du football (~42/29/29 observé, `docs/15-roadmap.md` §4).
 5. Classement et matchs de la dernière saison jouée.
 6. Équilibre compétitif — Gini des titres (0 = égalité parfaite, 1 = monopole) et rotation du top 5 sur tout le run.
+6 bis. Recrutement — le jugement du recruteur de chaque club, trié par jugement décroissant, en regard de son classement final. C'est la seule grandeur du rapport qui soit une **cause** semée au genesis plutôt qu'un résultat. Aucune corrélation n'est calculée : sur une seule saison finale la relation est trop bruitée pour conclure, et la mesurer proprement (corrélation de rang sur tout le run) attend le lot du marché des transferts, où « payer cher achète-t-il de la performance » sera la question centrale.
 7. Graphe d'événements (seulement avec `--event-graph`) — volume par type d'événement sur tout le run, puis backlog annuel du `Scheduler` (une croissance qui ne redescend jamais est le signe d'une cascade non amortie).
 
 **Workflow type de calibration** :

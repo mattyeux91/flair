@@ -33,8 +33,10 @@ use Flair\Kernel\Core\Support\SimDate;
 use Flair\Kernel\Football\Components\Club;
 use Flair\Kernel\Football\Components\Competition;
 use Flair\Kernel\Football\Components\Contract;
+use Flair\Kernel\Football\Components\Employment;
 use Flair\Kernel\Football\Components\Facilities;
 use Flair\Kernel\Football\Components\Finances;
+use Flair\Kernel\Football\Components\Scout;
 use Flair\Kernel\Football\Components\SeasonIncome;
 use Flair\Kernel\Core\Ruleset\PositionBalance;
 use Flair\Kernel\Football\Components\Person;
@@ -63,22 +65,34 @@ const DEMO_WAGE_PER_WEEK_CENTS = 50_000;
 // que ses quelques joueurs partent au premier mercato (Football\ContractSystem).
 const DEMO_CONTRACT_EXPIRY_TICK = 10_000;
 
-/** @return array<string, int> nom -> entityId */
+/**
+ * Deux clubs contrastes, installations **et** recrutement : un club sans scout
+ * du tout serait le pire observateur du monde (`PerceptionBalance::
+ * $unstaffedJudgement`), ce qui ferait de la demo un monde d'aveugles plutot
+ * qu'un monde inegal.
+ *
+ * @return array<string, int> nom -> entityId
+ */
 function demoCreateClubs(WorldState $world): array
 {
     $definitions = [
-        'Centre Elite' => 1.8,
-        'Centre Modeste' => 0.6,
+        'Centre Elite' => ['facilities' => 1.8, 'judgement' => 85],
+        'Centre Modeste' => ['facilities' => 0.6, 'judgement' => 25],
     ];
 
     $clubs = [];
 
-    foreach ($definitions as $name => $quality) {
+    foreach ($definitions as $name => $definition) {
         $club = $world->createEntity();
         $world->components(Club::class)->set($club, new Club($name));
-        $world->components(Facilities::class)->set($club, new Facilities($quality));
+        $world->components(Facilities::class)->set($club, new Facilities($definition['facilities']));
         $world->components(Finances::class)->set($club, new Finances(DEMO_STARTING_BALANCE_CENTS));
         $clubs[$name] = $club;
+
+        $scout = $world->createEntity();
+        $world->components(Person::class)->set($scout, new Person("Recruteur - {$name}", new SimDate(0)));
+        $world->components(Employment::class)->set($scout, new Employment($club));
+        $world->components(Scout::class)->set($scout, new Scout($definition['judgement']));
     }
 
     return $clubs;
@@ -138,7 +152,7 @@ function demoCreatePlayers(WorldState $world, int $atTick, array $clubs): array
             fragility: $definition['fragility'],
         ));
         $world->components(SquadMembership::class)->set($entity, new SquadMembership($clubId));
-        $world->components(Contract::class)->set($entity, new Contract($clubId, DEMO_WAGE_PER_WEEK_CENTS, new SimDate(DEMO_CONTRACT_EXPIRY_TICK)));
+        $world->components(Contract::class)->set($entity, new Contract($clubId, DEMO_WAGE_PER_WEEK_CENTS, new SimDate(DEMO_CONTRACT_EXPIRY_TICK), new SimDate(1)));
 
         $players[$name] = $entity;
     }

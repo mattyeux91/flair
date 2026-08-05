@@ -73,6 +73,7 @@ final readonly class AggregateResult
      * @param array<string, float> $finalFacilitiesByClub nom de club -> qualite d'installations en fin de run
      * @param array<int, array{transfers: int, unattached: int, wageBillCents: int}> $marketByYear annee simulee -> activite du mercato de cette annee et etat de l'emploi en fin d'annee
      * @param array<string, int> $finalWageBillByClub nom de club -> masse salariale annuelle engagee en fin de run
+     * @param array<string, int> $scoutJudgementByClub nom de club -> jugement de son recruteur (constant sur le run, seme au genesis)
      */
     public function __construct(
         public array $curves,
@@ -87,6 +88,7 @@ final readonly class AggregateResult
         public array $finalFacilitiesByClub = [],
         public array $marketByYear = [],
         public array $finalWageBillByClub = [],
+        public array $scoutJudgementByClub = [],
     ) {
     }
 
@@ -103,6 +105,7 @@ final readonly class AggregateResult
      * @param array<string, float> $finalFacilitiesByClub
      * @param array<int, array{transfers: int, unattached: int, wageBillCents: int}> $marketByYear
      * @param array<string, int> $finalWageBillByClub
+     * @param array<string, int> $scoutJudgementByClub
      */
     public static function fromSamples(
         array $samples,
@@ -117,6 +120,7 @@ final readonly class AggregateResult
         array $finalFacilitiesByClub = [],
         array $marketByYear = [],
         array $finalWageBillByClub = [],
+        array $scoutJudgementByClub = [],
     ): self {
         $byCategoryThenAge = [];
         foreach ($samples as $sample) {
@@ -151,6 +155,7 @@ final readonly class AggregateResult
             $finalFacilitiesByClub,
             $marketByYear,
             $finalWageBillByClub,
+            $scoutJudgementByClub,
         );
     }
 }
