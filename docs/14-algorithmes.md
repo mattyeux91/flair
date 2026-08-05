@@ -40,6 +40,15 @@ avec la correction `τ(x, y, λ, μ, ρ)` sur les scores faibles (0-0, 1-0, 0-1,
 
 `attaque` et `défense` ne sont **pas** des paramètres libres ajustés sur des données réelles : ils sont **dérivés des attributs des joueurs alignés**, de la tactique, de la forme et de la fatigue. C'est ce qui rebranche le modèle statistique sur la simulation.
 
+> **Comment ils sont dérivés aujourd'hui (2026-08-04).** `Football\MatchSystem` compose **le onze qu'un club alignerait** — les places de la formation (`Ruleset\PositionBalance`, un 4-4-2 unique pour l'instant) remplies gloutonnement du poste le plus spécialisé au moins spécialisé, chaque place prenant le meilleur joueur restant *à ce poste-là*. Les deux notes sont ensuite des **moyennes pondérées sur ce même onze**, chaque place contribuant selon son poste (`PositionModel::sectorWeights()` : un gardien pèse 0,30 en défense et rien en attaque, un attaquant l'exact miroir).
+>
+> Deux points qui ne sont pas des détails :
+>
+> - **Un seul onze pour les deux notes.** En composer deux — les onze meilleurs attaquants pour l'attaque, les onze meilleurs défenseurs pour la défense — laisserait un club aligner vingt-deux joueurs et rendrait mécaniquement meilleur un gros effectif.
+> - **Le profil de valeur marginale est désormais correctement signé** : positif sur les onze premiers, **nul** au-delà. Le système notait auparavant la *moyenne de tout l'effectif*, ce qui donnait une valeur marginale **négative** à tout joueur sous le niveau du groupe — recruter un joueur de rotation faisait baisser la note du club. C'est une précondition du marché (§5) : un acheteur doit pouvoir répondre « ce joueur vaut-il son prix pour moi ? ». La profondeur ne vaut aujourd'hui rien plutôt que de coûter ; sa vraie valeur suppose blessures et rotation, qui n'existent pas.
+>
+> Tactique, forme et fatigue restent à brancher. Un club incapable d'aligner onze joueurs voit ses places vides comptées au plancher de l'échelle — dégénérescence assumée, le forfait réglementaire n'étant pas modélisé (ni pyramide où reléguer, ni défaillance de club, §7).
+
 ### L1 — Chaîne de Markov de possession
 
 Le modèle recommandé par défaut. Rapport réalisme/coût imbattable, et il produit gratuitement toute la matière narrative.

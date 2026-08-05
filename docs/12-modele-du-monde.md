@@ -104,10 +104,16 @@ final class ComponentStore
 | Entité | Composants principaux |
 |---|---|
 | **Personne** | `Person { name, birthDate, nationalities, homeCityId }`, `Personality`, `Reputation` |
-| ↳ en tant que joueur | `PlayerPhysicalSkills`, `PlayerTechnicalSkills`, `PlayerMentalSkills`, `PlayerPotentials` (caché, §5), `PositionAffinity`, `Fitness`, `Form`, `Morale`, `InjuryState`, `Contract`, `CareerRecord` |
+| ↳ en tant que joueur | `PlayerPhysicalSkills`, `PlayerTechnicalSkills`, `PlayerMentalSkills`, `PlayerPotentials` (caché, §5 — porte le niveau, l'archétype et le vecteur de plafonds), `Fitness`, `Form`, `Morale`, `InjuryState`, `Contract`, `CareerRecord` |
 | ↳ en tant qu'entraîneur | `CoachSkills`, `TacticalPreference`, `Role` |
 | ↳ en tant qu'agent | `AgentProfile { commissionRate, network, reputation }`, `ClientList` |
 | ↳ en tant que dirigeant | `ExecutiveProfile { ambition, patience, riskAppetite }`, `Role` |
+
+> **Aucun composant de poste, et c'est délibéré (2026-08-04).** Ce tableau annonçait un `PositionAffinity` ; il n'existe pas et n'existera pas sous cette forme. Le poste **joué** est *dérivé* des compétences du moment (`Football\Support\PositionModel::bestPosition()`), jamais stocké — une étiquette stockée dériverait de la réalité sur vingt saisons de développement. Et aucun facteur d'affinité n'est appliqué par-dessus la note : la matrice de contribution pénalise déjà seule un attaquant aligné dans les buts, puisque sa note au poste de gardien se calcule sur son `handling` et ses `reflexes`, qui sont mauvais. Un multiplicateur en plus serait un double comptage.
+>
+> Ce qui est stocké, c'est l'**archétype de développement** (`PlayerPotentials::$archetype`) : la *forme* du potentiel, fixée à la naissance comme un gabarit physique. Deux causalités, deux moments — **à la naissance le poste fait les compétences** (seize tirages indépendants se concentrent sur leur moyenne et ne produisent jamais de spécialiste : il faut un archétype pour imposer la corrélation), **ensuite les compétences font le poste**.
+>
+> Limite mesurée et assumée : le poste dérivé coïncide aujourd'hui avec l'archétype dans **100 %** des cas. La seconde causalité est donc architecturalement correcte mais empiriquement inerte — elle ne mordra que le jour où l'entraînement ou le développement pourront pousser un joueur hors de son profil.
 
 ### Composants transverses
 
@@ -298,6 +304,36 @@ Le corollaire du corollaire, à ne pas rater : une distribution qui donnerait 20
 > **Les quatre attributs de gardien (`reflexes`, `handling`, `distribution`, `command`) sont portés par tout joueur, pas seulement les gardiens titulaires.** Un joueur de champ appelé à garder les buts (exclusion ou blessure du gardien) joue avec ces attributs — généralement bas — au même titre que ses autres compétences. Ce n'est **pas** un archétype exclusif au sens de §1 (le joueur qui devient entraîneur, où ses composants de compétences cèdent la place à `CoachSkills`) : il n'y a pas de bascule, juste des attributs de plus que tout le monde porte, disséminés dans les trois catégories comme n'importe quel autre attribut.
 
 **Règle** : n'ajouter un attribut (ou une catégorie) que si un système le lit *et* qu'il change une décision de jeu ou un comportement — le vieillissement justifie déjà la catégorisation ci-dessus. Un attribut décoratif est une dette d'équilibrage.
+
+### Ce qui consomme réellement ces attributs (2026-08-04)
+
+La colonne « consommé par » ci-dessus décrit une **intention**, pas l'état du code. Audit fait avant le lot des postes : sur seize attributs, **sept ne décidaient de rien** — `handling`, `distribution` et `command` (la panoplie du gardien) étaient générés, vieillis sur quarante saisons et facturés dans le salaire sans qu'aucune décision ne les lise, et `reflexes` servait de compétence **défensive à tous les joueurs de champ**. Le monde générait des gardiens et jouait les matchs comme s'ils n'existaient pas.
+
+Depuis le lot des postes, la matrice de contribution (`Football\Support\PositionModel`, §5 bis ci-dessous) en rend **treize** vivants. Restent dormants, et c'est documenté comme tel :
+
+| Dormant | Ce qui le réveillera |
+|---|---|
+| `stamina` | fatigue en cours de match — moteur L1 (`14-` §1) |
+| `discipline` | cartons — moteur L1 |
+| `leadership` | effets d'équipe et moral, plus le départ à la retraite selon la personnalité (`15-` §4 Phase 6, note sur les centres de formation) |
+
+Ils gardent un **plafond plein** malgré leur inutilité présente (`PositionBalance::$offProfileCeilingRatio` ne les rabaisse pas) : les rabaisser les rendrait mauvais chez tout le monde, et le monde serait atone sur ces axes le jour où un système les lira.
+
+### 5 bis. Le potentiel plafonne une composition, pas chaque compétence
+
+`PlayerPotentials::$ceiling` **ne plafonne pas chaque attribut séparément**. Il plafonne la note du joueur **à son poste**, et le joueur répartit son talent sous cette contrainte :
+
+```
+Σ  poids(poste, attribut) × plafond(attribut)  =  ceiling
+```
+
+C'est ce qui fait exister « excellent passeur, mauvais tacleur ». La première version du lot mettait tous les attributs du profil exactement à `ceiling` : deux milieux de même potentiel étaient alors **littéralement le même joueur** — mesuré, écart-type de 1,5 point entre les cinq attributs de leur propre profil. Un monde où connaître le poste et le niveau suffit à tout reconstituer n'a rien à faire scouter, et c'est l'asymétrie d'information qui porte le jeu d'agent (§4). Après correction : **8,57 points**.
+
+Trois conséquences à ne pas perdre :
+
+- **Le vecteur de plafonds est stocké** (`PlayerPotentials::$ceilings`), pas dérivé. C'est un tirage propre au joueur, donc une vraie propriété de lui — le dériver d'un hash de son `EntityId`, comme le fait la perception (§4), ferait dépendre son talent d'un ordre d'allocation qui ne survivrait pas à une renumérotation.
+- **L'invariant de l'échelle tient** : un joueur pleinement développé note exactement son `ceiling` à son poste, donc « un `ceiling` de 90 » veut toujours dire « un joueur de 90 », et les ancrages de l'échelle 1-100 ci-dessus gardent leur sens.
+- **Le plafond par attribut reste le mécanisme**, parce que `Football\PlayerDevelopmentSystem` progresse proportionnellement à l'écart au plafond : sans plafonds distincts il ramène tous les attributs au même niveau — et d'autant plus vite qu'ils en sont loin, donc il **efface** les profils. Mesuré avant le lot : écart-type des seize attributs à l'intérieur d'un même joueur, à l'âge du pic, **4,0 points**, soit du bruit de marche aléatoire et aucun profil. Après : **16,7**.
 
 ---
 

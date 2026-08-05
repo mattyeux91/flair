@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flair\Kernel\Tests\Football\Systems;
 
+use Flair\Kernel\Football\Support\PositionModel;
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Pipeline\Pipeline;
 use Flair\Kernel\Core\Ruleset\Balance;
@@ -11,10 +12,12 @@ use Flair\Kernel\Core\Ruleset\Ruleset;
 use Flair\Kernel\Core\Simulation\Simulation;
 use Flair\Kernel\Core\Simulation\TickContext;
 use Flair\Kernel\Core\Support\SimDate;
+use Flair\Kernel\Core\Ruleset\PositionBalance;
 use Flair\Kernel\Football\Components\Person;
 use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
 use Flair\Kernel\Football\Components\PlayerPotentials;
+use Flair\Kernel\Football\Components\Position;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
 use Flair\Kernel\Football\Events\PlayerRetired;
 use Flair\Kernel\Football\Systems\RetirementSystem;
@@ -107,6 +110,8 @@ final class RetirementSystemTest extends TestCase
         ));
         $world->components(PlayerPotentials::class)->set($entity, new PlayerPotentials(
             ceiling: $ceiling,
+            archetype: Position::Midfielder,
+            ceilings: PositionModel::ceilings($ceiling, Position::Midfielder, [], new PositionBalance()),
             physicalPeakAge: $peakAge,
             technicalPeakAge: $peakAge,
             mentalPeakAge: $peakAge,

@@ -49,12 +49,12 @@ final class PipelineInvariantsTest extends TestCase
     {
         return [
             FacilitiesSystem::class,
-            YouthIntakeSystem::class,
             SquadSystem::class,
             TrainingSystem::class,
             RetirementSystem::class,
             FinanceSystem::class,
             PlayerDevelopmentSystem::class,
+            YouthIntakeSystem::class,
             CalendarSystem::class,
             MatchSystem::class,
             CompetitionSystem::class,

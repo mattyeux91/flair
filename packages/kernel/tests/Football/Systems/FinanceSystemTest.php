@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flair\Kernel\Tests\Football\Systems;
 
+use Flair\Kernel\Football\Support\PositionModel;
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Pipeline\Pipeline;
 use Flair\Kernel\Core\Ruleset\Balance;
@@ -14,10 +15,12 @@ use Flair\Kernel\Football\Components\Club;
 use Flair\Kernel\Football\Components\Contract;
 use Flair\Kernel\Football\Components\Facilities;
 use Flair\Kernel\Football\Components\Finances;
+use Flair\Kernel\Core\Ruleset\PositionBalance;
 use Flair\Kernel\Football\Components\Person;
 use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
 use Flair\Kernel\Football\Components\PlayerPotentials;
+use Flair\Kernel\Football\Components\Position;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
 use Flair\Kernel\Football\Components\SeasonIncome;
 use Flair\Kernel\Football\Events\ClubInvestedInFacilities;
@@ -448,6 +451,8 @@ final class FinanceSystemTest extends TestCase
         $world->components(PlayerMentalSkills::class)->set($player, new PlayerMentalSkills(60, 60, 60, 60, 60));
         $world->components(PlayerPotentials::class)->set($player, new PlayerPotentials(
             ceiling: 90,
+            archetype: Position::Midfielder,
+            ceilings: PositionModel::ceilings(90, Position::Midfielder, [], new PositionBalance()),
             physicalPeakAge: 27,
             technicalPeakAge: 27,
             mentalPeakAge: 27,

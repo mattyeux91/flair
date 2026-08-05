@@ -6,6 +6,7 @@ namespace Flair\Harness\Population;
 
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Ruleset\ContractBalance;
+use Flair\Kernel\Core\Ruleset\PositionBalance;
 use Flair\Kernel\Core\Ruleset\YouthIntakeBalance;
 use Flair\Kernel\Core\Support\Rng;
 use Flair\Kernel\Core\Support\SimDate;
@@ -15,8 +16,10 @@ use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
 use Flair\Kernel\Football\Components\PlayerPotentials;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
+use Flair\Kernel\Football\Components\Position;
 use Flair\Kernel\Football\Components\SquadMembership;
 use Flair\Kernel\Football\Generation\PlayerFactory;
+use Flair\Kernel\Football\Support\PositionModel;
 use Flair\Kernel\Football\Support\WageModel;
 
 /**
@@ -60,6 +63,13 @@ final class PopulationFactory
     private const YOUNGEST_START_AGE = 17.0;
     private const OLDEST_START_AGE = 34.0;
 
+    /**
+     * Taille du cycle de distribution des archetypes. Vingt, soit la cible
+     * d'effectif par defaut (`ContractBalance::$targetSquadSize`) : un cycle
+     * complet compose donc un effectif entier plausible.
+     */
+    private const DEAL_SIZE = 20;
+
     public function __construct(
         private readonly PlayerFactory $players = new PlayerFactory(),
         private readonly ClubFactory $clubs = new ClubFactory(),
@@ -68,27 +78,70 @@ final class PopulationFactory
     }
 
     /** @return list<int> identifiants des entites joueur creees */
-    public function populate(WorldState $world, PopulationSpec $spec, int $atTick = 1, ?YouthIntakeBalance $talent = null, ?ContractBalance $contracts = null): array
+    public function populate(WorldState $world, PopulationSpec $spec, int $atTick = 1, ?YouthIntakeBalance $talent = null, ?ContractBalance $contracts = null, ?PositionBalance $positions = null): array
     {
         $rng = new Rng($spec->seed);
         $talent ??= new YouthIntakeBalance();
         $contracts ??= new ContractBalance();
+        $positions ??= new PositionBalance();
 
         $clubIds = $spec->clubCount > 0 ? $this->clubs->create($world, $spec->clubCount, $spec->facilitiesQuality, $spec->startingBalanceCents) : [];
         if ($clubIds !== []) {
             $this->competitions->create($world);
         }
 
+        // Les joueurs sont distribues aux clubs en round-robin, donc le
+        // compteur par club avance d'un a chaque tour complet : c'est lui qui
+        // indexe le deal d'archetypes, et non le compteur global.
+        $deal = $this->archetypeDeal($positions);
+        $dealt = [];
+
         $playerIds = [];
         for ($i = 0; $i < $spec->playerCount; $i++) {
             $clubId = $clubIds === [] ? null : $clubIds[$i % \count($clubIds)];
-            $playerIds[] = $this->createPlayer($world, $rng, $atTick, $talent, $contracts, $clubId);
+            $rank = $clubId === null ? $i : $dealt[$clubId] = ($dealt[$clubId] ?? -1) + 1;
+            $archetype = $deal[$rank % \count($deal)];
+            $playerIds[] = $this->createPlayer($world, $rng, $atTick, $talent, $contracts, $positions, $archetype, $clubId);
         }
 
         return $playerIds;
     }
 
-    private function createPlayer(WorldState $world, Rng $rng, int $atTick, YouthIntakeBalance $talent, ContractBalance $contracts, ?int $clubId): int
+    /**
+     * L'ordre dans lequel les archetypes sont distribues a chaque club, cycle
+     * autant de fois que necessaire.
+     *
+     * Impose plutot que tire, et c'est le point : un tirage independant par
+     * joueur laisse, par pur hasard, des clubs entiers sans gardien - avec une
+     * trentaine de joueurs par club et une part de gardiens a 10 %, environ un
+     * club sur dix-huit. Un monde ne doit pas **naitre** infirme, et
+     * `Harness\Tests\Regression\FieldableSquadTest` le verifie.
+     *
+     * Le gardien ouvre le cycle : tout club, meme minuscule, en obtient un.
+     * Les proportions restent celles de `PositionBalance`, seule source de
+     * verite de la composition du monde - ce sont les memes parts que suivent
+     * les promotions annuelles de `Football\YouthIntakeSystem`, qui elles
+     * tirent bien au hasard.
+     *
+     * @return non-empty-list<Position>
+     */
+    private function archetypeDeal(PositionBalance $positions): array
+    {
+        $deal = [Position::Goalkeeper];
+
+        foreach (Position::cases() as $position) {
+            $count = (int) round(PositionModel::generationShare($position, $positions) * self::DEAL_SIZE);
+            $start = $position === Position::Goalkeeper ? 1 : 0;
+
+            for ($i = $start; $i < $count; $i++) {
+                $deal[] = $position;
+            }
+        }
+
+        return $deal;
+    }
+
+    private function createPlayer(WorldState $world, Rng $rng, int $atTick, YouthIntakeBalance $talent, ContractBalance $contracts, PositionBalance $positions, Position $archetype, ?int $clubId): int
     {
         $entity = $world->createEntity();
 
@@ -96,37 +149,42 @@ final class PopulationFactory
         $birthDay = (int) round($atTick - $startAge * 365);
         $world->components(Person::class)->set($entity, new Person("Joueur {$entity}", new SimDate($birthDay)));
 
-        $potentials = $this->players->drawPotentials($rng, $talent);
+        $potentials = $this->players->drawPotentials($rng, $talent, $positions, $archetype);
         $world->components(PlayerPotentials::class)->set($entity, $potentials);
 
-        $level = $this->levelAtAge($startAge, $potentials->ceiling, $potentials->physicalPeakAge, $talent);
+        // La maturite liee a l'age est une **fraction** du plafond, appliquee
+        // ensuite au plafond de chaque attribut : un joueur de 30 ans est
+        // proche de son potentiel, et ce potentiel a la forme de son archetype
+        // (Football\Support\PositionModel). Sans ca le genesis produirait des
+        // joueurs plats que le developpement mettrait dix ans a profiler,
+        // et les vingt premieres saisons du monde ne vaudraient rien.
+        $ceilings = $potentials->ceilings;
+        $maturity = $this->levelAtAge($startAge, $potentials->ceiling, $potentials->physicalPeakAge, $talent)
+            / max(1, $potentials->ceiling);
 
-        $physical = $this->jitter($rng, $level, $talent);
         $world->components(PlayerPhysicalSkills::class)->set($entity, new PlayerPhysicalSkills(
-            pace: $physical,
-            stamina: $physical,
-            strength: $physical,
-            reflexes: $physical,
+            pace: $this->matured($rng, $ceilings->pace, $maturity, $talent),
+            stamina: $this->matured($rng, $ceilings->stamina, $maturity, $talent),
+            strength: $this->matured($rng, $ceilings->strength, $maturity, $talent),
+            reflexes: $this->matured($rng, $ceilings->reflexes, $maturity, $talent),
         ));
 
-        $technical = $this->jitter($rng, $level, $talent);
         $world->components(PlayerTechnicalSkills::class)->set($entity, new PlayerTechnicalSkills(
-            technique: $technical,
-            passing: $technical,
-            finishing: $technical,
-            defending: $technical,
-            positioning: $technical,
-            handling: $technical,
-            distribution: $technical,
+            technique: $this->matured($rng, $ceilings->technique, $maturity, $talent),
+            passing: $this->matured($rng, $ceilings->passing, $maturity, $talent),
+            finishing: $this->matured($rng, $ceilings->finishing, $maturity, $talent),
+            defending: $this->matured($rng, $ceilings->defending, $maturity, $talent),
+            positioning: $this->matured($rng, $ceilings->positioning, $maturity, $talent),
+            handling: $this->matured($rng, $ceilings->handling, $maturity, $talent),
+            distribution: $this->matured($rng, $ceilings->distribution, $maturity, $talent),
         ));
 
-        $mental = $this->jitter($rng, $level, $talent);
         $world->components(PlayerMentalSkills::class)->set($entity, new PlayerMentalSkills(
-            vision: $mental,
-            composure: $mental,
-            leadership: $mental,
-            discipline: $mental,
-            command: $mental,
+            vision: $this->matured($rng, $ceilings->vision, $maturity, $talent),
+            composure: $this->matured($rng, $ceilings->composure, $maturity, $talent),
+            leadership: $this->matured($rng, $ceilings->leadership, $maturity, $talent),
+            discipline: $this->matured($rng, $ceilings->discipline, $maturity, $talent),
+            command: $this->matured($rng, $ceilings->command, $maturity, $talent),
         ));
 
         if ($clubId !== null) {
@@ -197,8 +255,18 @@ final class PopulationFactory
         return (int) round($ceiling - $declineProgress * ($ceiling - $rookieLevel));
     }
 
-    private function jitter(Rng $rng, int $level, YouthIntakeBalance $talent): int
+    /**
+     * Le niveau d'**un** attribut au genesis : son propre plafond, ramene a la
+     * maturite de l'age du joueur, puis ecarte par un bruit borne.
+     *
+     * Un tirage par attribut, et non plus un par categorie partage entre tous
+     * ses attributs : c'est le plafond par attribut qui porte le profil de
+     * poste (`Football\Support\PositionModel`), le bruit ne fait que casser
+     * l'uniformite residuelle.
+     */
+    private function matured(Rng $rng, int $ceiling, float $maturity, YouthIntakeBalance $talent): int
     {
+        $level = (int) round($ceiling * $maturity);
         $offset = (int) round($this->uniform($rng, (float) -$talent->startingSkillJitter, (float) $talent->startingSkillJitter));
 
         return max(1, min(100, $level + $offset));

@@ -11,13 +11,16 @@ use Flair\Kernel\Core\Ruleset\Ruleset;
 use Flair\Kernel\Core\Support\SimDate;
 use Flair\Kernel\Football\Components\Club;
 use Flair\Kernel\Football\Components\Facilities;
+use Flair\Kernel\Core\Ruleset\PositionBalance;
 use Flair\Kernel\Football\Components\Person;
 use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
 use Flair\Kernel\Football\Components\PlayerPotentials;
+use Flair\Kernel\Football\Components\Position;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
 use Flair\Kernel\Football\Components\SquadMembership;
 use Flair\Kernel\Football\Components\TrainingEffect;
+use Flair\Kernel\Football\Support\PositionModel;
 use Flair\Kernel\Football\Systems\PlayerDevelopmentSystem;
 use Flair\Kernel\Football\Systems\TrainingSystem;
 use PHPUnit\Framework\TestCase;
@@ -145,6 +148,8 @@ final class TrainingSystemTest extends TestCase
         $world->components(PlayerMentalSkills::class)->set($entity, new PlayerMentalSkills(40, 40, 40, 40, 40));
         $world->components(PlayerPotentials::class)->set($entity, new PlayerPotentials(
             ceiling: 90,
+            archetype: Position::Midfielder,
+            ceilings: PositionModel::ceilings(90, Position::Midfielder, [], new PositionBalance()),
             physicalPeakAge: 27,
             technicalPeakAge: 27,
             mentalPeakAge: 27,

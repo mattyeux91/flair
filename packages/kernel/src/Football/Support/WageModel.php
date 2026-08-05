@@ -26,16 +26,16 @@ use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
  * `Football\Components\TrainingEffect`, qui refuse la generalisation tant
  * qu'un seul facteur existe.
  *
- * `Football\MatchSystem::ratings()` n'est **pas** refactore pour passer par
- * ici : il produit un couple attaque/defense a partir d'un sous-ensemble
- * pondere de competences, ce qui est un besoin different d'une qualite
- * globale. Les fusionner obligerait l'un des deux a porter une notion dont il
- * n'a pas besoin.
+ * `Football\MatchSystem` ne passe **pas** par cette classe : il produit un
+ * couple attaque/defense sur un onze compose, ce qui est un besoin different
+ * d'une qualite marchande individuelle. Les deux partagent en revanche leur
+ * socle, `Football\Support\PositionModel` - c'est la, et pas ici, que vit la
+ * definition d'un poste.
  *
  * ## La forme
  *
  * ```
- * qualite = moyenne(moyenne(physique), moyenne(technique), moyenne(mental))
+ * qualite = note du joueur a son meilleur poste     (PositionModel)
  * salaire = base x clamp(qualite / reference, min, max)
  * ```
  *
@@ -45,44 +45,54 @@ use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
  * entre le pire et le meilleur joueur du monde, donc l'amplitude de
  * l'inegalite economique que le monde peut produire.
  *
- * Les trois blocs de competences pesent le meme tiers. Une ponderation plus
- * fine (un gardien n'a pas besoin de `finishing`) demande `PositionAffinity`,
- * qui n'existe pas - la moyenne plate est la seule ponderation honnete tant
- * qu'aucun poste n'existe, meme raisonnement que
- * `Football\MatchSystem` sur la force d'un club.
+ * La qualite est **ponderee par poste** (`Football\Support\PositionModel`) :
+ * un gardien n'est pas value sur sa finition. Elle l'a longtemps ete - la
+ * moyenne plate des seize attributs etait la seule ponderation honnete tant
+ * qu'aucun poste n'existait.
  */
 final class WageModel
 {
     /**
-     * La qualite globale d'un joueur sur l'echelle [1, 100] des competences.
+     * La qualite d'un joueur sur l'echelle [1, 100] des competences : **sa note
+     * a son meilleur poste** (`Football\Support\PositionModel`).
      *
-     * Un bloc absent compte pour zero plutot que d'etre saute : un joueur
-     * ampute d'un tiers de ses competences n'est pas un joueur (c'est un
-     * retraite, ou une entite en cours de construction), et lui rendre la
-     * moyenne des deux blocs restants le ferait passer pour normal. Les
-     * appelants ne doivent pas arriver ici avec un bloc manquant - ils
-     * verifient d'abord, cf. `Football\ContractSystem`.
+     * Ce n'est plus la moyenne plate des seize attributs, et c'est le point du
+     * lot des postes qui touche l'economie : un club payait jusqu'ici un
+     * attaquant pour ses qualites de relance au pied et un gardien pour sa
+     * finition. Un joueur vaut ce qu'il vaut **la ou il joue**.
+     *
+     * "Meilleur poste" et non "poste de son archetype" : c'est la qualite
+     * marchande, et personne n'achete un joueur pour la forme de son potentiel.
+     * `PositionModel::bestPosition()` la derive des competences du moment, donc
+     * un joueur dont le profil a devie est value sur ce qu'il sait faire
+     * aujourd'hui.
+     *
+     * C'est aussi **le site ou la perception se branchera** (docs/12- §4) : le
+     * lot suivant remplacera ces competences vraies par une estimation bruitee
+     * par l'observateur, et rien d'autre ici n'aura a changer.
+     *
+     * Un bloc absent rend zero plutot qu'une note partielle : un joueur ampute
+     * d'un tiers de ses competences n'est pas un joueur (c'est un retraite, ou
+     * une entite en cours de construction), et lui rendre une note calculee sur
+     * les blocs restants le ferait passer pour normal. Les appelants ne doivent
+     * pas arriver ici avec un bloc manquant - ils verifient d'abord, cf.
+     * `Football\ContractSystem::quality()`.
      */
     public static function quality(
         ?PlayerPhysicalSkills $physical,
         ?PlayerTechnicalSkills $technical,
         ?PlayerMentalSkills $mental,
     ): int {
-        $physicalAverage = $physical === null ? 0.0 : (
-            $physical->pace + $physical->stamina + $physical->strength + $physical->reflexes
-        ) / 4.0;
+        if ($physical === null || $technical === null || $mental === null) {
+            return 0;
+        }
 
-        $technicalAverage = $technical === null ? 0.0 : (
-            $technical->technique + $technical->passing + $technical->finishing + $technical->defending
-            + $technical->positioning + $technical->handling + $technical->distribution
-        ) / 7.0;
-
-        $mentalAverage = $mental === null ? 0.0 : (
-            $mental->vision + $mental->composure + $mental->leadership + $mental->discipline
-            + $mental->command
-        ) / 5.0;
-
-        return (int) round(($physicalAverage + $technicalAverage + $mentalAverage) / 3.0);
+        return (int) round(PositionModel::ratingAt(
+            PositionModel::bestPosition($physical, $technical, $mental),
+            $physical,
+            $technical,
+            $mental,
+        ));
     }
 
     /**

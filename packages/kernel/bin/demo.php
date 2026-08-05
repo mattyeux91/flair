@@ -22,6 +22,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../vendor/autoload.php';
 
+use Flair\Kernel\Football\Support\PositionModel;
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Ruleset\Balance;
 use Flair\Kernel\Core\Ruleset\CalendarBalance;
@@ -35,10 +36,12 @@ use Flair\Kernel\Football\Components\Contract;
 use Flair\Kernel\Football\Components\Facilities;
 use Flair\Kernel\Football\Components\Finances;
 use Flair\Kernel\Football\Components\SeasonIncome;
+use Flair\Kernel\Core\Ruleset\PositionBalance;
 use Flair\Kernel\Football\Components\Person;
 use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
 use Flair\Kernel\Football\Components\PlayerPotentials;
+use Flair\Kernel\Football\Components\Position;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
 use Flair\Kernel\Football\Components\SquadMembership;
 use Flair\Kernel\Football\Components\Standings;
@@ -126,6 +129,8 @@ function demoCreatePlayers(WorldState $world, int $atTick, array $clubs): array
         ));
         $world->components(PlayerPotentials::class)->set($entity, new PlayerPotentials(
             ceiling: $definition['ceiling'],
+            archetype: Position::Midfielder,
+            ceilings: PositionModel::ceilings($definition['ceiling'], Position::Midfielder, [], new PositionBalance()),
             physicalPeakAge: $definition['peakAge'],
             technicalPeakAge: $definition['peakAge'] + 1,
             mentalPeakAge: $definition['peakAge'] + 5,

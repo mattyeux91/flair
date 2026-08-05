@@ -60,12 +60,24 @@ use Flair\Kernel\Football\Components\TrainingEffect;
  * `handling`/`distribution` sont techniques, `command` est mental. Voir
  * les docblocks de `PlayerPhysicalSkills`/`PlayerTechnicalSkills`/
  * `PlayerMentalSkills`. Un joueur de champ appele a garder les buts joue
- * avec ces memes attributs (generalement bas) - pas d'archetype separe.
+ * avec ces memes attributs, generalement bas.
+ *
+ * ## Un plafond par attribut
+ *
+ * Ce systeme ne progresse plus vers le `ceiling` scalaire du joueur mais vers
+ * le plafond **de chaque attribut**, derive du couple
+ * (`ceiling`, `archetype`) par `Football\Support\PositionModel::ceilings()`.
+ * C'est structurel, pas cosmetique : `$gap` etant l'ecart au plafond, un
+ * plafond unique fait monter le plus vite l'attribut le plus faible, donc il
+ * **efface** tout profil - un gardien ne avec une mauvaise finition la verrait
+ * rattraper ses reflexes. Mesure avant ce lot : ecart-type des seize attributs
+ * a l'interieur d'un meme joueur, a l'age du pic, 4,0 points en mediane, soit
+ * du bruit de marche aleatoire et aucun profil.
  *
  * Simplifications assumees, a corriger quand un systeme en aura besoin :
- * - `PlayerPotentials::$ceiling`/`$growthRate`/`$fragility` sont partages
- *   par les trois categories (seul l'age de pic est distinct par
- *   categorie, cf. ci-dessus) ;
+ * - `PlayerPotentials::$growthRate`/`$fragility` sont partages par les
+ *   trois categories (seul l'age de pic est distinct par categorie, cf.
+ *   ci-dessus, et seul le plafond est distinct par attribut) ;
  * - le "bruit" de 14- §2 est remplace par un arrondi stochastique : un taux
  *   annuel (`growthRate × ecart × g(age)`) est converti en probabilite
  *   quotidienne d'un pas de ±1, tiree une fois par attribut et par tick.
@@ -156,6 +168,14 @@ final class PlayerDevelopmentSystem implements System
             $ageYears = $now->yearsSince($person->birthDate);
             $rng = $ctx->rng($entityId);
 
+            // Un plafond par attribut, tire a la naissance sous contrainte de
+            // budget (`PlayerPotentials::$ceilings`) : c'est ce qui empeche les
+            // profils de se dissoudre. La progression etant proportionnelle a
+            // l'ecart au plafond, un plafond unique ferait monter le plus vite
+            // l'attribut le plus faible - donc un gardien ne avec une mauvaise
+            // finition la verrait rattraper ses reflexes.
+            $ceilings = $potential->ceilings;
+
             $trainingEffect = $ctx->read(TrainingEffect::class)->get($entityId);
             $quality = $trainingEffect === null ? 1.0 : $trainingEffect->quality;
 
@@ -166,34 +186,34 @@ final class PlayerDevelopmentSystem implements System
             $physical = $ctx->read(PlayerPhysicalSkills::class)->get($entityId);
             if ($physical !== null) {
                 $ctx->write(PlayerPhysicalSkills::class)->set($entityId, new PlayerPhysicalSkills(
-                    pace: $this->nextValue($physical->pace, $potential, $physicalAgeFactor, $developmentRate, $development->physicalDeclineMultiplier, $quality, $rng),
-                    stamina: $this->nextValue($physical->stamina, $potential, $physicalAgeFactor, $developmentRate, $development->physicalDeclineMultiplier, $quality, $rng),
-                    strength: $this->nextValue($physical->strength, $potential, $physicalAgeFactor, $developmentRate, $development->physicalDeclineMultiplier, $quality, $rng),
-                    reflexes: $this->nextValue($physical->reflexes, $potential, $physicalAgeFactor, $developmentRate, $development->physicalDeclineMultiplier, $quality, $rng),
+                    pace: $this->nextValue($physical->pace, $ceilings->pace, $potential, $physicalAgeFactor, $developmentRate, $development->physicalDeclineMultiplier, $quality, $rng),
+                    stamina: $this->nextValue($physical->stamina, $ceilings->stamina, $potential, $physicalAgeFactor, $developmentRate, $development->physicalDeclineMultiplier, $quality, $rng),
+                    strength: $this->nextValue($physical->strength, $ceilings->strength, $potential, $physicalAgeFactor, $developmentRate, $development->physicalDeclineMultiplier, $quality, $rng),
+                    reflexes: $this->nextValue($physical->reflexes, $ceilings->reflexes, $potential, $physicalAgeFactor, $developmentRate, $development->physicalDeclineMultiplier, $quality, $rng),
                 ));
             }
 
             $technical = $ctx->read(PlayerTechnicalSkills::class)->get($entityId);
             if ($technical !== null) {
                 $ctx->write(PlayerTechnicalSkills::class)->set($entityId, new PlayerTechnicalSkills(
-                    technique: $this->nextValue($technical->technique, $potential, $technicalAgeFactor, $developmentRate, $development->technicalDeclineMultiplier, $quality, $rng),
-                    passing: $this->nextValue($technical->passing, $potential, $technicalAgeFactor, $developmentRate, $development->technicalDeclineMultiplier, $quality, $rng),
-                    finishing: $this->nextValue($technical->finishing, $potential, $technicalAgeFactor, $developmentRate, $development->technicalDeclineMultiplier, $quality, $rng),
-                    defending: $this->nextValue($technical->defending, $potential, $technicalAgeFactor, $developmentRate, $development->technicalDeclineMultiplier, $quality, $rng),
-                    positioning: $this->nextValue($technical->positioning, $potential, $technicalAgeFactor, $developmentRate, $development->technicalDeclineMultiplier, $quality, $rng),
-                    handling: $this->nextValue($technical->handling, $potential, $technicalAgeFactor, $developmentRate, $development->technicalDeclineMultiplier, $quality, $rng),
-                    distribution: $this->nextValue($technical->distribution, $potential, $technicalAgeFactor, $developmentRate, $development->technicalDeclineMultiplier, $quality, $rng),
+                    technique: $this->nextValue($technical->technique, $ceilings->technique, $potential, $technicalAgeFactor, $developmentRate, $development->technicalDeclineMultiplier, $quality, $rng),
+                    passing: $this->nextValue($technical->passing, $ceilings->passing, $potential, $technicalAgeFactor, $developmentRate, $development->technicalDeclineMultiplier, $quality, $rng),
+                    finishing: $this->nextValue($technical->finishing, $ceilings->finishing, $potential, $technicalAgeFactor, $developmentRate, $development->technicalDeclineMultiplier, $quality, $rng),
+                    defending: $this->nextValue($technical->defending, $ceilings->defending, $potential, $technicalAgeFactor, $developmentRate, $development->technicalDeclineMultiplier, $quality, $rng),
+                    positioning: $this->nextValue($technical->positioning, $ceilings->positioning, $potential, $technicalAgeFactor, $developmentRate, $development->technicalDeclineMultiplier, $quality, $rng),
+                    handling: $this->nextValue($technical->handling, $ceilings->handling, $potential, $technicalAgeFactor, $developmentRate, $development->technicalDeclineMultiplier, $quality, $rng),
+                    distribution: $this->nextValue($technical->distribution, $ceilings->distribution, $potential, $technicalAgeFactor, $developmentRate, $development->technicalDeclineMultiplier, $quality, $rng),
                 ));
             }
 
             $mental = $ctx->read(PlayerMentalSkills::class)->get($entityId);
             if ($mental !== null) {
                 $ctx->write(PlayerMentalSkills::class)->set($entityId, new PlayerMentalSkills(
-                    vision: $this->nextValue($mental->vision, $potential, $mentalAgeFactor, $developmentRate, $development->mentalDeclineMultiplier, $quality, $rng),
-                    composure: $this->nextValue($mental->composure, $potential, $mentalAgeFactor, $developmentRate, $development->mentalDeclineMultiplier, $quality, $rng),
-                    leadership: $this->nextValue($mental->leadership, $potential, $mentalAgeFactor, $developmentRate, $development->mentalDeclineMultiplier, $quality, $rng),
-                    discipline: $this->nextValue($mental->discipline, $potential, $mentalAgeFactor, $developmentRate, $development->mentalDeclineMultiplier, $quality, $rng),
-                    command: $this->nextValue($mental->command, $potential, $mentalAgeFactor, $developmentRate, $development->mentalDeclineMultiplier, $quality, $rng),
+                    vision: $this->nextValue($mental->vision, $ceilings->vision, $potential, $mentalAgeFactor, $developmentRate, $development->mentalDeclineMultiplier, $quality, $rng),
+                    composure: $this->nextValue($mental->composure, $ceilings->composure, $potential, $mentalAgeFactor, $developmentRate, $development->mentalDeclineMultiplier, $quality, $rng),
+                    leadership: $this->nextValue($mental->leadership, $ceilings->leadership, $potential, $mentalAgeFactor, $developmentRate, $development->mentalDeclineMultiplier, $quality, $rng),
+                    discipline: $this->nextValue($mental->discipline, $ceilings->discipline, $potential, $mentalAgeFactor, $developmentRate, $development->mentalDeclineMultiplier, $quality, $rng),
+                    command: $this->nextValue($mental->command, $ceilings->command, $potential, $mentalAgeFactor, $developmentRate, $development->mentalDeclineMultiplier, $quality, $rng),
                 ));
             }
         }
@@ -217,8 +237,16 @@ final class PlayerDevelopmentSystem implements System
         return -$development->declineRatePerYear * ($ageYears - $peakAge);
     }
 
+    /**
+     * `$ceiling` est celui de **cet attribut-la**, pas le `ceiling` scalaire du
+     * joueur : c'est `Football\Support\PositionModel::ceilings()` qui l'a
+     * derive de son archetype. La distinction est tout le lot - `$gap` etant
+     * l'ecart a ce plafond, deux attributs de plafonds differents ne
+     * convergent plus vers la meme valeur.
+     */
     private function nextValue(
         int $current,
+        int $ceiling,
         PlayerPotentials $potential,
         float $ageFactor,
         float $developmentRate,
@@ -226,7 +254,7 @@ final class PlayerDevelopmentSystem implements System
         float $quality,
         Rng $rng,
     ): int {
-        $gap = $potential->ceiling - $current;
+        $gap = $ceiling - $current;
         $effectiveModifier = $ageFactor >= 0.0 ? $quality : 1.0 / $quality;
         $annualDelta = $developmentRate * $effectiveModifier * ($ageFactor >= 0.0
             ? $potential->growthRate * $gap * $ageFactor

@@ -10,11 +10,14 @@ use Flair\Kernel\Core\Ruleset\RetirementBalance;
 use Flair\Kernel\Core\Ruleset\Balance;
 use Flair\Kernel\Core\Ruleset\Ruleset;
 use Flair\Kernel\Core\Support\SimDate;
+use Flair\Kernel\Core\Ruleset\PositionBalance;
 use Flair\Kernel\Football\Components\Person;
 use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
 use Flair\Kernel\Football\Components\PlayerPotentials;
+use Flair\Kernel\Football\Components\Position;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
+use Flair\Kernel\Football\Support\PositionModel;
 use Flair\Kernel\Football\Systems\PlayerDevelopmentSystem;
 use Flair\Kernel\Football\Systems\RetirementSystem;
 use PHPUnit\Framework\TestCase;
@@ -47,6 +50,7 @@ final class PlayerDevelopmentSystemTest extends TestCase
             $world,
             ageYears: 30.0,
             ceiling: 90,
+            archetype: Position::Midfielder,
             currentSkill: 80,
             peakAge: 15,
             fragility: 1.0,
@@ -90,6 +94,8 @@ final class PlayerDevelopmentSystemTest extends TestCase
         ));
         $world->components(PlayerPotentials::class)->set($entity, new PlayerPotentials(
             ceiling: 90,
+            archetype: Position::Midfielder,
+            ceilings: PositionModel::ceilings(90, Position::Midfielder, [], new PositionBalance()),
             physicalPeakAge: 16,
             technicalPeakAge: 16,
             mentalPeakAge: 40,
@@ -166,6 +172,7 @@ final class PlayerDevelopmentSystemTest extends TestCase
             $world,
             ageYears: 36.0,
             ceiling: 90,
+            archetype: Position::Midfielder,
             currentSkill: 60,
             peakAge: 27,
             fragility: 0.8,
@@ -184,12 +191,21 @@ final class PlayerDevelopmentSystemTest extends TestCase
         self::assertGreaterThan(40, $rookieSkills->technique);
     }
 
+    /**
+     * Archetype `Midfielder` par defaut : c'est celui dont le profil contient
+     * `technique` et `vision`, les deux attributs sur lesquels ces tests
+     * assertent une progression. Un archetype hors profil leur donnerait un
+     * plafond rabaisse (`PositionModel::ceilings()`) et les ferait decliner -
+     * ce qui serait le comportement correct, mais ne testerait plus la meme
+     * chose.
+     */
     private function createPlayer(
         WorldState $world,
         float $ageYears,
         int $ceiling,
         int $currentSkill,
         int $peakAge,
+        Position $archetype = Position::Midfielder,
         float $growthRate = 0.3,
         float $fragility = 0.5,
     ): int {
@@ -221,6 +237,8 @@ final class PlayerDevelopmentSystemTest extends TestCase
         ));
         $world->components(PlayerPotentials::class)->set($entity, new PlayerPotentials(
             ceiling: $ceiling,
+            archetype: $archetype,
+            ceilings: PositionModel::ceilings($ceiling, $archetype, [], new PositionBalance()),
             physicalPeakAge: $peakAge,
             technicalPeakAge: $peakAge,
             mentalPeakAge: $peakAge,
