@@ -52,12 +52,14 @@ use Flair\Harness\Report\TextReport;
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Ruleset\Ruleset;
 
-$options = getopt('', ['players:', 'years:', 'seed:', 'clubs:', 'facilities-quality:', 'scout-judgement-spread:', 'set:', 'event-graph']);
+$options = getopt('', ['players:', 'years:', 'seed:', 'clubs:', 'facilities-quality:', 'scout-judgement-spread:', 'board-patience-mean:', 'board-patience-spread:', 'set:', 'event-graph']);
 
 // `--scout-judgement-spread` n'est **pas** un `--set` : il change la population
 // (le jugement des scouts est une donnee du monde, pas un levier de Ruleset -
 // cf. PopulationSpec), donc il ne peut pas etre compare a graines appariees.
 // L'experience "tous les scouts egaux" est deux runs, a lire cote a cote.
+// `--board-patience-mean`/`--board-patience-spread` suivent la meme regle,
+// pour la meme raison (docs/17-marche-transferts.md point 2 reouvert).
 $spec = new PopulationSpec(
     playerCount: (int) ($options['players'] ?? 500),
     years: (int) ($options['years'] ?? 40),
@@ -65,6 +67,8 @@ $spec = new PopulationSpec(
     clubCount: (int) ($options['clubs'] ?? 18),
     facilitiesQuality: (float) ($options['facilities-quality'] ?? 1.0),
     scoutJudgementSpread: (int) ($options['scout-judgement-spread'] ?? 25),
+    boardPatienceMean: (int) ($options['board-patience-mean'] ?? 50),
+    boardPatienceSpread: (int) ($options['board-patience-spread'] ?? 25),
 );
 
 $baselineRuleset = new Ruleset('harness');

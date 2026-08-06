@@ -14,6 +14,7 @@ use Flair\Kernel\Core\Ruleset\PositionBalance;
 use Flair\Kernel\Core\Ruleset\Ruleset;
 use Flair\Kernel\Core\Ruleset\TransferBalance;
 use Flair\Kernel\Core\Support\SimDate;
+use Flair\Kernel\Football\Components\BoardPatience;
 use Flair\Kernel\Football\Components\Club;
 use Flair\Kernel\Football\Components\Contract;
 use Flair\Kernel\Football\Components\Finances;
@@ -258,6 +259,73 @@ final class TransferSystemTest extends TestCase
         self::assertSame($negotiationId, $broken[0]->negotiationId);
         self::assertSame(2, $broken[0]->round);
         self::assertNull($world->components(Negotiation::class)->get($negotiationId));
+    }
+
+    /**
+     * Statistique, meme methode que `ContractSystemTest::mispricing()` : un
+     * padding d'entites avant chaque essai varie l'`EntityId` de la
+     * negociation, donc son flux RNG (`$ctx->rng($negotiationId)`). Toutes
+     * choses egales par ailleurs (meme ecart offre/reserve, memes coefficients
+     * globaux), seule la patience du vendeur change entre les deux groupes.
+     */
+    public function testLowerSellerPatienceIncreasesTheBreakRate(): void
+    {
+        $impatient = $this->breakCount(patienceLevel: 10);
+        $patient = $this->breakCount(patienceLevel: 100);
+
+        self::assertGreaterThan(
+            $patient,
+            $impatient,
+            'un vendeur peu patient (niveau 10) doit rompre plus souvent qu\'un vendeur tres patient (niveau 100)',
+        );
+    }
+
+    /** Sans `BoardPatience`, le comportement doit rester celui d'avant ce point : facteur neutre (1.0). */
+    public function testASellerWithoutBoardPatienceBehavesAsAtTheReferenceLevel(): void
+    {
+        self::assertSame($this->breakCount(patienceLevel: 50), $this->breakCount(patienceLevel: null));
+    }
+
+    private const int PATIENCE_TRIALS = 200;
+
+    private function breakCount(?int $patienceLevel): int
+    {
+        $broken = 0;
+
+        for ($trial = 0; $trial < self::PATIENCE_TRIALS; $trial++) {
+            $world = new WorldState();
+
+            for ($padding = 0; $padding < $trial; $padding++) {
+                $world->createEntity();
+            }
+
+            $buyer = $this->createClub($world);
+            $seller = $this->createClub($world);
+
+            if ($patienceLevel !== null) {
+                $world->components(BoardPatience::class)->set($seller, new BoardPatience($patienceLevel));
+            }
+
+            $negotiationId = $world->createEntity();
+            $world->components(Negotiation::class)->set($negotiationId, new Negotiation(
+                $buyer,
+                $seller,
+                playerId: 999_999,
+                round: 1,
+                lastOfferCents: 3_750_000,
+                reservePriceCents: 5_000_000,
+                buyerCeilingCents: 10_000_000,
+            ));
+
+            // Hors du jour d'ouverture : seul l'avancement de cette negociation joue.
+            $this->runTransfer($world, tick: self::OPENING_DAY - 1);
+
+            if ($this->broken($world) !== []) {
+                $broken++;
+            }
+        }
+
+        return $broken;
     }
 
     public function testDeterminismGivenTheSameSeed(): void

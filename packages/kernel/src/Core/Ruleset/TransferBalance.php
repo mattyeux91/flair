@@ -60,6 +60,21 @@ final readonly class TransferBalance
         /** Bornes de la richesse relative d'un club (son revenu / la moyenne de la ligue). */
         public float $buyerWealthMin = 0.5,
         public float $buyerWealthMax = 2.0,
+        /**
+         * Le niveau de patience (`Football\Components\BoardPatience`) pour
+         * lequel le facteur de patience vaut exactement 1.0 - meme ancrage
+         * que `ContractBalance::$referenceQuality`. Aussi la valeur lue pour
+         * un club sans ce composant.
+         */
+        public int $patienceReference = 50,
+        /**
+         * Bornes du facteur qui multiplie la probabilite de rupture d'un
+         * tour (docs/17-marche-transferts.md point 2 reouvert) : un club deux
+         * fois plus patient que la reference voit sa probabilite de rupture
+         * divisee par deux, borne par ce plancher.
+         */
+        public float $patienceFactorMin = 0.5,
+        public float $patienceFactorMax = 2.0,
     ) {
     }
 }

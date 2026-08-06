@@ -30,6 +30,9 @@ final class TransferBalanceTest extends TestCase
         self::assertSame(2.0, $balance->positionScarcityMax);
         self::assertSame(0.5, $balance->buyerWealthMin);
         self::assertSame(2.0, $balance->buyerWealthMax);
+        self::assertSame(50, $balance->patienceReference);
+        self::assertSame(0.5, $balance->patienceFactorMin);
+        self::assertSame(2.0, $balance->patienceFactorMax);
     }
 
     public function testFieldsRoundTripWhenGivenExplicitly(): void

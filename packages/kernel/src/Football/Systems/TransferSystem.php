@@ -12,6 +12,7 @@ use Flair\Kernel\Core\Ruleset\PerceptionBalance;
 use Flair\Kernel\Core\Ruleset\TransferBalance;
 use Flair\Kernel\Core\Support\Rng;
 use Flair\Kernel\Core\Support\SimDate;
+use Flair\Kernel\Football\Components\BoardPatience;
 use Flair\Kernel\Football\Components\Club;
 use Flair\Kernel\Football\Components\Contract;
 use Flair\Kernel\Football\Components\Employment;
@@ -88,6 +89,7 @@ final class TransferSystem implements System
     public function reads(): array
     {
         return [
+            BoardPatience::class,
             Club::class,
             Contract::class,
             Employment::class,
@@ -179,9 +181,10 @@ final class TransferSystem implements System
             : 0.0;
 
         $breakProbability = max(0.0, min(1.0,
-            $transfer->breakBaseProbability
-            + $transfer->breakRoundGrowth * ($negotiation->round - 1)
-            + $transfer->breakGapWeight * $gap,
+            ($transfer->breakBaseProbability
+                + $transfer->breakRoundGrowth * ($negotiation->round - 1)
+                + $transfer->breakGapWeight * $gap)
+            * $this->patienceFactor($ctx, $negotiation->sellerClubId, $transfer),
         ));
 
         $rng = $ctx->rng($negotiationId);
@@ -221,6 +224,27 @@ final class TransferSystem implements System
             $negotiation->reservePriceCents,
             $negotiation->buyerCeilingCents,
         ));
+    }
+
+    /**
+     * Le facteur qui multiplie la probabilite de rupture d'un tour : `1.0` a
+     * `patienceReference`, en-dessous de `1.0` pour un vendeur plus patient
+     * que la reference, au-dessus pour un vendeur plus impatient. Un club
+     * sans `BoardPatience` est lu comme exactement neutre.
+     */
+    private function patienceFactor(SystemContext $ctx, int $sellerClubId, TransferBalance $transfer): float
+    {
+        $patience = $ctx->read(BoardPatience::class)->get($sellerClubId);
+        $level = $patience === null ? $transfer->patienceReference : $patience->level;
+
+        if ($level <= 0) {
+            return $transfer->patienceFactorMax;
+        }
+
+        return max(
+            $transfer->patienceFactorMin,
+            min($transfer->patienceFactorMax, $transfer->patienceReference / $level),
+        );
     }
 
     private function agree(SystemContext $ctx, int $negotiationId, Negotiation $negotiation): void

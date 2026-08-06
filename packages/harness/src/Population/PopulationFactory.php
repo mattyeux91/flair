@@ -112,6 +112,13 @@ final class PopulationFactory
         // de decaler le monde entier pour une entite par club.
         $this->staff->create($world, $rng, $clubIds, $spec->scoutJudgementMean, $spec->scoutJudgementSpread);
 
+        // Meme raison, meme place : la patience du conseil d'administration
+        // (docs/17-marche-transferts.md point 2 reouvert) ne cree aucune
+        // entite (elle se pose sur des clubs deja crees), mais tire tout de
+        // meme dans le flux RNG partage - apres les joueurs, comme le staff,
+        // pour ne jamais decaler leur generation.
+        $this->clubs->disperseBoardPatience($world, $rng, $clubIds, $spec->boardPatienceMean, $spec->boardPatienceSpread);
+
         return $playerIds;
     }
 

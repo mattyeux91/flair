@@ -165,6 +165,9 @@ final class RulesetOverride
         'positionScarcityMax',
         'buyerWealthMin',
         'buyerWealthMax',
+        'patienceReference',
+        'patienceFactorMin',
+        'patienceFactorMax',
     ];
 
     /** @var list<string> */
@@ -433,6 +436,9 @@ final class RulesetOverride
             positionScarcityMax: $overrides['positionScarcityMax'] ?? $base->positionScarcityMax,
             buyerWealthMin: $overrides['buyerWealthMin'] ?? $base->buyerWealthMin,
             buyerWealthMax: $overrides['buyerWealthMax'] ?? $base->buyerWealthMax,
+            patienceReference: isset($overrides['patienceReference']) ? (int) round($overrides['patienceReference']) : $base->patienceReference,
+            patienceFactorMin: $overrides['patienceFactorMin'] ?? $base->patienceFactorMin,
+            patienceFactorMax: $overrides['patienceFactorMax'] ?? $base->patienceFactorMax,
         );
     }
 }

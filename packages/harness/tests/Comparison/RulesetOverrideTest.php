@@ -163,11 +163,13 @@ final class RulesetOverrideTest extends TestCase
             'negotiationOpeningDayOfYear' => 210.0,
             'maxRounds' => 8.0,
             'openingOfferShare' => 0.6,
+            'patienceReference' => 60.0,
         ]);
 
         self::assertSame(210, $modified->balance->transfer->negotiationOpeningDayOfYear);
         self::assertSame(8, $modified->balance->transfer->maxRounds);
         self::assertSame(0.6, $modified->balance->transfer->openingOfferShare);
+        self::assertSame(60, $modified->balance->transfer->patienceReference);
 
         // Champs non touches : la valeur par defaut du Ruleset de base, pas 0/null.
         self::assertSame($base->balance->transfer->buyerFlexMargin, $modified->balance->transfer->buyerFlexMargin);
