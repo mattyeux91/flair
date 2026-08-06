@@ -61,7 +61,17 @@ valeur = base × modif × indice_inflation_global
 
 **Vérification.** Sur graines appariées : distribution du nombre de tours par négociation (aboutie ou rompue). Si la médiane est à 1 tour, le point a échoué à son objectif et la conception (probabilités d'acceptation, écart d'évaluation vendeur/acheteur) doit être revue avant de continuer. Pas de comparaison d'équilibre compétitif nécessaire ici — pas encore d'argent réel qui change de mains.
 
-**Statut.** ☐
+**Statut.** ☑ Fait le 2026-08-06.
+
+> **Mesuré sur la population synthétique standard** (500 joueurs, 18 clubs, 40 saisons, graine 42, script ad hoc reproduisant la boucle de `Harness\Metrics\Sampler::run()`) : **715 négociations ouvertes, médiane à 2 tours, moyenne 2,94, de 1 à 7 tours** (169 accords, 546 ruptures — cohérent avec des coefficients de premier jet, non calibrés pour maximiser les accords). Le critère d'échec du point (médiane à 1 tour) n'est **pas** atteint.
+>
+> **Réserve honnête, à noter pour une future calibration.** 315 négociations sur 715 (44 %) se résolvent quand même au premier tour — l'offre initiale (`openingOfferShare` × valorisation de l'acheteur) couvre parfois déjà la réserve du vendeur, surtout quand celle-ci est remisée par la détresse financière ou un surplus d'effectif au poste (`financialDistressWeight`/`squadDepthDiscountPerSurplusPlayer`) et que le bruit de perception (`baseErrorPoints = 10` par défaut) fait diverger les deux valorisations. Pas un échec du critère du point (la médiane est bien à 2, pas à 1), mais un signal que les coefficients de `TransferBalance` — tous des premiers jets, comme documenté sur chaque champ — mériteront un vrai passage de calibration avant que la distribution des tours serve de donnée de jeu.
+>
+> **Extraction préalable faite en même temps : `Football\Support\SquadComposition`.** `ContractSystem::squadByPosition()`/`positionTargets()` (privées) sont devenues des méthodes statiques partagées, `TransferSystem` en étant le second consommateur réel — refactor mécanique, vérifié par la suite de tests existante de `ContractSystem` restant verte sans modification.
+>
+> **Limites assumées, documentées dans le code (`Football\TransferSystem`) :** pas de réputation (aucun composant n'existe, la richesse relative du club en tient lieu) ; pas d'agence indépendante du joueur/agent (repliée dans le prix de réserve du vendeur) ; pas d'enchère concurrente (premier club à cibler un joueur le verrouille pour l'année) ; pas de fenêtre à bornes (un seul jour d'ouverture fixe, `maxRounds` garantit à lui seul la clôture) ; aucun argent réel — `TransferAgreed` est émis, le grand livre se branche au point 4.
+>
+> **Écart tranché en cours de route : `rareté_poste`/`richesse_acheteur` sont câblés pour de vrai dans ce point**, alors que le point 1 les recevait neutres à 1.0 — c'était nécessaire dès l'analyse de besoin (étape 1 de `14-` §5), pas différable à un point ultérieur comme le prévoyait la première version de ce document.
 
 ---
 

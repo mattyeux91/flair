@@ -17,6 +17,7 @@ use Flair\Kernel\Football\Systems\PlayerDevelopmentSystem;
 use Flair\Kernel\Football\Systems\RetirementSystem;
 use Flair\Kernel\Football\Systems\SquadSystem;
 use Flair\Kernel\Football\Systems\TrainingSystem;
+use Flair\Kernel\Football\Systems\TransferSystem;
 use Flair\Kernel\Football\Systems\YouthIntakeSystem;
 
 /**
@@ -102,6 +103,7 @@ final class FootballPipeline
             new MatchSystem(),
             new CompetitionSystem(),
             new ContractSystem(),
+            new TransferSystem(),
         ];
     }
 

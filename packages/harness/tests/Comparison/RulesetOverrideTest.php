@@ -149,6 +149,31 @@ final class RulesetOverrideTest extends TestCase
         self::assertSame(1, $modified->balance->competition->pointsForDraw);
     }
 
+    /**
+     * Contrairement a `market` (encore un passe-plat), `transfer` est
+     * reellement surchargeable des sa creation : la verification du point 2
+     * (docs/17-marche-transferts.md) est une campagne a graines appariees qui
+     * balaie ces coefficients. Meme piege `int`/`float` que `YouthIntakeBalance`.
+     */
+    public function testAppliesOverridesToTransferBalance(): void
+    {
+        $base = new Ruleset('test');
+
+        $modified = RulesetOverride::withFields($base, [
+            'negotiationOpeningDayOfYear' => 210.0,
+            'maxRounds' => 8.0,
+            'openingOfferShare' => 0.6,
+        ]);
+
+        self::assertSame(210, $modified->balance->transfer->negotiationOpeningDayOfYear);
+        self::assertSame(8, $modified->balance->transfer->maxRounds);
+        self::assertSame(0.6, $modified->balance->transfer->openingOfferShare);
+
+        // Champs non touches : la valeur par defaut du Ruleset de base, pas 0/null.
+        self::assertSame($base->balance->transfer->buyerFlexMargin, $modified->balance->transfer->buyerFlexMargin);
+        self::assertSame($base->balance->transfer->financialDistressScaleCents, $modified->balance->transfer->financialDistressScaleCents);
+    }
+
     public function testAllFieldsGroupsCoverAllDeclaredFields(): void
     {
         self::assertSame(

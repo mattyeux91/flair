@@ -23,6 +23,7 @@ use Flair\Kernel\Football\Events\ContractExpired;
 use Flair\Kernel\Football\Events\ContractSigned;
 use Flair\Kernel\Football\Support\PerceptionModel;
 use Flair\Kernel\Football\Support\PositionModel;
+use Flair\Kernel\Football\Support\SquadComposition;
 use Flair\Kernel\Football\Support\WageModel;
 
 /**
@@ -310,7 +311,7 @@ final class ContractSystem implements System
         array &$released,
     ): void {
         $budgets = $this->budgets($ctx, $balance, array_keys($expiring));
-        $wanted = $this->positionTargets($ctx, $balance);
+        $wanted = SquadComposition::targets($ctx->ruleset()->balance->position, $balance);
         $held = $this->retainedByPosition($ctx, $expiring);
 
         foreach ($expiring as $clubId => $candidates) {
@@ -397,7 +398,7 @@ final class ContractSystem implements System
      */
     private function retainedByPosition(SystemContext $ctx, array $expiring): array
     {
-        $held = $this->squadByPosition($ctx);
+        $held = SquadComposition::byPosition($ctx);
 
         foreach ($expiring as $clubId => $candidates) {
             foreach ($candidates as $playerId) {
@@ -455,8 +456,8 @@ final class ContractSystem implements System
 
         $pool = $this->unattached($ctx, $released);
         $scouted = $this->scout($ctx, $observers, $pool);
-        $squadByPosition = $this->squadByPosition($ctx);
-        $wanted = $this->positionTargets($ctx, $balance);
+        $squadByPosition = SquadComposition::byPosition($ctx);
+        $wanted = SquadComposition::targets($ctx->ruleset()->balance->position, $balance);
 
         while ($pool !== []) {
             $needy = [];
@@ -579,64 +580,6 @@ final class ContractSystem implements System
         }
 
         return null;
-    }
-
-    /**
-     * L'effectif de chaque club ventile par poste, le poste d'un joueur etant
-     * **derive** de ses competences (`PositionModel::bestPosition()`) et jamais
-     * stocke - cf. docs/12- §4.
-     *
-     * @return array<int, array<string, int>> clubId -> [valeur du poste -> effectif]
-     */
-    private function squadByPosition(SystemContext $ctx): array
-    {
-        $byClub = [];
-
-        foreach ($ctx->read(Contract::class)->entities() as $playerId) {
-            $contract = $ctx->read(Contract::class)->get($playerId);
-            $position = $this->positionOf($ctx, $playerId);
-
-            if ($contract === null || $position === null) {
-                continue;
-            }
-
-            $byClub[$contract->clubId][$position->value] = ($byClub[$contract->clubId][$position->value] ?? 0) + 1;
-        }
-
-        return $byClub;
-    }
-
-    /**
-     * Combien de joueurs par poste un club cherche a tenir : les places de la
-     * formation, mises a l'echelle de `targetSquadSize`. Un 4-4-2 pour vingt
-     * joueurs donne deux gardiens, huit defenseurs, huit milieux, quatre
-     * attaquants - un remplacant a chaque poste, ce qui est precisement ce qui
-     * evite qu'un club se retrouve sans gardien.
-     *
-     * L'arrondi vers le haut fait que la somme depasse legerement l'effectif
-     * cible : c'est une cible **par poste**, pas une repartition d'un total,
-     * et `targetSquadSize` reste le seul plafond dur.
-     *
-     * @return array<string, int>
-     */
-    private function positionTargets(SystemContext $ctx, ContractBalance $balance): array
-    {
-        $positions = $ctx->ruleset()->balance->position;
-        $onPitch = 0;
-        $targets = [];
-
-        foreach (Position::cases() as $position) {
-            $onPitch += PositionModel::slots($position, $positions);
-        }
-
-        foreach (Position::cases() as $position) {
-            $slots = PositionModel::slots($position, $positions);
-            $targets[$position->value] = $onPitch > 0
-                ? (int) ceil($slots * $balance->targetSquadSize / $onPitch)
-                : 0;
-        }
-
-        return $targets;
     }
 
     /** Le poste ou ce joueur note le mieux, ou `null` s'il n'a pas de competences. */

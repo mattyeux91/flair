@@ -40,7 +40,9 @@ namespace Flair\Kernel\Core\Ruleset;
  * (docs/15- §4 Phase 2, docs/17-marche-transferts.md) : il ne dit ni qui
  * observe (`perception`) ni combien coute un salaire (`contract`), seulement
  * ce qu'un joueur vaut en monnaie a la revente - lu par
- * `Football\Support\MarketValueModel`.
+ * `Football\Support\MarketValueModel`. `transfer`, ajoute au meme point,
+ * ne dit pas ce qu'un joueur vaut (`market`) mais comment une negociation
+ * progresse tour apres tour - lu par `Football\TransferSystem`.
  */
 final readonly class Balance
 {
@@ -61,6 +63,7 @@ final readonly class Balance
         public PositionBalance $position = new PositionBalance(),
         public PerceptionBalance $perception = new PerceptionBalance(),
         public MarketValueBalance $market = new MarketValueBalance(),
+        public TransferBalance $transfer = new TransferBalance(),
     ) {
     }
 }

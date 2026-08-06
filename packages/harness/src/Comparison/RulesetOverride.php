@@ -15,6 +15,7 @@ use Flair\Kernel\Core\Ruleset\PerceptionBalance;
 use Flair\Kernel\Core\Ruleset\PlayerDevelopmentBalance;
 use Flair\Kernel\Core\Ruleset\RetirementBalance;
 use Flair\Kernel\Core\Ruleset\Ruleset;
+use Flair\Kernel\Core\Ruleset\TransferBalance;
 use Flair\Kernel\Core\Ruleset\YouthIntakeBalance;
 
 /**
@@ -146,6 +147,27 @@ final class RulesetOverride
     ];
 
     /** @var list<string> */
+    public const array TRANSFER_FIELDS = [
+        'negotiationOpeningDayOfYear',
+        'maxRounds',
+        'openingOfferShare',
+        'buyerFlexMargin',
+        'sellerConcessionShare',
+        'buyerConcessionShare',
+        'breakBaseProbability',
+        'breakRoundGrowth',
+        'breakGapWeight',
+        'financialDistressWeight',
+        'financialDistressScaleCents',
+        'squadDepthDiscountPerSurplusPlayer',
+        'squadDepthDiscountFloor',
+        'positionScarcityMin',
+        'positionScarcityMax',
+        'buyerWealthMin',
+        'buyerWealthMax',
+    ];
+
+    /** @var list<string> */
     public const array ALL_FIELDS = [
         ...self::GLOBAL_FIELDS,
         ...self::RETIREMENT_FIELDS,
@@ -158,6 +180,7 @@ final class RulesetOverride
         ...self::FACILITIES_FIELDS,
         ...self::CONTRACT_FIELDS,
         ...self::PERCEPTION_FIELDS,
+        ...self::TRANSFER_FIELDS,
     ];
 
     /**
@@ -178,6 +201,7 @@ final class RulesetOverride
         'Installations' => self::FACILITIES_FIELDS,
         'Contrats' => self::CONTRACT_FIELDS,
         'Perception' => self::PERCEPTION_FIELDS,
+        'Marché des transferts' => self::TRANSFER_FIELDS,
         'Global' => self::GLOBAL_FIELDS,
     ];
 
@@ -237,6 +261,7 @@ final class RulesetOverride
             // surchargeable, mais doit etre reconduit explicitement des
             // maintenant pour ne pas repeter le bug ci-dessus.
             market: $balance->market,
+            transfer: self::withTransfer($balance->transfer, $overrides),
         ));
     }
 
@@ -379,6 +404,35 @@ final class RulesetOverride
             baseErrorPoints: $overrides['baseErrorPoints'] ?? $base->baseErrorPoints,
             judgementReference: isset($overrides['judgementReference']) ? (int) round($overrides['judgementReference']) : $base->judgementReference,
             unstaffedJudgement: isset($overrides['unstaffedJudgement']) ? (int) round($overrides['unstaffedJudgement']) : $base->unstaffedJudgement,
+        );
+    }
+
+    /**
+     * Troisieme groupe a melanger `int` et `float` : meme traitement, un cast
+     * explicite par champ selon son type reel.
+     *
+     * @param array<string, float> $overrides
+     */
+    private static function withTransfer(TransferBalance $base, array $overrides): TransferBalance
+    {
+        return new TransferBalance(
+            negotiationOpeningDayOfYear: isset($overrides['negotiationOpeningDayOfYear']) ? (int) round($overrides['negotiationOpeningDayOfYear']) : $base->negotiationOpeningDayOfYear,
+            maxRounds: isset($overrides['maxRounds']) ? (int) round($overrides['maxRounds']) : $base->maxRounds,
+            openingOfferShare: $overrides['openingOfferShare'] ?? $base->openingOfferShare,
+            buyerFlexMargin: $overrides['buyerFlexMargin'] ?? $base->buyerFlexMargin,
+            sellerConcessionShare: $overrides['sellerConcessionShare'] ?? $base->sellerConcessionShare,
+            buyerConcessionShare: $overrides['buyerConcessionShare'] ?? $base->buyerConcessionShare,
+            breakBaseProbability: $overrides['breakBaseProbability'] ?? $base->breakBaseProbability,
+            breakRoundGrowth: $overrides['breakRoundGrowth'] ?? $base->breakRoundGrowth,
+            breakGapWeight: $overrides['breakGapWeight'] ?? $base->breakGapWeight,
+            financialDistressWeight: $overrides['financialDistressWeight'] ?? $base->financialDistressWeight,
+            financialDistressScaleCents: isset($overrides['financialDistressScaleCents']) ? (int) round($overrides['financialDistressScaleCents']) : $base->financialDistressScaleCents,
+            squadDepthDiscountPerSurplusPlayer: $overrides['squadDepthDiscountPerSurplusPlayer'] ?? $base->squadDepthDiscountPerSurplusPlayer,
+            squadDepthDiscountFloor: $overrides['squadDepthDiscountFloor'] ?? $base->squadDepthDiscountFloor,
+            positionScarcityMin: $overrides['positionScarcityMin'] ?? $base->positionScarcityMin,
+            positionScarcityMax: $overrides['positionScarcityMax'] ?? $base->positionScarcityMax,
+            buyerWealthMin: $overrides['buyerWealthMin'] ?? $base->buyerWealthMin,
+            buyerWealthMax: $overrides['buyerWealthMax'] ?? $base->buyerWealthMax,
         );
     }
 }
