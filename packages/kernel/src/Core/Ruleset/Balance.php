@@ -35,6 +35,12 @@ namespace Flair\Kernel\Core\Ruleset;
  * un observateur se trompe** - un levier qu'aucun autre groupe ne partage, et
  * que plusieurs systemes finiront par lire (les contrats aujourd'hui, la
  * valorisation du marche ensuite).
+ *
+ * `market` rejoint cette liste avec le lot marche des transferts
+ * (docs/15- §4 Phase 2, docs/17-marche-transferts.md) : il ne dit ni qui
+ * observe (`perception`) ni combien coute un salaire (`contract`), seulement
+ * ce qu'un joueur vaut en monnaie a la revente - lu par
+ * `Football\Support\MarketValueModel`.
  */
 final readonly class Balance
 {
@@ -54,6 +60,7 @@ final readonly class Balance
         public ContractBalance $contract = new ContractBalance(),
         public PositionBalance $position = new PositionBalance(),
         public PerceptionBalance $perception = new PerceptionBalance(),
+        public MarketValueBalance $market = new MarketValueBalance(),
     ) {
     }
 }

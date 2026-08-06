@@ -233,6 +233,10 @@ final class RulesetOverride
             // s'ecarte des defauts, faux des la premiere campagne sur les postes.
             position: $balance->position,
             perception: self::withPerception($balance->perception, $overrides),
+            // Meme raison que `position` : `market` n'est pas encore
+            // surchargeable, mais doit etre reconduit explicitement des
+            // maintenant pour ne pas repeter le bug ci-dessus.
+            market: $balance->market,
         ));
     }
 

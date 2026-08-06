@@ -5,11 +5,29 @@ declare(strict_types=1);
 namespace Flair\Harness\Tests\Comparison;
 
 use Flair\Harness\Comparison\RulesetOverride;
+use Flair\Kernel\Core\Ruleset\Balance;
+use Flair\Kernel\Core\Ruleset\MarketValueBalance;
 use Flair\Kernel\Core\Ruleset\Ruleset;
 use PHPUnit\Framework\TestCase;
 
 final class RulesetOverrideTest extends TestCase
 {
+    /**
+     * Reproduit le test qui aurait attrape le bug `PositionBalance` documente
+     * dans CLAUDE.md : `withFields()` reconstruit `Balance` en entier, donc un
+     * groupe non-surchargeable mais omis de ce `new Balance(...)` repart
+     * silencieusement a ses defauts. `market` est reconduit explicitement -
+     * ce test garde cette ligne honnete.
+     */
+    public function testANonDefaultMarketValueBalanceSurvivesAnUnrelatedOverride(): void
+    {
+        $base = new Ruleset('test', new Balance(market: new MarketValueBalance(baseValueCents: 999_999)));
+
+        $modified = RulesetOverride::withFields($base, ['developmentRate' => 1.5]);
+
+        self::assertSame(999_999, $modified->balance->market->baseValueCents);
+    }
+
     public function testAppliesOverridesAcrossAllFourGroupsInOnePass(): void
     {
         $base = new Ruleset('test');

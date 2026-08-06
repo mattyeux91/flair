@@ -34,7 +34,13 @@ valeur = base × modif × indice_inflation_global
 
 **Vérification.** Tests unitaires (bornes, monotonie qualité/âge, `facteur_contrat` hors clamp). Pas de graines appariées nécessaires : fonction pure sans consommateur en simulation à ce stade.
 
-**Statut.** ☐
+**Statut.** ☑ Fait le 2026-08-06.
+
+> **Écart tranché au moment du code : contradiction entre le bloc formule et la prose de `14-` §5.** Le bloc met `facteur_contrat` *dans* le `clamp(·, 0.4, 2.5)` ; la prose dit l'inverse (« la seule exception admise à la borne basse [...] appliquée après le clamp »). Un joueur à six mois du terme doit pouvoir tomber sous 0.4× — la prose l'emporte, `facteur_contrat` multiplie après le clamp, sans plancher partagé avec `rareté_poste`/`richesse_acheteur`.
+>
+> **Essai rejeté sur le pic d'âge.** `PlayerPotentials` porte trois pics (physique/technique/mental). Première idée : pondérer par la catégorie dominante du poste (`PositionModel::weights()`). Vérifié à la main sur les quatre postes et abandonné — la table de poids range `defending`/`passing`/`finishing`/`positioning`/`technique` sous « technique », qui domine sur les **quatre** postes sans exception. La pondération dégénère en « toujours `technicalPeakAge` ». Retenu à la place : la moyenne simple des trois pics, cohérente avec le fait qu'aucun système ne fait varier ces plages par poste aujourd'hui.
+>
+> `rareté_poste`, `richesse_acheteur` et `indice_inflation_global` sont reçus en paramètres déjà résolus, neutres à `1.0` : rien ne les calcule encore (points 2, 4, 5). `MarketValueBalance` rejoint `Balance` et est reconduit explicitement (non surchargeable pour l'instant) dans `RulesetOverride::withFields()`, avec un test de non-régression dédié — même précaution que celle qui manquait à `PositionBalance`.
 
 ---
 
