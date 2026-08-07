@@ -122,7 +122,11 @@ final class FacilitiesSystem implements System
                 return;
             }
 
-            $this->shiftQuality($ctx, $event->clubId, $event->cents / $centsPerPoint);
+            // `referenceCents`, jamais `cents` : ce qui achete du beton se
+            // compte a l'unite de reference, pas a celle du jour (docs/17-
+            // point 5). A indice 1 les deux sont egaux, donc rien ne change
+            // pour un monde sans inflation.
+            $this->shiftQuality($ctx, $event->clubId, $event->referenceCents / $centsPerPoint);
         }
     }
 

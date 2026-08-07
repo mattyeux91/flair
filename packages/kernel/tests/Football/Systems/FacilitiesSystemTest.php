@@ -35,7 +35,7 @@ final class FacilitiesSystemTest extends TestCase
         $club = $this->createClub($world, quality: 1.0);
 
         // 200M centimes le point entier -> 10M achetent 0,05.
-        $this->deliver($world, new ClubInvestedInFacilities($club, 10_000_000), atTick: 5);
+        $this->deliver($world, new ClubInvestedInFacilities($club, 10_000_000, 10_000_000), atTick: 5);
 
         self::assertEqualsWithDelta(1.05, $this->quality($world, $club), 0.0001);
     }
@@ -52,7 +52,7 @@ final class FacilitiesSystemTest extends TestCase
         $club = $this->createClub($world, quality: 1.4);
 
         $this->deliver($world, new SeasonConcluded(1, [$club]), atTick: 5);
-        $this->deliver($world, new ClubInvestedInFacilities($club, 10_000_000), atTick: 6);
+        $this->deliver($world, new ClubInvestedInFacilities($club, 10_000_000, 10_000_000), atTick: 6);
 
         self::assertEqualsWithDelta(1.4, $this->quality($world, $club), 0.0001);
     }
@@ -62,7 +62,7 @@ final class FacilitiesSystemTest extends TestCase
         $world = new WorldState();
         $club = $this->createClub($world, quality: 1.95);
 
-        $this->deliver($world, new ClubInvestedInFacilities($club, 10_000_000_000), atTick: 5);
+        $this->deliver($world, new ClubInvestedInFacilities($club, 10_000_000_000, 10_000_000_000), atTick: 5);
 
         self::assertSame(Facilities::MAX_QUALITY, $this->quality($world, $club));
     }
@@ -91,7 +91,7 @@ final class FacilitiesSystemTest extends TestCase
         $world->components(Club::class)->set($club, new Club('Sans installations'));
 
         $this->deliver($world, new SeasonConcluded(1, [$club]), atTick: 5);
-        $this->deliver($world, new ClubInvestedInFacilities($club, 10_000_000), atTick: 6);
+        $this->deliver($world, new ClubInvestedInFacilities($club, 10_000_000, 10_000_000), atTick: 6);
 
         self::assertNull($world->components(Facilities::class)->get($club));
     }

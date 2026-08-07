@@ -71,7 +71,8 @@ final class PopulationFactoryTest extends TestCase
                 $world->components(PlayerTechnicalSkills::class)->get($playerId),
                 $world->components(PlayerMentalSkills::class)->get($playerId),
             );
-            self::assertSame(WageModel::perWeekCents($quality, $contracts), $contract->wagePerWeekCents);
+            // Indice a 1.0 : un monde demarre au pair (docs/17- point 5).
+            self::assertSame(WageModel::perWeekCents($quality, $contracts, 1.0), $contract->wagePerWeekCents);
         }
     }
 

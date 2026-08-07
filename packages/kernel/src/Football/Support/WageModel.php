@@ -104,11 +104,27 @@ final class WageModel
      * `Ruleset` mal rempli faire exploser le noyau au milieu d'un run de
      * 1 000 saisons - meme choix defensif que le clamp de `meritShare` dans
      * `Football\FinanceSystem`.
+     *
+     * ## L'indice d'inflation (docs/17- point 5)
+     *
+     * `$inflationIndex` est le niveau de prix courant du monde
+     * (`Football\Singletons\MarketInflation::$index`), `1.0` a sa creation. Il
+     * multiplie le resultat **en dernier**, hors du clamp, exactement comme
+     * dans `MarketValueModel` : docs/14- §5 en fait « un changement d'unite
+     * monetaire [qui] s'applique uniformement a tout le marche », pas un
+     * modificateur de situation. Un salaire est un prix - l'exempter creerait
+     * une distorsion du prix relatif salaire/indemnite, l'inverse de ce que le
+     * doc demande.
+     *
+     * **Requis, sans valeur par defaut.** Un defaut a `1.0` ferait passer un
+     * appelant qui a oublie l'indice pour un appelant correct, et l'erreur ne
+     * se verrait que des dizaines de saisons plus tard, en termes reels. Le
+     * genesis du harness passe `1.0` explicitement : un monde demarre au pair.
      */
-    public static function perWeekCents(int $quality, ContractBalance $contract): int
+    public static function perWeekCents(int $quality, ContractBalance $contract, float $inflationIndex): int
     {
         if ($contract->referenceQuality <= 0) {
-            return $contract->baseWagePerWeekCents;
+            return max(0, (int) round($contract->baseWagePerWeekCents * $inflationIndex));
         }
 
         $multiplier = max(
@@ -116,7 +132,7 @@ final class WageModel
             min($contract->wageMultiplierMax, $quality / $contract->referenceQuality),
         );
 
-        return max(0, (int) round($contract->baseWagePerWeekCents * $multiplier));
+        return max(0, (int) round($contract->baseWagePerWeekCents * $multiplier * $inflationIndex));
     }
 
     /**

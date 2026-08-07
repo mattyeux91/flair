@@ -42,7 +42,10 @@ namespace Flair\Kernel\Core\Ruleset;
  * ce qu'un joueur vaut en monnaie a la revente - lu par
  * `Football\Support\MarketValueModel`. `transfer`, ajoute au meme point,
  * ne dit pas ce qu'un joueur vaut (`market`) mais comment une negociation
- * progresse tour apres tour - lu par `Football\TransferSystem`.
+ * progresse tour apres tour - lu par `Football\TransferSystem`. `inflation`,
+ * dernier du meme chantier, ne dit ni l'un ni l'autre : il dit a quel rythme
+ * l'**unite monetaire** elle-meme se deplace, et comment le regulateur y
+ * ramene le monde.
  */
 final readonly class Balance
 {
@@ -64,6 +67,7 @@ final readonly class Balance
         public PerceptionBalance $perception = new PerceptionBalance(),
         public MarketValueBalance $market = new MarketValueBalance(),
         public TransferBalance $transfer = new TransferBalance(),
+        public InflationBalance $inflation = new InflationBalance(),
     ) {
     }
 }

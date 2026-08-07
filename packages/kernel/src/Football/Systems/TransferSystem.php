@@ -32,6 +32,7 @@ use Flair\Kernel\Football\Events\TransferNegotiationOpened;
 use Flair\Kernel\Football\Intents\BidForPlayer;
 use Flair\Kernel\Football\Intents\BuyerIntentSource;
 use Flair\Kernel\Football\Intents\TransferMarketView;
+use Flair\Kernel\Football\Singletons\MarketInflation;
 use Flair\Kernel\Football\Support\PositionModel;
 use Flair\Kernel\Football\Support\SquadComposition;
 use Flair\Kernel\Football\Support\WageModel;
@@ -120,6 +121,7 @@ final class TransferSystem implements System
             PlayerTechnicalSkills::class,
             Scout::class,
             SeasonIncome::class,
+            MarketInflation::class,
         ];
     }
 
@@ -367,7 +369,7 @@ final class TransferSystem implements System
             $negotiation->playerId,
             $negotiation->buyerClubId,
             $negotiation->sellerClubId,
-            WageModel::perWeekCents($quality, $contract),
+            WageModel::perWeekCents($quality, $contract, $view->inflationIndex()),
             $ctx->tick + WageModel::contractDurationYears($ctx->rng($negotiation->playerId), $contract) * 365,
         ), entityId: $negotiation->playerId);
 
@@ -498,9 +500,13 @@ final class TransferSystem implements System
             return 0;
         }
 
+        // L'echelle de detresse est un montant nominal du `Ruleset` : elle suit
+        // l'unite monetaire, sinon un decouvert constant en termes reels
+        // paraitrait de plus en plus grave a mesure que le monde inflate.
+        $distressScale = $transfer->financialDistressScaleCents * $view->inflationIndex();
         $finances = $view->ctx->read(Finances::class)->get($sellerClubId);
-        $distress = $finances !== null && $transfer->financialDistressScaleCents > 0
-            ? max(0.0, min(1.0, -$finances->balanceCents / $transfer->financialDistressScaleCents))
+        $distress = $finances !== null && $distressScale > 0
+            ? max(0.0, min(1.0, -$finances->balanceCents / $distressScale))
             : 0.0;
         $distressMultiplier = max(0.0, 1.0 - $transfer->financialDistressWeight * $distress);
 

@@ -15,6 +15,7 @@ use Flair\Kernel\Football\Components\SeasonIncome;
 use Flair\Kernel\Football\Events\ClubInvestedInFacilities;
 use Flair\Kernel\Football\Events\SeasonConcluded;
 use Flair\Kernel\Football\Events\TransferAgreed;
+use Flair\Kernel\Football\Singletons\MarketInflation;
 use Flair\Kernel\Football\Singletons\MonetaryMass;
 
 /**
@@ -136,6 +137,45 @@ use Flair\Kernel\Football\Singletons\MonetaryMass;
  */
 final class FinanceSystem implements System
 {
+    /**
+     * Les salaires sont verses a la semaine mais la solvabilite se raisonne a
+     * l'annee - c'est l'horizon sur lequel un club arbitre, et le seul qui se
+     * compare a `SeasonIncome`. Meme constante, meme motif, que
+     * `Football\ContractSystem`.
+     */
+    private const int WEEKS_PER_YEAR = 52;
+
+    /**
+     * Un montant nominal du `Ruleset` porte a l'unite monetaire du jour
+     * (docs/17- point 5).
+     *
+     * Le clamp n'est pas decoratif : PHP bascule silencieusement un
+     * depassement d'`int` en `float`, et `(int) round(PHP_INT_MAX * 1.0)`
+     * rend un entier **negatif**. Un `Ruleset` qui met une reserve
+     * d'investissement a `PHP_INT_MAX` pour la rendre inatteignable obtenait
+     * ainsi l'exact inverse - le club investissait tout. Meme famille de piege
+     * que le PRNG 32 bits de docs/11- §6, et trouve de la meme facon : par un
+     * test qui a casse.
+     */
+    private static function scaled(int $nominalCents, float $index): int
+    {
+        $scaled = round($nominalCents * $index);
+
+        // Comparaisons explicites plutot qu'un `min`/`max` suivi d'un cast :
+        // `(float) PHP_INT_MAX` vaut deja 2^63, un cran **au-dessus** du plus
+        // grand entier representable, donc le clamper puis le caster deborde
+        // quand meme. C'est le meme piege une couche plus bas.
+        if ($scaled >= (float) PHP_INT_MAX) {
+            return PHP_INT_MAX;
+        }
+
+        if ($scaled <= (float) PHP_INT_MIN) {
+            return PHP_INT_MIN;
+        }
+
+        return (int) $scaled;
+    }
+
     public function id(): string
     {
         return 'finance';
@@ -149,6 +189,7 @@ final class FinanceSystem implements System
             Contract::class,
             Facilities::class,
             MonetaryMass::class,
+            MarketInflation::class,
         ];
     }
 
@@ -159,6 +200,7 @@ final class FinanceSystem implements System
             Finances::class,
             SeasonIncome::class,
             MonetaryMass::class,
+            MarketInflation::class,
         ];
     }
 
@@ -203,8 +245,28 @@ final class FinanceSystem implements System
             return;
         }
 
+        // L'etat monetaire de la saison **passee** : c'est lui qui dimensionne
+        // l'enveloppe d'aujourd'hui. Le decalage d'une saison n'est pas une
+        // approximation, c'est ce qui empeche le regulateur de se lire
+        // lui-meme.
+        $inflation = $ctx->singleton(MarketInflation::class) ?? new MarketInflation();
+
         $meritShare = $event->finalRanking === [] ? 0.0 : max(0.0, min(1.0, $finance->meritShare));
-        $pot = $finance->clubIncomePerSeasonCents * $clubCount;
+
+        // L'enveloppe, en deux morceaux qui ne disent pas la meme chose : le
+        // nominal porte a l'unite du jour, et la croissance que le stock de
+        // monnaie doit prendre cette saison pour suivre l'unite. Ce second
+        // terme est **connu analytiquement**, d'ou une boucle ouverte : le
+        // calculer est ce qui evite d'avoir a le chercher par asservissement,
+        // et c'est l'asservissement qui s'etait revele instable.
+        //
+        // `max(0, ...)` coupe l'anticipation pendant le transitoire de
+        // demarrage : il n'y a rien a faire croitre tant que le monde est
+        // insolvable, et l'y appliquer quand meme le ferait sortir du
+        // transitoire avec un coussin durablement trop gros.
+        $inflationBalance = $ctx->ruleset()->balance->inflation;
+        $pot = self::scaled($finance->clubIncomePerSeasonCents * $clubCount, $inflation->index)
+            + self::scaled(max(0, $inflation->massCents), $inflationBalance->marketInflationTarget);
         $meritPool = (int) round($pot * $meritShare);
         $equalPool = $pot - $meritPool;
 
@@ -227,8 +289,8 @@ final class FinanceSystem implements System
             $ctx->write(SeasonIncome::class)->set($clubId, new SeasonIncome($income));
             $injected += $income;
 
-            $balance -= $this->chargeUpkeep($ctx, $clubId, $finance, $drained);
-            $balance -= $this->investInFacilities($ctx, $clubId, $balance, $finance, $drained);
+            $balance -= $this->chargeUpkeep($ctx, $clubId, $finance, $inflation->index, $drained);
+            $balance -= $this->investInFacilities($ctx, $clubId, $balance, $finance, $inflation->index, $drained);
 
             $ctx->write(Finances::class)->set($clubId, new Finances($balance));
         }
@@ -238,6 +300,84 @@ final class FinanceSystem implements System
             $mass->totalInjectionsCents + $injected,
             $mass->totalSinksCents + $drained,
         ));
+
+        $ctx->setSingleton($this->regulate($ctx, $clubIds, $inflation));
+    }
+
+    /**
+     * Le regulateur monetaire (docs/14- §6 « Cible de regulation »,
+     * docs/17-marche-transferts.md point 5), execute une fois par saison,
+     * **apres** la repartition - il mesure sur les soldes qu'on vient
+     * d'ecrire, et son resultat dimensionne l'enveloppe de la saison
+     * *suivante*. Ce decalage d'une saison est structurel : dimensionner
+     * l'enveloppe avec un indice calcule apres l'avoir versee reviendrait a
+     * lire sa propre sortie.
+     *
+     * Il fait deux choses, et **aucune boucle fermee** :
+     *
+     * 1. **Avancer l'indice** de `marketInflationTarget`. L'indice est une
+     *    decision de politique monetaire, pas une mesure - le monde n'a aucune
+     *    inflation endogene (sans intervention, masse et masse salariale sont
+     *    plates trente saisons durant, parce que salaires et valeurs sont des
+     *    formules du `Ruleset` et non des prix d'equilibre). Le taux realise
+     *    egale donc la cible par construction, et docs/14- §6 l'assume :
+     *    « une economie administree, pas une economie libre ».
+     * 2. **Relever la masse et la masse salariale**, qui alimentent
+     *    l'enveloppe de la saison suivante : sa part nominale suit l'indice,
+     *    et un terme d'anticipation `cible x masse` fait grandir le stock au
+     *    meme rythme, sans quoi le coussin de tresorerie fondrait en termes
+     *    reels pendant que les salaires s'indexent.
+     *
+     * ## Le correcteur proportionnel a ete retire
+     *
+     * Une version anterieure asservissait l'enveloppe sur la solvabilite.
+     * Construit, **mesure instable deux fois**, retire (docs/17- point 5) : la
+     * grandeur asservie a un denominateur endogene qui bouge dans le mauvais
+     * sens - moins d'emploi donne une masse salariale plus petite, donc une
+     * solvabilite plus haute, donc un regulateur qui coupe encore. Ce qui
+     * reste est en boucle ouverte, donc stable par construction. `$solvency`
+     * survit comme **observable**, lue par le harness, jamais comme entree de
+     * commande.
+     *
+     * `MonetaryMass` n'est pas lu ici, et c'est delibere : il porte des
+     * **cumuls** d'injections et de puits depuis la creation du monde, pas la
+     * masse en circulation. La masse, c'est la somme des soldes - la meme
+     * grandeur que `Harness\Tests\Regression\MonetaryConservationTest` compare
+     * au bookkeeping.
+     *
+     * @param list<int> $clubIds
+     */
+    private function regulate(SystemContext $ctx, array $clubIds, MarketInflation $previous): MarketInflation
+    {
+        $balance = $ctx->ruleset()->balance->inflation;
+        $mass = 0;
+
+        foreach ($clubIds as $clubId) {
+            $finances = $ctx->read(Finances::class)->get($clubId);
+            $mass += $finances === null ? 0 : $finances->balanceCents;
+        }
+
+        $wageBill = 0;
+
+        foreach ($ctx->read(Contract::class)->entities() as $playerId) {
+            $contract = $ctx->read(Contract::class)->get($playerId);
+            $wageBill += $contract === null ? 0 : $contract->wagePerWeekCents * self::WEEKS_PER_YEAR;
+        }
+
+        // L'indice avance **toujours** : c'est une decision de politique
+        // monetaire, elle ne depend pas de l'etat de l'effectif. Seule la
+        // solvabilite, qui est une observation, a besoin d'un denominateur -
+        // un monde sans le moindre contrat n'en a pas de definie.
+        $index = $previous->index * (1.0 + $balance->marketInflationTarget);
+        $realized = $previous->index > 0.0 ? $index / $previous->index - 1.0 : 0.0;
+
+        return new MarketInflation(
+            $index,
+            $realized,
+            $wageBill > 0 ? $mass / $wageBill : $previous->solvency,
+            $wageBill,
+            $mass,
+        );
     }
 
     /**
@@ -289,8 +429,14 @@ final class FinanceSystem implements System
      * argent -> meilleurs joueurs -> succes" de docs/14- §7.
      *
      * Un club sans `Facilities` ne paie rien : il n'a rien a entretenir.
+     *
+     * Indexe comme tout montant nominal du `Ruleset` (docs/17- point 5) : un
+     * changement d'unite monetaire qui n'indexerait qu'une partie des prix
+     * n'en serait pas un, et laisser l'entretien nominal le ferait valoir le
+     * tiers de sa valeur reelle en quarante saisons a 3 % - les clubs
+     * sur-investiraient et le monde decrocherait par ce bout-la.
      */
-    private function chargeUpkeep(SystemContext $ctx, int $clubId, FinanceBalance $finance, int &$drained): int
+    private function chargeUpkeep(SystemContext $ctx, int $clubId, FinanceBalance $finance, float $index, int &$drained): int
     {
         $facilities = $ctx->read(Facilities::class)->get($clubId);
 
@@ -298,7 +444,7 @@ final class FinanceSystem implements System
             return 0;
         }
 
-        $upkeep = max(0, (int) round($finance->facilityUpkeepPerQualityPointCents * $facilities->quality ** 2));
+        $upkeep = max(0, self::scaled((int) round($finance->facilityUpkeepPerQualityPointCents * $facilities->quality ** 2), $index));
         $drained += $upkeep;
 
         return $upkeep;
@@ -322,7 +468,7 @@ final class FinanceSystem implements System
      * docblock de `Football\Events\ClubInvestedInFacilities` pour pourquoi ce
      * detour est structurellement force).
      */
-    private function investInFacilities(SystemContext $ctx, int $clubId, int $balance, FinanceBalance $finance, int &$drained): int
+    private function investInFacilities(SystemContext $ctx, int $clubId, int $balance, FinanceBalance $finance, float $index, int &$drained): int
     {
         $facilities = $ctx->read(Facilities::class)->get($clubId);
 
@@ -331,8 +477,8 @@ final class FinanceSystem implements System
         }
 
         $invested = min(
-            max(0, $balance - $finance->facilityInvestmentReserveCents),
-            max(0, $finance->facilityInvestmentMaxPerSeasonCents),
+            max(0, $balance - self::scaled($finance->facilityInvestmentReserveCents, $index)),
+            max(0, self::scaled($finance->facilityInvestmentMaxPerSeasonCents, $index)),
         );
 
         if ($invested === 0) {
@@ -340,7 +486,22 @@ final class FinanceSystem implements System
         }
 
         $drained += $invested;
-        $ctx->emit(new ClubInvestedInFacilities($clubId, $invested), entityId: $clubId);
+
+        // Deux montants, deux grandeurs. Le club a bien sorti `$invested` de sa
+        // caisse - c'est ce que le grand livre draine et ce qu'un journal doit
+        // enregistrer. Mais ce que cette somme *achete* en beton se compte a
+        // l'unite de reference, sinon un club batirait plus vite a mesure que
+        // la monnaie change d'unite.
+        //
+        // Le second champ existe parce que `Football\FacilitiesSystem` ne peut
+        // pas lire l'indice lui-meme : il ecrit `Facilities` que ce systeme
+        // lit, donc l'arete existe deja dans ce sens et l'inverse ferait un
+        // **cycle** que `Core\Pipeline\SystemGraph` leverait au montage.
+        $ctx->emit(new ClubInvestedInFacilities(
+            $clubId,
+            $invested,
+            $index > 0.0 ? (int) round($invested / $index) : $invested,
+        ), entityId: $clubId);
 
         return $invested;
     }

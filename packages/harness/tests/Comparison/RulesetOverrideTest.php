@@ -6,6 +6,7 @@ namespace Flair\Harness\Tests\Comparison;
 
 use Flair\Harness\Comparison\RulesetOverride;
 use Flair\Kernel\Core\Ruleset\Balance;
+use Flair\Kernel\Core\Ruleset\InflationBalance;
 use Flair\Kernel\Core\Ruleset\MarketValueBalance;
 use Flair\Kernel\Core\Ruleset\Ruleset;
 use PHPUnit\Framework\TestCase;
@@ -176,6 +177,27 @@ final class RulesetOverrideTest extends TestCase
         // Champs non touches : la valeur par defaut du Ruleset de base, pas 0/null.
         self::assertSame($base->balance->transfer->buyerFlexMargin, $modified->balance->transfer->buyerFlexMargin);
         self::assertSame($base->balance->transfer->financialDistressScaleCents, $modified->balance->transfer->financialDistressScaleCents);
+    }
+
+    public function testAppliesOverridesToInflationBalance(): void
+    {
+        $base = new Ruleset('test');
+
+        // `marketInflationTarget` par `--set` est la campagne meme du point 5
+        // (docs/17-) : le defaut vaut 0, donc la baseline est le monde d'avant.
+        $modified = RulesetOverride::withFields($base, ['marketInflationTarget' => 0.03]);
+
+        self::assertSame(0.03, $modified->balance->inflation->marketInflationTarget);
+        self::assertSame($base->balance->inflation->toleranceBand, $modified->balance->inflation->toleranceBand);
+    }
+
+    public function testANonDefaultInflationBalanceSurvivesAnUnrelatedOverride(): void
+    {
+        $base = new Ruleset('test', new Balance(inflation: new InflationBalance(marketInflationTarget: 0.07)));
+
+        $modified = RulesetOverride::withFields($base, ['developmentRate' => 1.5]);
+
+        self::assertSame(0.07, $modified->balance->inflation->marketInflationTarget);
     }
 
     public function testAllFieldsGroupsCoverAllDeclaredFields(): void

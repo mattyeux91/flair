@@ -10,7 +10,7 @@ Ce document est le suivi du dernier lot de la Phase 2 (`15-roadmap.md` §4 Phase
 - Ce document et `15-roadmap.md` §Phase 2 sont mis à jour au fil de l'eau, avec la même honnêteté que les lots précédents : ce qui a marché, ce qui a été mesuré nuisible et retiré, les écarts au plan.
 - Rien de ce chantier ne sort du périmètre Phase 2 (pas de gouvernance de club, pas de mécanique d'observation humaine — Phase 5).
 
-Statut global : **4/5**
+Statut global : **5/5**
 
 ---
 
@@ -160,4 +160,60 @@ valeur = base × modif × indice_inflation_global
 
 **Vérification.** Sur graines appariées, 20 saisons : inflation mesurée dans la cible du `Ruleset`. C'est le critère de sortie de la Phase 2 dans son ensemble (avec le point 4 pour la moitié « conservation »).
 
-**Statut.** ☐
+**Statut.** ☑ Fait le 2026-08-07 — **et c'est le point qui a le plus dévié de sa conception**, sur mesure à chaque fois.
+
+> ### Ce que les mesures ont interdit
+>
+> **1. L'inflation ne peut pas se mesurer sur les prix de transfert.** Le monde conclut **~3 transferts par saison** (mesure du point 4). Un indice de prix annuel calculé sur trois transactions est du bruit pur. Ce n'est pas une préférence de conception, c'est une impasse arithmétique.
+>
+> **2. Elle ne peut pas non plus se mesurer sur la masse monétaire.** La masse est **négative les neuf premières saisons** — une année entière de salaires est versée avant que la première enveloppe n'arrive — donc elle **traverse zéro**, et tout indice bâti dessus explose au passage. Deux implémentations s'y sont cassées : référence capturée à la saison 1 (référence = 1 centime, indice → 0,01, 293 joueurs au chômage, monde mort), puis au passage par zéro (indice → 5,1 d'un coup).
+>
+> **3. Et surtout : ce monde n'a aucune inflation endogène.** Mesuré sans aucun régulateur, 40 saisons, graine 42 :
+>
+> | année | masse | masse salariale | sans club |
+> |---|---|---|---|
+> | 10 | 621 M | 838 M | 58 |
+> | 25 | 617 M | 862 M | 23 |
+> | 40 | 623 M | 831 M | 45 |
+>
+> Plat. Trente saisons durant. Et c'est **structurel** : salaires et valeurs sont des formules du `Ruleset` (`base × qualité / référence`), pas des prix d'équilibre. Aucune quantité de monnaie ne peut les déplacer. Le régulateur de `14-` §6 suppose un mécanisme de prix endogène que ce monde n'a pas.
+>
+> ### La conception retenue
+>
+> **L'indice est une décision de politique monétaire**, pas une mesure : il avance de `marketInflationTarget` à chaque saison achevée. `14-` §6 l'assume mot pour mot — « C'est artificiel, mais assumé : un monde persistant est une économie administrée, pas une économie libre. » Conséquence directe et à dire franchement : **le taux réalisé égale la cible par construction**, donc le vérifier ne prouve rien.
+>
+> Il multiplie **tout ce qui est nominal**, pas seulement les indemnités : salaires (`WageModel`), valeurs (`MarketValueModel`), enveloppe des droits TV, entretien et investissement des installations, échelle de détresse financière. C'est ce qui en fait un « changement d'unité monétaire [qui] s'applique uniformément à tout le marché » (`14-` §5) plutôt qu'une distorsion des prix relatifs.
+>
+> **`FacilitiesSystem` est le cas dur**, et il n'a qu'une solution : il **ne peut pas** lire l'indice, parce qu'il écrit `Facilities` que `FinanceSystem` lit — l'arête inverse ferait un **cycle** que `SystemGraph` lèverait au montage. D'où un second champ sur `ClubInvestedInFacilities` : `cents` (ce qui a quitté la caisse, nominal, ce que le grand livre draine et ce qu'un journal enregistre) et `referenceCents` (le même montant à l'unité de référence, seul utilisé pour la conversion en qualité). Un Fait journalisé ne doit pas mentir sur l'argent dépensé, et un club ne doit pas bâtir plus vite parce que la monnaie a changé d'unité.
+>
+> ### Le correcteur proportionnel : construit, mesuré instable deux fois, retiré
+>
+> Un asservissement des injections sur la solvabilité (masse / masse salariale annuelle) a été écrit et mesuré :
+>
+> | | comportement | chômage final |
+> |---|---|---|
+> | gain 0,3, sans anticipation | oscillation lente, `trim` entre **1,07 et 1,52** | **0** |
+> | gain 0,15, avec anticipation | effondrement sur le plancher, `trim` à **0,25** | **200** |
+>
+> La cause n'est pas un réglage : la grandeur asservie a un **dénominateur endogène qui bouge dans le mauvais sens**. Moins d'emploi → masse salariale plus petite → solvabilité en hausse → le régulateur coupe encore les revenus. Contre-réaction positive, qu'aucun gain ne rattrape. Retiré, comme le `minSquadSize` du lot des contrats avant lui.
+>
+> Ce qui reste est en **boucle ouverte, donc stable par construction** : l'indice avance de la cible, et l'enveloppe gagne un terme d'anticipation `cible × masse` — la croissance que le stock de monnaie doit prendre pour suivre l'unité, connue analytiquement plutôt que cherchée par asservissement. `solvency` survit comme **observable**, jamais comme entrée de commande.
+>
+> ### Mesures
+>
+> **À la cible par défaut (`0.0`), neutralité stricte** : masse 623 385 000, masse salariale 831 220 000, 45 sans club, 327 actifs sur 40 saisons — **identiques au centime** à la baseline du point 4. Le mécanisme existe, il est testé, et il ne déplace rien tant qu'on ne l'active pas. Même discipline que `meritShare = 0.0` en son temps, et c'est ce qui garde valides toutes les mesures déjà enregistrées.
+>
+> **À 3 %/an**, le monde reste **stable** — indice ×3,167 sur 40 saisons, solvabilité plate de l'année 15 à 40, masse salariale sur revenus à 0,64 contre 0,66 — mais il **décroche sur l'emploi** : le coussin de trésorerie se stabilise 43 % au-dessus de son niveau naturel, la garde de solvabilité des clubs ne mord plus, et le chômage tombe de ~35 à ~2. Effet mesuré, chiffré, **non corrigé** : d'où le défaut à zéro plutôt qu'un défaut à 3 % qu'il faudrait excuser.
+>
+> ### Bug trouvé au passage, hors périmètre mais réel
+>
+> `(int) round(PHP_INT_MAX * 1.0)` rend un entier **négatif** : un `Ruleset` mettant une réserve d'investissement à `PHP_INT_MAX` pour la rendre inatteignable obtenait l'exact inverse — le club investissait tout. Même famille que le piège du PRNG 32 bits (`11-` §6). Le `min`/`max` naïf ne suffit pas non plus, `(float) PHP_INT_MAX` valant déjà 2⁶³ : `FinanceSystem::scaled()` clampe par comparaisons explicites.
+>
+> ### Le critère de sortie de la Phase 2, redéfini
+>
+> « Inflation dans la cible » n'était défini **nulle part** — ni la grandeur, ni la fenêtre, ni la tolérance, ni le nombre de graines — et, tel qu'il était formulé, il n'a pas de contenu ici : l'indice étant une décision, le taux réalisé égale la cible toujours. `Harness\Tests\Regression\InflationRegressionTest` mécanise à la place les deux choses qui peuvent réellement casser :
+>
+> 1. **Neutralité stricte au défaut** — le monde par défaut est inchangé.
+> 2. **Stationnarité en termes réels à 3 %** — la solvabilité, grandeur sans dimension donc insensible au changement d'unité, ne s'emballe pas ; les salaires suivent l'unité au lieu de rester nominaux.
+>
+> Voir `15-roadmap.md` §4 pour l'énoncé réécrit.

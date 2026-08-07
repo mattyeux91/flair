@@ -21,6 +21,7 @@ use Flair\Kernel\Football\Components\Scout;
 use Flair\Kernel\Football\Components\SeasonIncome;
 use Flair\Kernel\Football\Events\ContractExpired;
 use Flair\Kernel\Football\Events\ContractSigned;
+use Flair\Kernel\Football\Singletons\MarketInflation;
 use Flair\Kernel\Football\Support\PerceptionModel;
 use Flair\Kernel\Football\Support\PositionModel;
 use Flair\Kernel\Football\Support\SquadComposition;
@@ -133,6 +134,7 @@ final class ContractSystem implements System
             PlayerPhysicalSkills::class,
             PlayerTechnicalSkills::class,
             PlayerMentalSkills::class,
+            MarketInflation::class,
         ];
     }
 
@@ -340,7 +342,7 @@ final class ContractSystem implements System
                         continue;
                     }
 
-                    $wage = WageModel::perWeekCents($qualities[$playerId] ?? 0, $balance);
+                    $wage = WageModel::perWeekCents($qualities[$playerId] ?? 0, $balance, $this->inflationIndex($ctx));
                     $annual = $wage * self::WEEKS_PER_YEAR;
 
                     if (!$this->fitsBudget($budgets[$clubId], $committedWage[$clubId], $annual)) {
@@ -486,7 +488,7 @@ final class ContractSystem implements System
 
                 if ($index !== null) {
                     $playerId = $pool[$index];
-                    $wage = WageModel::perWeekCents($scouted[$clubId]['qualities'][$playerId] ?? 0, $balance);
+                    $wage = WageModel::perWeekCents($scouted[$clubId]['qualities'][$playerId] ?? 0, $balance, $this->inflationIndex($ctx));
                     $annual = $wage * self::WEEKS_PER_YEAR;
                     $position = $this->positionOf($ctx, $playerId);
 
@@ -556,7 +558,7 @@ final class ContractSystem implements System
             }
 
             $playerId = $pool[$index];
-            $annual = WageModel::perWeekCents($scouted['qualities'][$playerId] ?? 0, $balance) * self::WEEKS_PER_YEAR;
+            $annual = WageModel::perWeekCents($scouted['qualities'][$playerId] ?? 0, $balance, $this->inflationIndex($ctx)) * self::WEEKS_PER_YEAR;
 
             if (!$this->fitsBudget($budgets[$clubId], $committedWage[$clubId], $annual)) {
                 continue;
@@ -816,6 +818,19 @@ final class ContractSystem implements System
      * sur le flux `rng(playerId)`, donc reproductible a graine egale et
      * independante de l'ordre dans lequel les clubs ont ete servis.
      */
+    /**
+     * Le niveau de prix courant du monde (docs/17- point 5). `1.0` tant
+     * qu'aucune saison ne s'est achevee - `Football\FinanceSystem` pose le
+     * singleton a la premiere `SeasonConcluded`, et le premier mercato d'un
+     * monde neuf peut la preceder.
+     */
+    private function inflationIndex(SystemContext $ctx): float
+    {
+        $inflation = $ctx->singleton(MarketInflation::class);
+
+        return $inflation instanceof MarketInflation ? $inflation->index : 1.0;
+    }
+
     private function expiresOn(SystemContext $ctx, int $playerId, ContractBalance $balance): int
     {
         return $ctx->tick + WageModel::contractDurationYears($ctx->rng($playerId), $balance) * 365;

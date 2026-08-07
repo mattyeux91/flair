@@ -14,6 +14,7 @@ use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
 use Flair\Kernel\Football\Components\PlayerPotentials;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
 use Flair\Kernel\Football\Components\Position;
+use Flair\Kernel\Football\Singletons\MarketInflation;
 use Flair\Kernel\Football\Support\MarketValueModel;
 use Flair\Kernel\Football\Support\PerceptionModel;
 use Flair\Kernel\Football\Support\WageModel;
@@ -121,9 +122,24 @@ final readonly class TransferMarketView
             $contract->expiresOn,
             $this->scarcity[$position->value] ?? 1.0,
             $this->wealth[$buyerClubId] ?? 1.0,
-            1.0,
+            $this->inflationIndex(),
             $this->ctx->ruleset()->balance->market,
         );
+    }
+
+    /**
+     * Le niveau de prix courant du monde (docs/17- point 5), applique hors du
+     * clamp par `MarketValueModel` : un changement d'unite monetaire, pas un
+     * modificateur de situation (docs/14- §5).
+     *
+     * `1.0` tant qu'aucune saison ne s'est achevee - `Football\FinanceSystem`
+     * pose le singleton a la premiere `SeasonConcluded`.
+     */
+    public function inflationIndex(): float
+    {
+        $inflation = $this->ctx->singleton(MarketInflation::class);
+
+        return $inflation instanceof MarketInflation ? $inflation->index : 1.0;
     }
 
     /**

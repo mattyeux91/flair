@@ -77,7 +77,7 @@ final class ContractSystemTest extends TestCase
         self::assertSame($club, $signed[0]->clubId);
         self::assertSame($club, $signed[0]->previousClubId, 'un renouvellement porte le meme club des deux cotes');
         self::assertSame(
-            WageModel::perWeekCents(80, new ContractBalance()),
+            WageModel::perWeekCents(80, new ContractBalance(), 1.0),
             $signed[0]->wagePerWeekCents,
             'le renouvellement passe au prix du marche, pas au salaire precedent',
         );
@@ -121,7 +121,7 @@ final class ContractSystemTest extends TestCase
     {
         $world = new WorldState();
         $contract = new ContractBalance(wageBudgetShare: 1.0);
-        $oneSalary = WageModel::perWeekCents(50, $contract) * 52;
+        $oneSalary = WageModel::perWeekCents(50, $contract, 1.0) * 52;
 
         $club = $this->createClub($world, seasonIncomeCents: $oneSalary);
         $first = $this->createPlayer($world, $club, skill: 50, expiresOn: 1);
@@ -235,7 +235,7 @@ final class ContractSystemTest extends TestCase
         $this->runRenewal($world, tick: self::RENEWAL_DAY);
 
         self::assertSame(
-            WageModel::perWeekCents(self::COHORT_SKILL, new ContractBalance()),
+            WageModel::perWeekCents(self::COHORT_SKILL, new ContractBalance(), 1.0),
             $this->signed($world)[0]->wagePerWeekCents,
         );
     }
@@ -256,7 +256,7 @@ final class ContractSystemTest extends TestCase
         $this->runRenewal($world, tick: self::RENEWAL_DAY, perception: new PerceptionBalance());
 
         self::assertNotSame(
-            WageModel::perWeekCents(self::COHORT_SKILL, new ContractBalance()),
+            WageModel::perWeekCents(self::COHORT_SKILL, new ContractBalance(), 1.0),
             $this->signed($world)[0]->wagePerWeekCents,
         );
     }
@@ -304,7 +304,7 @@ final class ContractSystemTest extends TestCase
     public function testAPlayerFromOutsideIsJudgedLessWellThanAnEqualPlayerAtHome(): void
     {
         $perception = new PerceptionBalance();
-        $trueWage = WageModel::perWeekCents(self::COHORT_SKILL, new ContractBalance());
+        $trueWage = WageModel::perWeekCents(self::COHORT_SKILL, new ContractBalance(), 1.0);
 
         $atHome = 0;
         $fromOutside = 0;
@@ -354,7 +354,7 @@ final class ContractSystemTest extends TestCase
     private function mispricing(?int $judgement, int $tenureYears = 0): int
     {
         $perception = new PerceptionBalance();
-        $trueWage = WageModel::perWeekCents(self::COHORT_SKILL, new ContractBalance());
+        $trueWage = WageModel::perWeekCents(self::COHORT_SKILL, new ContractBalance(), 1.0);
         $total = 0;
 
         for ($i = 0; $i < self::COHORT_SIZE; $i++) {

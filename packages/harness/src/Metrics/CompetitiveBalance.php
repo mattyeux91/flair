@@ -20,8 +20,15 @@ namespace Flair\Harness\Metrics;
  * `Football\Components\SeasonIncome`, passes en second argument. Il vaut donc
  * 0.0 quand l'appelant ne les fournit pas - une repartition parfaitement
  * egale, ce qui est exactement le monde par defaut
- * (`FinanceBalance::$meritShare = 0.0`). L'inflation, quatrieme metrique du
- * meme test, reste non mesurable : aucun prix n'existe encore dans le monde.
+ * (`FinanceBalance::$meritShare = 0.0`).
+ *
+ * L'inflation, quatrieme metrique du meme test, n'est **pas** mesuree ici, et
+ * la raison a change depuis le lot du marche : ce n'est plus qu'aucun prix
+ * n'existe (il en existe depuis docs/17- point 1), c'est que l'inflation de ce
+ * monde est une **decision** et non une observation - l'indice avance de
+ * `marketInflationTarget` par construction (docs/17- point 5). Elle est donc
+ * lisible directement dans `Football\Singletons\MarketInflation`, et ce qui
+ * merite d'etre teste est ailleurs : `Harness\Tests\Regression\InflationRegressionTest`.
  */
 final class CompetitiveBalance
 {

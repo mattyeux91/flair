@@ -328,9 +328,9 @@ Troisième brique de la Phase 2, et la plus courte en code pour la conséquence 
 
 - **Vérification par réduction stricte, et sa limite exacte.** À `baseErrorPoints = 0`, le monde produit est rigoureusement celui d'avant le lot — vérifié en comparant une empreinte complète (population par année, distribution des résultats, marché, revenus, installations, classement final) entre un arbre pré-lot et l'arbre courant : identique au chiffre près, **à une condition près**. Les scouts consomment 18 identifiants d'entité au genesis, ce qui décale l'allocateur pour toutes les entités créées ensuite à l'exécution (les jeunes promus), et donc leurs flux RNG. En faisant consommer les mêmes identifiants à l'arbre pré-lot, les deux empreintes redeviennent **identiques**. Leçon générale : **aucun lot qui ajoute une entité au genesis ne peut être une réduction bit-à-bit d'un monde antérieur** — c'est pour ça qu'une comparaison à graines appariées se fait toujours à l'intérieur d'un même build, et pas contre des nombres notés dans un document.
 
-### Marché des transferts (`docs/17-marche-transferts.md`, 4 points sur 5)
+### Marché des transferts (`docs/17-marche-transferts.md`, 5 points sur 5)
 
-Dernier lot de la Phase 2, découpé en points vérifiables. Quatre faits, un restant (le régulateur d'inflation).
+Dernier lot de la Phase 2, découpé en points vérifiables. Tous faits.
 
 - **`Support/MarketValueModel`** — la fonction de prix, forme bornée de `docs/14-` §3 : `valeur = base(qualité perçue) × courbe_âge × clamp(rareté_poste × richesse_acheteur, 0.4, 2.5) × facteur_contrat × indice_inflation`. Le `facteur_contrat` est appliqué **après** le clamp (un joueur à six mois du terme doit pouvoir tomber sous 0.4×) : le bloc formule de `docs/14-` §5 et sa prose se contredisaient, la prose l'emporte. `indice_inflation` est figé à `1.0` jusqu'au point 5. Le pic d'âge est la **moyenne** des trois pics de `PlayerPotentials` : le pondérer par la catégorie dominante du poste dégénère, la table de `PositionModel` range « technique » en tête sur les quatre postes.
 
@@ -352,7 +352,17 @@ Dernier lot de la Phase 2, découpé en points vérifiables. Quatre faits, un re
 
   Deux constats de mesure à connaître : l'indemnité médiane vaut **9 % de `baseValueCents`** (le PNJ maximise `qualité perçue / prix estimé`, donc il chasse les fins de contrat, que `MarketValueModel` brade jusqu'à `contractFloorMultiplier`), et le marché **ne concentre rien** — Gini des soldes de club à 0,011 sur 40 saisons, aucun solde négatif. Réel, mais économiquement inerte tant que les prix restent à cette échelle.
 
-- **Limites assumées, toutes documentées dans le code** : pas de réputation (la richesse relative en tient lieu), pas d'agence indépendante du joueur (repliée dans le prix de réserve du vendeur), pas d'enchère concurrente, pas de fenêtre à bornes, et pas d'`indice_inflation_global` piloté — il vaut `1.0` jusqu'au point 5.
+- **`MarketInflation` + `InflationBalance` — l'inflation est une *décision*, pas une mesure.** Second singleton du domaine. L'indice avance de `marketInflationTarget` à chaque saison achevée et multiplie **tout ce qui est nominal** : salaires, valeurs de transfert, enveloppe des droits TV, entretien et investissement des installations, échelle de détresse. C'est ce qui en fait un changement d'unité monétaire (`docs/14-` §5) et non une distorsion de prix relatifs.
+
+  Trois mesures ont imposé cette forme, contre celle qu'esquissait le doc. Le monde conclut ~3 transferts par saison, donc **aucun indice de prix n'y est calculable**. Sa masse monétaire est négative neuf saisons puis **traverse zéro**, donc elle ne peut pas servir de dénominateur. Et surtout il n'a **aucune inflation endogène** — sans régulateur, masse et masse salariale plates trente saisons durant, parce que salaires et valeurs sont des formules du `Ruleset` et non des prix d'équilibre. Le taux réalisé égale donc la cible **par construction**, et le critère de sortie de la Phase 2 a dû être réécrit autour de ce qui peut réellement casser.
+
+  **L'asservissement a été construit, mesuré instable deux fois, et retiré** — oscillant à un gain, effondré sur son plancher à l'autre, avec le chômage à 0 puis à 200. La grandeur asservie (masse / masse salariale) a un dénominateur endogène qui bouge dans le mauvais sens. Ce qui reste est en boucle ouverte : l'indice, plus un terme d'anticipation `cible × masse` connu analytiquement.
+
+  **Défaut à `0.0` et no-op strict vérifié** : masse, masse salariale, chômage et effectif identiques au centime à ceux d'avant le lot. À 3 %, le monde reste stable mais le chômage tombe de ~35 à ~2 — mesuré, non corrigé, et c'est pourquoi ce n'est pas le défaut.
+
+  Un piège PHP trouvé là : `(int) round(PHP_INT_MAX * 1.0)` rend un entier **négatif**, et le `min`/`max` naïf n'y échappe pas non plus (`(float) PHP_INT_MAX` vaut déjà 2⁶³). `FinanceSystem::scaled()` clampe par comparaisons explicites — même famille que le PRNG 32 bits.
+
+- **Limites assumées, toutes documentées dans le code** : pas de réputation (la richesse relative en tient lieu), pas d'agence indépendante du joueur (repliée dans le prix de réserve du vendeur), pas d'enchère concurrente, pas de fenêtre à bornes.
 
 ## Dépendances et invariants
 

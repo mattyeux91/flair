@@ -69,9 +69,9 @@ final class WageModelTest extends TestCase
     {
         $contract = new ContractBalance(baseWagePerWeekCents: 50_000, referenceQuality: 50);
 
-        self::assertSame(50_000, WageModel::perWeekCents(50, $contract));
-        self::assertSame(100_000, WageModel::perWeekCents(100, $contract));
-        self::assertSame(25_000, WageModel::perWeekCents(25, $contract));
+        self::assertSame(50_000, WageModel::perWeekCents(50, $contract, 1.0));
+        self::assertSame(100_000, WageModel::perWeekCents(100, $contract, 1.0));
+        self::assertSame(25_000, WageModel::perWeekCents(25, $contract, 1.0));
     }
 
     /**
@@ -88,8 +88,8 @@ final class WageModelTest extends TestCase
             wageMultiplierMax: 2.5,
         );
 
-        self::assertSame(20_000, WageModel::perWeekCents(1, $contract));
-        self::assertSame(125_000, WageModel::perWeekCents(100_000, $contract));
+        self::assertSame(20_000, WageModel::perWeekCents(1, $contract, 1.0));
+        self::assertSame(125_000, WageModel::perWeekCents(100_000, $contract, 1.0));
     }
 
     /**
@@ -101,7 +101,7 @@ final class WageModelTest extends TestCase
     {
         $contract = new ContractBalance(baseWagePerWeekCents: 42_000, referenceQuality: 0);
 
-        self::assertSame(42_000, WageModel::perWeekCents(90, $contract));
+        self::assertSame(42_000, WageModel::perWeekCents(90, $contract, 1.0));
     }
 
     /**

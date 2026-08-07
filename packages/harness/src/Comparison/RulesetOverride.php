@@ -10,6 +10,7 @@ use Flair\Kernel\Core\Ruleset\CompetitionBalance;
 use Flair\Kernel\Core\Ruleset\ContractBalance;
 use Flair\Kernel\Core\Ruleset\FacilitiesBalance;
 use Flair\Kernel\Core\Ruleset\FinanceBalance;
+use Flair\Kernel\Core\Ruleset\InflationBalance;
 use Flair\Kernel\Core\Ruleset\MatchBalance;
 use Flair\Kernel\Core\Ruleset\PerceptionBalance;
 use Flair\Kernel\Core\Ruleset\PlayerDevelopmentBalance;
@@ -172,6 +173,12 @@ final class RulesetOverride
     ];
 
     /** @var list<string> */
+    public const array INFLATION_FIELDS = [
+        'marketInflationTarget',
+        'toleranceBand',
+    ];
+
+    /** @var list<string> */
     public const array ALL_FIELDS = [
         ...self::GLOBAL_FIELDS,
         ...self::RETIREMENT_FIELDS,
@@ -185,6 +192,7 @@ final class RulesetOverride
         ...self::CONTRACT_FIELDS,
         ...self::PERCEPTION_FIELDS,
         ...self::TRANSFER_FIELDS,
+        ...self::INFLATION_FIELDS,
     ];
 
     /**
@@ -206,6 +214,7 @@ final class RulesetOverride
         'Contrats' => self::CONTRACT_FIELDS,
         'Perception' => self::PERCEPTION_FIELDS,
         'Marché des transferts' => self::TRANSFER_FIELDS,
+        'Inflation' => self::INFLATION_FIELDS,
         'Global' => self::GLOBAL_FIELDS,
     ];
 
@@ -266,6 +275,7 @@ final class RulesetOverride
             // maintenant pour ne pas repeter le bug ci-dessus.
             market: $balance->market,
             transfer: self::withTransfer($balance->transfer, $overrides),
+            inflation: self::withInflation($balance->inflation, $overrides),
         ));
     }
 
@@ -441,6 +451,15 @@ final class RulesetOverride
             patienceFactorMin: $overrides['patienceFactorMin'] ?? $base->patienceFactorMin,
             patienceFactorMax: $overrides['patienceFactorMax'] ?? $base->patienceFactorMax,
             responseGraceTicks: isset($overrides['responseGraceTicks']) ? (int) round($overrides['responseGraceTicks']) : $base->responseGraceTicks,
+        );
+    }
+
+    /** @param array<string, float> $overrides */
+    private static function withInflation(InflationBalance $base, array $overrides): InflationBalance
+    {
+        return new InflationBalance(
+            marketInflationTarget: $overrides['marketInflationTarget'] ?? $base->marketInflationTarget,
+            toleranceBand: $overrides['toleranceBand'] ?? $base->toleranceBand,
         );
     }
 }

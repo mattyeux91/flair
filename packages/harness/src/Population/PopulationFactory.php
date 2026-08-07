@@ -245,7 +245,10 @@ final class PopulationFactory
         $world->components(SquadMembership::class)->set($entity, new SquadMembership($clubId));
         $world->components(Contract::class)->set($entity, new Contract(
             $clubId,
-            WageModel::perWeekCents($quality, $contracts),
+            // Indice d'inflation a 1.0 : un monde demarre **au pair**, par
+            // definition - c'est sa masse monetaire initiale qui servira de
+            // reference a `Football\Singletons\MarketInflation` (docs/17- point 5).
+            WageModel::perWeekCents($quality, $contracts, 1.0),
             new SimDate($expiresOn),
             // Anciennete **derivee** de l'echeance deja tiree, jamais tiree a
             // part : un tirage de plus decalerait tout le flux RNG du genesis et
