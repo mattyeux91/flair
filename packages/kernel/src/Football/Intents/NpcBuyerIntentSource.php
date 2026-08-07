@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flair\Kernel\Football\Intents;
 
 use Flair\Kernel\Football\Components\Contract;
+use Flair\Kernel\Football\Components\Finances;
 use Flair\Kernel\Football\Components\Negotiation;
 use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
@@ -29,7 +30,8 @@ use Flair\Kernel\Football\Support\PositionModel;
  * - n'acheter qu'au **premier poste sous-effectif** (un humain peut acheter un
  *   attaquant alors qu'il lui manque un gardien) ;
  * - viser le meilleur rapport `qualite percue / prix estime` ;
- * - renoncer des que la contre-demande depasse le plafond fixe a l'ouverture.
+ * - renoncer des que la contre-demande depasse le plafond fixe a l'ouverture ;
+ * - ne jamais s'engager au-dela de ce qu'il a en caisse.
  */
 final class NpcBuyerIntentSource implements BuyerIntentSource
 {
@@ -51,12 +53,39 @@ final class NpcBuyerIntentSource implements BuyerIntentSource
         [$playerId, $valuationCents] = $target;
         $transfer = $view->ctx->ruleset()->balance->transfer;
 
-        return new BidForPlayer(
-            $buyerClubId,
-            $playerId,
-            (int) round($valuationCents * $transfer->openingOfferShare),
-            (int) round($valuationCents * $transfer->buyerFlexMargin),
-        );
+        $opening = (int) round($valuationCents * $transfer->openingOfferShare);
+        $ceiling = $this->affordableCeiling($view, $buyerClubId, (int) round($valuationCents * $transfer->buyerFlexMargin));
+
+        // Un club qui ne peut deja pas payer son offre d'ouverture n'ouvre pas
+        // une negociation qu'il ne peut pas conclure : il s'abstient cette
+        // annee plutot que d'occuper une place et un joueur pour rien.
+        if ($opening > $ceiling) {
+            return null;
+        }
+
+        return new BidForPlayer($buyerClubId, $playerId, $opening, $ceiling);
+    }
+
+    /**
+     * Le plafond, borne par ce que le club a reellement en caisse
+     * (docs/17- point 4 : depuis que les indemnites se paient, un plafond tire
+     * de la seule valorisation laisserait un club sans le sou acheter).
+     *
+     * C'est une **politique de PNJ, pas une regle du systeme** : rien dans
+     * `Football\TransferSystem` n'interdit de se ruiner, et une source humaine
+     * garde ce droit. Un club sans `Finances` n'est pas contraint - aucune
+     * donnee ne justifie de lui refuser quoi que ce soit, meme choix que
+     * `ContractBalance::$wageBudgetShare` face a un club sans `SeasonIncome`.
+     */
+    private function affordableCeiling(TransferMarketView $view, int $buyerClubId, int $ceiling): int
+    {
+        $finances = $view->ctx->read(Finances::class)->get($buyerClubId);
+
+        if ($finances === null) {
+            return $ceiling;
+        }
+
+        return min($ceiling, max(0, $finances->balanceCents));
     }
 
     public function respondToCounter(

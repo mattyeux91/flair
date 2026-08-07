@@ -24,6 +24,7 @@ use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
 use Flair\Kernel\Football\Components\Position;
 use Flair\Kernel\Football\Components\Scout;
 use Flair\Kernel\Football\Components\SeasonIncome;
+use Flair\Kernel\Football\Events\ContractSigned;
 use Flair\Kernel\Football\Events\TransferAgreed;
 use Flair\Kernel\Football\Events\TransferCounterDemanded;
 use Flair\Kernel\Football\Events\TransferNegotiationBroken;
@@ -33,6 +34,7 @@ use Flair\Kernel\Football\Intents\BuyerIntentSource;
 use Flair\Kernel\Football\Intents\TransferMarketView;
 use Flair\Kernel\Football\Support\PositionModel;
 use Flair\Kernel\Football\Support\SquadComposition;
+use Flair\Kernel\Football\Support\WageModel;
 
 /**
  * Le marche des transferts (docs/14-algorithmes.md §5,
@@ -84,8 +86,11 @@ use Flair\Kernel\Football\Support\SquadComposition;
  * `14-` §5 est repliee dans le prix de reserve du vendeur. Pas d'enchere
  * concurrente - le premier club qui cible un joueur le verrouille pour
  * l'annee. Pas de fenetre a bornes - un seul jour d'ouverture fixe,
- * `TransferBalance::$maxRounds` garantit a lui seul la cloture. Pas d'argent
- * reel - `TransferAgreed` est emis, le grand livre se branche au point 4.
+ * `TransferBalance::$maxRounds` garantit a lui seul la cloture.
+ *
+ * L'argent, lui, est reel depuis le point 4 : `TransferAgreed` est **execute**
+ * par `Football\FinanceSystem` au tick suivant, et le joueur change de club
+ * par le `ContractSigned` emis en meme temps (cf. `agree()`).
  */
 final class TransferSystem implements System
 {
@@ -245,7 +250,7 @@ final class TransferSystem implements System
         }
 
         if ($negotiation->lastOfferCents >= $negotiation->reservePriceCents) {
-            $this->agree($ctx, $negotiationId, $negotiation);
+            $this->agree($ctx, $view, $negotiationId, $negotiation);
 
             return;
         }
@@ -319,7 +324,32 @@ final class TransferSystem implements System
         );
     }
 
-    private function agree(SystemContext $ctx, int $negotiationId, Negotiation $negotiation): void
+    /**
+     * La conclusion, et **deux Faits pour deux conséquences distinctes**
+     * (docs/17- point 4) : `TransferAgreed` porte l'indemnite, que
+     * `Football\FinanceSystem` deplace au tick suivant ; `ContractSigned`
+     * porte l'engagement, que `Football\SquadSystem` applique au meme tick
+     * suivant. Ce systeme n'ecrit ni `Finances` ni `Contract` - il n'en est
+     * proprietaire d'aucun, et chaque consequence suit son writer.
+     *
+     * Pas de `TransferCompleted` : un troisieme Fait ne franchirait aucun
+     * seuil que ces deux-la ne franchissent pas (docs/16- §2), il n'ajouterait
+     * que du bruit sur un chemin que ce projet surveille.
+     *
+     * **Le joueur signe un nouveau contrat, il n'herite pas de l'ancien** :
+     * salaire au prix du marche tel que **l'acheteur** le percoit, duree tiree
+     * comme a un renouvellement. Consequence voulue : `SquadSystem` remet
+     * `signedOn` au tick de l'application, donc l'anciennete - et avec elle
+     * l'`observationYears` du nouveau club - repart de zero. Un club vient
+     * d'acheter quelqu'un qu'il n'a jamais eu sous les yeux, et il le juge
+     * comme tel l'annee suivante.
+     *
+     * Le flux RNG est `rng($playerId)`, jamais `rng($negotiationId)` : c'est
+     * celui dont `Football\ContractSystem` tire deja la duree d'un contrat, et
+     * une entite distincte de la negociation, donc aucune collision avec le
+     * tirage de rupture.
+     */
+    private function agree(SystemContext $ctx, TransferMarketView $view, int $negotiationId, Negotiation $negotiation): void
     {
         $ctx->emit(new TransferAgreed(
             $negotiationId,
@@ -329,6 +359,17 @@ final class TransferSystem implements System
             $negotiation->round,
             $negotiation->lastOfferCents,
         ), entityId: $negotiationId);
+
+        $contract = $ctx->ruleset()->balance->contract;
+        $quality = $view->perceivedQuality($negotiation->buyerClubId, $negotiation->playerId) ?? 0;
+
+        $ctx->emit(new ContractSigned(
+            $negotiation->playerId,
+            $negotiation->buyerClubId,
+            $negotiation->sellerClubId,
+            WageModel::perWeekCents($quality, $contract),
+            $ctx->tick + WageModel::contractDurationYears($ctx->rng($negotiation->playerId), $contract) * 365,
+        ), entityId: $negotiation->playerId);
 
         $ctx->write(Negotiation::class)->remove($negotiationId);
     }

@@ -14,13 +14,17 @@ use Flair\Kernel\Football\Components\Finances;
 use Flair\Kernel\Football\Components\SeasonIncome;
 use Flair\Kernel\Football\Events\ClubInvestedInFacilities;
 use Flair\Kernel\Football\Events\SeasonConcluded;
+use Flair\Kernel\Football\Events\TransferAgreed;
 use Flair\Kernel\Football\Singletons\MonetaryMass;
 
 /**
  * Le grand livre monetaire (docs/14-algorithmes.md §6, docs/15-roadmap.md §4
  * Phase 2) : une injection (l'enveloppe des droits TV, repartie entre les
- * clubs en fin de saison) et un puits (salaires), sans RNG ni variance
- * aleatoire - tout ce qui differencie deux clubs vient de leur classement.
+ * clubs en fin de saison), deux puits (salaires, entretien et investissement
+ * des installations), et depuis docs/17- point 4 un **mouvement interne** qui
+ * n'est ni l'un ni l'autre - l'indemnite de transfert. Aucun RNG, aucune
+ * variance aleatoire : tout ce qui differencie deux clubs vient de leur
+ * classement.
  *
  * ## Un seul systeme, pas deux
  *
@@ -175,11 +179,18 @@ final class FinanceSystem implements System
     {
         return [
             SeasonConcluded::class,
+            TransferAgreed::class,
         ];
     }
 
     public function handle(DomainEvent $event, SystemContext $ctx): void
     {
+        if ($event instanceof TransferAgreed) {
+            $this->settleTransfer($ctx, $event);
+
+            return;
+        }
+
         if (!$event instanceof SeasonConcluded) {
             return;
         }
@@ -227,6 +238,43 @@ final class FinanceSystem implements System
             $mass->totalInjectionsCents + $injected,
             $mass->totalSinksCents + $drained,
         ));
+    }
+
+    /**
+     * L'indemnite de transfert : le seul mouvement d'argent du monde qui ne
+     * soit **ni une injection ni un puits** (docs/14- §6, docs/17- point 4).
+     * L'acheteur est debite, le vendeur credite du meme montant, et la masse
+     * monetaire totale ne bouge pas d'un centime.
+     *
+     * ⚠️ **Ne pas toucher `MonetaryMass` ici.** C'est exactement l'endroit ou
+     * une ligne « pour la symetrie » casserait
+     * `Harness\Tests\Regression\MonetaryConservationTest` : le singleton
+     * compte ce qui entre dans le monde et ce qui en sort, pas ce qui y
+     * circule. Ce chemin est aussi le premier qui rende ce test non trivial -
+     * jusqu'a ce point, aucun argent ne passait d'un club a l'autre, donc
+     * l'invariant ne pouvait pas casser la ou docs/14- §6 dit qu'il compte.
+     *
+     * Le transfert est **atomique ou nul** : si l'un des deux clubs ne porte
+     * plus `Finances` (dissous entre la conclusion et son application au tick
+     * suivant), rien ne bouge. Debiter sans crediter detruirait de la monnaie.
+     *
+     * L'ecriture de `Contract`/`SquadMembership` n'a pas lieu ici : le joueur
+     * change de club via le Fait `ContractSigned` emis en meme temps par
+     * `Football\TransferSystem`, applique par `Football\SquadSystem`. Les deux
+     * consequences d'un transfert suivent chacune son proprietaire de
+     * composant.
+     */
+    private function settleTransfer(SystemContext $ctx, TransferAgreed $event): void
+    {
+        $buyer = $ctx->read(Finances::class)->get($event->buyerClubId);
+        $seller = $ctx->read(Finances::class)->get($event->sellerClubId);
+
+        if ($buyer === null || $seller === null || $event->buyerClubId === $event->sellerClubId) {
+            return;
+        }
+
+        $ctx->write(Finances::class)->set($event->buyerClubId, new Finances($buyer->balanceCents - $event->agreedPriceCents));
+        $ctx->write(Finances::class)->set($event->sellerClubId, new Finances($seller->balanceCents + $event->agreedPriceCents));
     }
 
     /**

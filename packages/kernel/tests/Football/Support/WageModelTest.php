@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flair\Kernel\Tests\Football\Support;
 
 use Flair\Kernel\Core\Ruleset\ContractBalance;
+use Flair\Kernel\Core\Support\Rng;
 use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
@@ -101,5 +102,40 @@ final class WageModelTest extends TestCase
         $contract = new ContractBalance(baseWagePerWeekCents: 42_000, referenceQuality: 0);
 
         self::assertSame(42_000, WageModel::perWeekCents(90, $contract));
+    }
+
+    /**
+     * La duree reste dans les bornes du `Ruleset`, et les couvre toutes : sans
+     * la seconde assertion, un tirage constant passerait la premiere.
+     */
+    public function testTheContractDurationStaysWithinTheRulesetBoundsAndCoversThemAll(): void
+    {
+        $contract = new ContractBalance(minDurationYears: 2, maxDurationYears: 4);
+        $seen = [];
+
+        for ($stream = 0; $stream < 60; $stream++) {
+            $years = WageModel::contractDurationYears(new Rng($stream), $contract);
+
+            self::assertGreaterThanOrEqual(2, $years);
+            self::assertLessThanOrEqual(4, $years);
+            $seen[$years] = true;
+        }
+
+        ksort($seen);
+        self::assertSame([2, 3, 4], array_keys($seen));
+    }
+
+    /** Bornes inversees ou nulles : une duree valide plutot qu'un modulo par zero. */
+    public function testDegenerateDurationBoundsStillProduceAValidDuration(): void
+    {
+        self::assertSame(1, WageModel::contractDurationYears(
+            new Rng(1),
+            new ContractBalance(minDurationYears: 0, maxDurationYears: 0),
+        ));
+
+        self::assertSame(5, WageModel::contractDurationYears(
+            new Rng(1),
+            new ContractBalance(minDurationYears: 5, maxDurationYears: 2),
+        ));
     }
 }

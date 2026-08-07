@@ -25,6 +25,7 @@ use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
 use Flair\Kernel\Football\Components\SeasonIncome;
 use Flair\Kernel\Football\Events\ClubInvestedInFacilities;
 use Flair\Kernel\Football\Events\SeasonConcluded;
+use Flair\Kernel\Football\Events\TransferAgreed;
 use Flair\Kernel\Football\Singletons\MonetaryMass;
 use Flair\Kernel\Football\Systems\FinanceSystem;
 use Flair\Kernel\Football\Systems\RetirementSystem;
@@ -254,6 +255,86 @@ final class FinanceSystemTest extends TestCase
 
         $balanceAfter = $world->components(Finances::class)->get($club)?->balanceCents;
         self::assertSame($balanceAtRetirement, $balanceAfter);
+    }
+
+    /**
+     * Le coeur du point 4 (docs/17-) : une indemnite est un **mouvement
+     * interne**, ni injection ni puits. La somme des soldes ne bouge pas, et
+     * `MonetaryMass` non plus - c'est cette double assertion que casserait un
+     * bookkeeping ajoute « pour la symetrie ».
+     */
+    public function testATransferMovesTheFeeBetweenClubsWithoutChangingTheMonetaryMass(): void
+    {
+        $world = new WorldState();
+        $buyer = $this->createClub($world, 10_000_000);
+        $seller = $this->createClub($world, 3_000_000);
+        $world->setSingleton(new MonetaryMass(777, 333));
+
+        $this->agreeTransfer($world, $buyer, $seller, feeCents: 4_000_000, atTick: 10);
+        $this->runFinanceTick($world, tick: 10, finance: new FinanceBalance());
+
+        self::assertSame(6_000_000, $this->balanceOf($world, $buyer));
+        self::assertSame(7_000_000, $this->balanceOf($world, $seller));
+
+        $mass = $world->singleton(MonetaryMass::class);
+        self::assertNotNull($mass);
+        self::assertSame(777, $mass->totalInjectionsCents, 'une indemnite n\'est pas une injection');
+        self::assertSame(333, $mass->totalSinksCents, 'une indemnite n\'est pas un puits');
+    }
+
+    /**
+     * Atomique ou nul : debiter sans pouvoir crediter detruirait de la monnaie
+     * et casserait l'invariant de conservation.
+     */
+    public function testATransferWhoseSellerHasNoFinancesMovesNothingAtAll(): void
+    {
+        $world = new WorldState();
+        $buyer = $this->createClub($world, 10_000_000);
+        $vanished = $world->createEntity();
+
+        $this->agreeTransfer($world, $buyer, $vanished, feeCents: 4_000_000, atTick: 10);
+        $this->runFinanceTick($world, tick: 10, finance: new FinanceBalance());
+
+        self::assertSame(10_000_000, $this->balanceOf($world, $buyer));
+    }
+
+    public function testSeveralTransfersInTheSameTickAreAllSettled(): void
+    {
+        $world = new WorldState();
+        $first = $this->createClub($world, 10_000_000);
+        $second = $this->createClub($world, 10_000_000);
+        $third = $this->createClub($world, 10_000_000);
+
+        $this->agreeTransfer($world, $first, $second, feeCents: 1_000_000, atTick: 10);
+        $this->agreeTransfer($world, $second, $third, feeCents: 2_500_000, atTick: 10);
+        $this->runFinanceTick($world, tick: 10, finance: new FinanceBalance());
+
+        self::assertSame(9_000_000, $this->balanceOf($world, $first));
+        self::assertSame(8_500_000, $this->balanceOf($world, $second), '+1 000 000 recu, -2 500 000 paye');
+        self::assertSame(12_500_000, $this->balanceOf($world, $third));
+    }
+
+    private function balanceOf(WorldState $world, int $clubId): int
+    {
+        return $world->components(Finances::class)->get($clubId)->balanceCents ?? 0;
+    }
+
+    private function agreeTransfer(WorldState $world, int $buyerClubId, int $sellerClubId, int $feeCents, int $atTick): void
+    {
+        $world->scheduler()->schedule(
+            new TransferAgreed(
+                negotiationId: 900 + $buyerClubId,
+                buyerClubId: $buyerClubId,
+                sellerClubId: $sellerClubId,
+                playerId: 500,
+                round: 2,
+                agreedPriceCents: $feeCents,
+            ),
+            atTick: $atTick,
+            systemIndex: 0,
+            entityId: 900 + $buyerClubId,
+            seq: 0,
+        );
     }
 
     /**

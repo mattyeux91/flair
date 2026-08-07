@@ -10,7 +10,7 @@ Ce document est le suivi du dernier lot de la Phase 2 (`15-roadmap.md` §4 Phase
 - Ce document et `15-roadmap.md` §Phase 2 sont mis à jour au fil de l'eau, avec la même honnêteté que les lots précédents : ce qui a marché, ce qui a été mesuré nuisible et retiré, les écarts au plan.
 - Rien de ce chantier ne sort du périmètre Phase 2 (pas de gouvernance de club, pas de mécanique d'observation humaine — Phase 5).
 
-Statut global : **3/5**
+Statut global : **4/5**
 
 ---
 
@@ -120,7 +120,35 @@ valeur = base × modif × indice_inflation_global
 
 **Vérification.** `MonetaryConservationTest` vert sur 20 saisons avec négociations actives et indemnités réellement versées.
 
-**Statut.** ☐
+**Statut.** ☑ Fait le 2026-08-07.
+
+> **Le design est presque entièrement dicté par deux invariants existants.** `Football\PipelineInvariantsTest` impose un seul writer par composant : `FinanceSystem` est le seul de `Finances`/`MonetaryMass`, `SquadSystem` le seul de `Contract`/`SquadMembership`. `TransferSystem` ne peut donc ni payer ni déplacer le joueur lui-même. Il décide, en queue de pipeline, et les deux applicateurs exécutent au tick suivant — le mur « décider tard, appliquer tôt » déjà rencontré par `ContractSigned` et `ClubInvestedInFacilities`.
+>
+> **Une indemnité n'est ni une injection ni un puits.** `MonetaryMass` ne bouge pas, la somme des `Finances` non plus : l'acheteur est débité, le vendeur crédité du même montant, atomiquement (si l'un des deux clubs a disparu entre la conclusion et son application, rien ne bouge — débiter sans créditer détruirait de la monnaie). C'est ce qui rend `MonetaryConservationTest` non trivial pour la première fois, et un garde-fou y a été ajouté sur le modèle de celui du cas `meritShare = 0.6` : le test exige désormais qu'il ait **réellement** circulé des indemnités, sinon il resterait vert sans rien prouver.
+>
+> **Écart tranché : pas de Fait `TransferCompleted`**, que ce document prévoyait. `TransferAgreed` porte déjà l'indemnité et les deux clubs, et l'accord émet en plus un `ContractSigned` (`previousClubId` = le vendeur) qui porte le mouvement du joueur — `SquadSystem` savait déjà l'appliquer, et `Harness\Metrics\Sampler` comptait déjà les changements de club par ce biais. Un troisième Fait ne franchirait aucun seuil que ces deux-là ne franchissent pas (`16-` §2).
+>
+> **Le joueur signe un nouveau contrat**, il n'hérite pas de l'ancien : salaire au prix du marché tel que l'**acheteur** le perçoit, durée tirée comme à un renouvellement (`WageModel::contractDurationYears()`, extraite de `ContractSystem::expiresOn()` — deux consommateurs réels, jamais un seul). Conséquence voulue : `signedOn` repart à zéro, donc l'`observationYears` du nouveau club aussi. Un club vient d'acheter quelqu'un qu'il n'a jamais eu sous les yeux, et il le jugera comme tel l'année suivante.
+>
+> **Solvabilité : une politique de PNJ, pas une règle.** `NpcBuyerIntentSource` borne son plafond par son solde et s'abstient si son offre d'ouverture le dépasse déjà. Le système n'interdit rien — une source humaine garde le droit de se ruiner, frontière que le point 3 venait d'établir.
+>
+> **Mesures (500 joueurs, 18 clubs, 40 saisons, graines 42 et 7).**
+>
+> | | point 3 (graine 42) | point 4, graine 42 | point 4, graine 7 |
+> |---|---|---|---|
+> | Négociations ouvertes | 715 | 590 | 585 |
+> | Accords | 169 | 111 | 101 |
+> | Médiane des tours | 2 | 2 | 3 |
+> | Part au premier tour | 44,9 % | **39,7 %** | **37,3 %** |
+>
+> **La réserve du point 2 s'est améliorée toute seule** : la part de négociations résolues au premier tour baisse de 5 points, effet secondaire de la solvabilité (un club pauvre ne conclut plus instantanément l'affaire facile qu'il ne pouvait pas payer). Le critère d'échec du point 2 (médiane à 1) reste très loin.
+>
+> **Deux constats honnêtes, et ce sont eux qui préparent le point 5.**
+>
+> 1. **L'indemnité médiane vaut ~4 500 € (453 600 centimes), soit 9 % de `baseValueCents`.** Cause identifiée, et ce n'est pas un bug : le PNJ maximise `qualité perçue / prix estimé`, donc il chasse systématiquement les joueurs **en fin de contrat**, que `MarketValueModel` brade jusqu'à `contractFloorMultiplier = 0.05`. Le marché fonctionne, mais il achète surtout les soldes.
+> 2. **Le marché ne concentre rien.** Aucun solde de club négatif, Gini des soldes de fin de run **0,011** (graine 42) et **0,008** (graine 7) — les indemnités totales (74,8 M centimes sur 40 saisons) sont marginales devant la masse en circulation (623 M). Au calibrage par défaut (`meritShare = 0`, revenus égaux), le marché des transferts est **réel mais économiquement inerte**. La boucle « riche s'enrichit » de `14-` §7 n'est pas rouverte par ce point ; elle ne pourra l'être qu'une fois les prix montés à une échelle qui compte, ce qui est exactement le sujet du point 5.
+>
+> Coût CPU : 74,1 s → 80,2 s sur 40 saisons (+8 %).
 
 ---
 

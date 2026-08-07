@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flair\Kernel\Football\Support;
 
 use Flair\Kernel\Core\Ruleset\ContractBalance;
+use Flair\Kernel\Core\Support\Rng;
 use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
@@ -116,5 +117,32 @@ final class WageModel
         );
 
         return max(0, (int) round($contract->baseWagePerWeekCents * $multiplier));
+    }
+
+    /**
+     * La duree, en annees entieres, du contrat signe aujourd'hui. Tiree par
+     * joueur pour **etaler les echeances** : a duree fixe, une cohorte signee
+     * la meme annee reviendrait sur le marche en bloc et l'effectif d'un club
+     * oscillerait au lieu de tourner (cf. `ContractBalance::$minDurationYears`).
+     *
+     * Ici plutot que dans un systeme parce que deux consommateurs reels
+     * existent - `Football\ContractSystem` au renouvellement annuel et
+     * `Football\TransferSystem` a la conclusion d'un transfert - et jamais
+     * avant qu'ils existent. Ici plutot que dans une classe a une fonction
+     * parce que `ContractBalance` dit lui-meme que le contrat decide
+     * « combien coute un joueur **et combien de temps** » : c'est le meme
+     * sujet.
+     *
+     * L'appelant fournit le flux, comme `PerceptionModel` recoit son entier de
+     * bruit : la fonction reste pure et testable a la main. Un seul tirage,
+     * pour que deux appelants qui derivent le meme flux obtiennent le meme
+     * resultat.
+     */
+    public static function contractDurationYears(Rng $rng, ContractBalance $contract): int
+    {
+        $shortest = max(1, $contract->minDurationYears);
+        $longest = max($shortest, $contract->maxDurationYears);
+
+        return $shortest + (int) ($rng->nextUint32() % ($longest - $shortest + 1));
     }
 }

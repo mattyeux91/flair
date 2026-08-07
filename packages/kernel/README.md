@@ -328,9 +328,9 @@ Troisième brique de la Phase 2, et la plus courte en code pour la conséquence 
 
 - **Vérification par réduction stricte, et sa limite exacte.** À `baseErrorPoints = 0`, le monde produit est rigoureusement celui d'avant le lot — vérifié en comparant une empreinte complète (population par année, distribution des résultats, marché, revenus, installations, classement final) entre un arbre pré-lot et l'arbre courant : identique au chiffre près, **à une condition près**. Les scouts consomment 18 identifiants d'entité au genesis, ce qui décale l'allocateur pour toutes les entités créées ensuite à l'exécution (les jeunes promus), et donc leurs flux RNG. En faisant consommer les mêmes identifiants à l'arbre pré-lot, les deux empreintes redeviennent **identiques**. Leçon générale : **aucun lot qui ajoute une entité au genesis ne peut être une réduction bit-à-bit d'un monde antérieur** — c'est pour ça qu'une comparaison à graines appariées se fait toujours à l'intérieur d'un même build, et pas contre des nombres notés dans un document.
 
-### Marché des transferts (`docs/17-marche-transferts.md`, 3 points sur 5)
+### Marché des transferts (`docs/17-marche-transferts.md`, 4 points sur 5)
 
-Dernier lot de la Phase 2, découpé en points vérifiables. Trois faits, deux restants (indemnités réelles, régulateur d'inflation).
+Dernier lot de la Phase 2, découpé en points vérifiables. Quatre faits, un restant (le régulateur d'inflation).
 
 - **`Support/MarketValueModel`** — la fonction de prix, forme bornée de `docs/14-` §3 : `valeur = base(qualité perçue) × courbe_âge × clamp(rareté_poste × richesse_acheteur, 0.4, 2.5) × facteur_contrat × indice_inflation`. Le `facteur_contrat` est appliqué **après** le clamp (un joueur à six mois du terme doit pouvoir tomber sous 0.4×) : le bloc formule de `docs/14-` §5 et sa prose se contredisaient, la prose l'emporte. `indice_inflation` est figé à `1.0` jusqu'au point 5. Le pic d'âge est la **moyenne** des trois pics de `PlayerPotentials` : le pondérer par la catégorie dominante du poste dégénère, la table de `PositionModel` range « technique » en tête sur les quatre postes.
 
@@ -348,7 +348,11 @@ Dernier lot de la Phase 2, découpé en points vérifiables. Trois faits, deux r
 
   Le système garde ce qui est **règle du marché** et non politique d'acheteur : prix de réserve et rupture côté vendeur, un acheteur à la fois, un joueur à la fois, plafond de tours — et la **validation** des intentions reçues, parce qu'une intention est une demande, pas un ordre.
 
-- **Limites assumées, toutes documentées dans le code** : pas de réputation (la richesse relative en tient lieu), pas d'agence indépendante du joueur (repliée dans le prix de réserve du vendeur), pas d'enchère concurrente, pas de fenêtre à bornes, et **aucun argent réel** — `TransferAgreed` est émis, le grand livre se branche au point 4.
+- **Les indemnités se paient — et c'est le seul mouvement d'argent du monde qui ne soit ni une injection ni un puits.** `TransferAgreed` est *exécutoire* : `FinanceSystem` le consomme au tick suivant, débite l'acheteur, crédite le vendeur du même montant, et **ne touche pas `MonetaryMass`**. Le joueur, lui, bouge par un `ContractSigned` émis en même temps et appliqué par `SquadSystem` — deux conséquences, deux Faits, chacun vers le propriétaire de son composant. Le design n'avait aucune latitude : les deux invariants « un seul writer par composant » désignent `FinanceSystem` et `SquadSystem`, et `TransferSystem` est en queue de pipeline, donc décider tard / appliquer tôt, comme `ContractSigned` et `ClubInvestedInFacilities` avant lui. C'est ce chemin qui rend `MonetaryConservationTest` non trivial pour la première fois.
+
+  Deux constats de mesure à connaître : l'indemnité médiane vaut **9 % de `baseValueCents`** (le PNJ maximise `qualité perçue / prix estimé`, donc il chasse les fins de contrat, que `MarketValueModel` brade jusqu'à `contractFloorMultiplier`), et le marché **ne concentre rien** — Gini des soldes de club à 0,011 sur 40 saisons, aucun solde négatif. Réel, mais économiquement inerte tant que les prix restent à cette échelle.
+
+- **Limites assumées, toutes documentées dans le code** : pas de réputation (la richesse relative en tient lieu), pas d'agence indépendante du joueur (repliée dans le prix de réserve du vendeur), pas d'enchère concurrente, pas de fenêtre à bornes, et pas d'`indice_inflation_global` piloté — il vaut `1.0` jusqu'au point 5.
 
 ## Dépendances et invariants
 

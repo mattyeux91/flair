@@ -9,6 +9,7 @@ use Flair\Kernel\Core\Messaging\Intent;
 use Flair\Kernel\Core\Pipeline\Pipeline;
 use Flair\Kernel\Core\Ruleset\Balance;
 use Flair\Kernel\Core\Ruleset\ContractBalance;
+use Flair\Kernel\Core\Ruleset\FinanceBalance;
 use Flair\Kernel\Core\Ruleset\MarketValueBalance;
 use Flair\Kernel\Core\Ruleset\PerceptionBalance;
 use Flair\Kernel\Core\Ruleset\PositionBalance;
@@ -26,6 +27,8 @@ use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
 use Flair\Kernel\Football\Components\PlayerPotentials;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
 use Flair\Kernel\Football\Components\Position;
+use Flair\Kernel\Football\Components\SquadMembership;
+use Flair\Kernel\Football\Events\ContractSigned;
 use Flair\Kernel\Football\Events\TransferAgreed;
 use Flair\Kernel\Football\Events\TransferNegotiationBroken;
 use Flair\Kernel\Football\Events\TransferNegotiationOpened;
@@ -36,6 +39,8 @@ use Flair\Kernel\Football\Intents\RaiseTransferOffer;
 use Flair\Kernel\Football\Intents\SubmittedBuyerIntentSource;
 use Flair\Kernel\Football\Intents\TransferMarketView;
 use Flair\Kernel\Football\Support\PositionModel;
+use Flair\Kernel\Football\Systems\FinanceSystem;
+use Flair\Kernel\Football\Systems\SquadSystem;
 use Flair\Kernel\Football\Systems\TransferSystem;
 use PHPUnit\Framework\TestCase;
 
@@ -269,6 +274,106 @@ final class TransferSystemTest extends TestCase
         self::assertSame($negotiationId, $broken[0]->negotiationId);
         self::assertSame(2, $broken[0]->round);
         self::assertNull($world->components(Negotiation::class)->get($negotiationId));
+    }
+
+    /**
+     * Point 4 : un accord porte **deux** Faits, un par consequence. Celui-ci
+     * est l'engagement, que `SquadSystem` appliquera - `previousClubId` porte
+     * le vendeur, ce qui fait de ce transfert un changement de club et non un
+     * renouvellement.
+     */
+    public function testAnAgreementAlsoSignsThePlayerWithTheBuyingClub(): void
+    {
+        $world = new WorldState();
+        $buyer = $this->createClub($world);
+        $seller = $this->createClub($world);
+        $target = $this->createFlatPlayer($world, $seller, tick: self::OPENING_DAY);
+
+        $transfer = new TransferBalance(positionScarcityMin: 1.0, positionScarcityMax: 1.0, openingOfferShare: 1.0);
+
+        $this->runTransfer($world, tick: self::OPENING_DAY, transfer: $transfer);
+        $this->runTransfer($world, tick: self::OPENING_DAY + 1, transfer: $transfer);
+
+        $signed = $this->signed($world);
+        self::assertCount(1, $signed);
+        self::assertSame($target, $signed[0]->playerId);
+        self::assertSame($buyer, $signed[0]->clubId);
+        self::assertSame($seller, $signed[0]->previousClubId, 'un transfert n\'est pas un renouvellement');
+        self::assertSame(50_000, $signed[0]->wagePerWeekCents, 'salaire au prix du marche pour une qualite de reference');
+
+        $contract = new ContractBalance();
+        self::assertGreaterThanOrEqual(
+            self::OPENING_DAY + 1 + $contract->minDurationYears * 365,
+            $signed[0]->expiresOnEpochDay,
+        );
+        self::assertLessThanOrEqual(
+            self::OPENING_DAY + 1 + $contract->maxDurationYears * 365,
+            $signed[0]->expiresOnEpochDay,
+        );
+    }
+
+    /**
+     * Bout en bout, avec les deux applicateurs branches : au tick suivant
+     * l'accord, le joueur porte un contrat chez l'acheteur **et** l'indemnite
+     * a change de mains, a la centime pres et a somme nulle.
+     */
+    public function testAtTheNextTickThePlayerHasMovedAndTheFeeHasBeenPaid(): void
+    {
+        $world = new WorldState();
+        $buyer = $this->createClub($world);
+        $seller = $this->createClub($world);
+        $target = $this->createFlatPlayer($world, $seller, tick: self::OPENING_DAY);
+
+        $before = $this->totalBalance($world);
+
+        $this->runMarket($world, tick: self::OPENING_DAY);
+        $this->runMarket($world, tick: self::OPENING_DAY + 1); // accord
+        $this->runMarket($world, tick: self::OPENING_DAY + 2); // application
+
+        self::assertSame($buyer, $world->components(Contract::class)->get($target)->clubId ?? null);
+        self::assertSame($buyer, $world->components(SquadMembership::class)->get($target)->clubId ?? null);
+
+        self::assertSame(95_000_000, $this->balanceOf($world, $buyer));
+        self::assertSame(105_000_000, $this->balanceOf($world, $seller));
+        self::assertSame($before, $this->totalBalance($world), 'une indemnite deplace de l\'argent, elle n\'en cree ni n\'en detruit');
+    }
+
+    /**
+     * La solvabilite est une **politique de PNJ** : un club sans le sou
+     * n'ouvre pas une negociation qu'il ne pourrait pas conclure.
+     */
+    public function testAClubThatCannotAffordItsOwnOpeningOfferDoesNotBid(): void
+    {
+        $world = new WorldState();
+        $this->createClub($world, balanceCents: 1_000_000);
+        $seller = $this->createClub($world);
+        $this->createFlatPlayer($world, $seller, tick: self::OPENING_DAY);
+
+        $this->runTransfer($world, tick: self::OPENING_DAY);
+
+        self::assertSame([], $this->opened($world), 'l\'offre d\'ouverture vaut 3 750 000, le club n\'a que 1 000 000');
+    }
+
+    /** Le plafond est rabote au solde, il n'annule pas l'enchere tant que l'ouverture passe. */
+    public function testAPoorerClubStillBidsButWithACeilingCappedByItsBalance(): void
+    {
+        $world = new WorldState();
+        $this->createClub($world, balanceCents: 4_000_000);
+        $seller = $this->createClub($world);
+        $this->createFlatPlayer($world, $seller, tick: self::OPENING_DAY);
+
+        // Plafond nominal 5 750 000, rabote a 4 000 000 : la contre-demande du
+        // tour 1 (4 375 000) le depasse, donc l'acheteur renonce - la ou un
+        // club fortune aurait continue.
+        $transfer = $this->neverBreaks();
+
+        $this->runTransfer($world, tick: self::OPENING_DAY, transfer: $transfer);
+        self::assertCount(1, $this->opened($world));
+
+        $this->runTransfer($world, tick: self::OPENING_DAY + 1, transfer: $transfer);
+        $this->runTransfer($world, tick: self::OPENING_DAY + 2, transfer: $transfer);
+
+        self::assertCount(1, $this->broken($world));
     }
 
     /**
@@ -609,6 +714,51 @@ final class TransferSystemTest extends TestCase
 
         (new Pipeline([new TransferSystem($buyer ?? new NpcBuyerIntentSource())]))
             ->tick($world, tick: $tick, worldSeed: $seed, ruleset: $ruleset, intents: $intents);
+    }
+
+    /**
+     * Le marche avec ses deux applicateurs branches, dans leur ordre reel de
+     * pipeline. Le jour de paie est mis hors de portee des ticks observes :
+     * ce test mesure des indemnites, pas des salaires.
+     */
+    private function runMarket(WorldState $world, int $tick): void
+    {
+        $ruleset = new Ruleset('test', new Balance(
+            finance: new FinanceBalance(wagePaymentDayOfWeek: 0),
+            contract: new ContractBalance(),
+            position: new PositionBalance(),
+            perception: new PerceptionBalance(baseErrorPoints: 0.0),
+            market: new MarketValueBalance(),
+            transfer: new TransferBalance(positionScarcityMin: 1.0, positionScarcityMax: 1.0, openingOfferShare: 1.0),
+        ));
+
+        (new Pipeline([new SquadSystem(), new FinanceSystem(), new TransferSystem(new NpcBuyerIntentSource())]))
+            ->tick($world, tick: $tick, worldSeed: 1, ruleset: $ruleset, intents: []);
+    }
+
+    private function balanceOf(WorldState $world, int $clubId): int
+    {
+        return $world->components(Finances::class)->get($clubId)->balanceCents ?? 0;
+    }
+
+    private function totalBalance(WorldState $world): int
+    {
+        $total = 0;
+
+        foreach ($world->components(Finances::class)->entities() as $clubId) {
+            $total += $this->balanceOf($world, $clubId);
+        }
+
+        return $total;
+    }
+
+    /** @return list<ContractSigned> */
+    private function signed(WorldState $world): array
+    {
+        return array_values(array_filter(
+            $world->outQueue()->pending(),
+            static fn (object $event): bool => $event instanceof ContractSigned,
+        ));
     }
 
     /** @return list<TransferNegotiationOpened> */

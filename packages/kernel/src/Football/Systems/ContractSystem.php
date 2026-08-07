@@ -818,11 +818,7 @@ final class ContractSystem implements System
      */
     private function expiresOn(SystemContext $ctx, int $playerId, ContractBalance $balance): int
     {
-        $shortest = max(1, $balance->minDurationYears);
-        $longest = max($shortest, $balance->maxDurationYears);
-        $years = $shortest + (int) ($ctx->rng($playerId)->nextUint32() % ($longest - $shortest + 1));
-
-        return $ctx->tick + $years * 365;
+        return $ctx->tick + WageModel::contractDurationYears($ctx->rng($playerId), $balance) * 365;
     }
 
 }
