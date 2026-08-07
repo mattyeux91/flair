@@ -168,6 +168,7 @@ final class RulesetOverride
         'patienceReference',
         'patienceFactorMin',
         'patienceFactorMax',
+        'responseGraceTicks',
     ];
 
     /** @var list<string> */
@@ -439,6 +440,7 @@ final class RulesetOverride
             patienceReference: isset($overrides['patienceReference']) ? (int) round($overrides['patienceReference']) : $base->patienceReference,
             patienceFactorMin: $overrides['patienceFactorMin'] ?? $base->patienceFactorMin,
             patienceFactorMax: $overrides['patienceFactorMax'] ?? $base->patienceFactorMax,
+            responseGraceTicks: isset($overrides['responseGraceTicks']) ? (int) round($overrides['responseGraceTicks']) : $base->responseGraceTicks,
         );
     }
 }

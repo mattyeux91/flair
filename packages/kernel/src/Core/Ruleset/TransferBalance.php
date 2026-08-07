@@ -75,6 +75,25 @@ final readonly class TransferBalance
          */
         public float $patienceFactorMin = 0.5,
         public float $patienceFactorMax = 2.0,
+        /**
+         * Combien de ticks l'acheteur peut laisser passer sans repondre a une
+         * contre-demande avant que la negociation ne s'eteigne
+         * (docs/17-marche-transferts.md point 3).
+         *
+         * `0` par defaut, et c'est **exactement** le comportement PNJ : une
+         * source PNJ calcule sa reponse dans le tick ou elle voit la
+         * contre-demande, elle n'attend jamais. Le delai n'existe que pour une
+         * source externe - un humain voit le Fait a la fin d'un tick et doit
+         * avoir soumis son intention avant le suivant. C'est la version
+         * minimale de l'`expiresAtTick` que docs/16- §1 attache aux
+         * `DecisionRequest` : l'echeance sans le canal, qui reste hors
+         * perimetre.
+         *
+         * Sans borne, une negociation en attente d'un humain absent ne serait
+         * bornee par rien : `maxRounds` compte les tours, pas les ticks, et un
+         * tour n'avance que quand l'acheteur repond.
+         */
+        public int $responseGraceTicks = 0,
     ) {
     }
 }

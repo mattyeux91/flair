@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flair\Kernel\Tests\Football\Systems;
 
 use Flair\Kernel\Core\Ecs\WorldState;
+use Flair\Kernel\Core\Messaging\Intent;
 use Flair\Kernel\Core\Pipeline\Pipeline;
 use Flair\Kernel\Core\Ruleset\Balance;
 use Flair\Kernel\Core\Ruleset\ContractBalance;
@@ -28,6 +29,12 @@ use Flair\Kernel\Football\Components\Position;
 use Flair\Kernel\Football\Events\TransferAgreed;
 use Flair\Kernel\Football\Events\TransferNegotiationBroken;
 use Flair\Kernel\Football\Events\TransferNegotiationOpened;
+use Flair\Kernel\Football\Intents\BidForPlayer;
+use Flair\Kernel\Football\Intents\BuyerIntentSource;
+use Flair\Kernel\Football\Intents\NpcBuyerIntentSource;
+use Flair\Kernel\Football\Intents\RaiseTransferOffer;
+use Flair\Kernel\Football\Intents\SubmittedBuyerIntentSource;
+use Flair\Kernel\Football\Intents\TransferMarketView;
 use Flair\Kernel\Football\Support\PositionModel;
 use Flair\Kernel\Football\Systems\TransferSystem;
 use PHPUnit\Framework\TestCase;
@@ -219,7 +226,10 @@ final class TransferSystemTest extends TestCase
         $this->runTransfer($world, tick: self::OPENING_DAY, transfer: $transfer);
         $negotiationId = $this->opened($world)[0]->negotiationId;
 
-        $this->runTransfer($world, tick: self::OPENING_DAY + 1, transfer: $transfer);
+        $this->runTransfer($world, tick: self::OPENING_DAY + 1, transfer: $transfer); // le vendeur contre-demande
+        self::assertSame([], $this->broken($world), 'le renoncement de l\'acheteur ne peut pas etre lu dans le tick qui pose la question');
+
+        $this->runTransfer($world, tick: self::OPENING_DAY + 2, transfer: $transfer); // l'acheteur renonce
 
         $broken = $this->broken($world);
         self::assertCount(1, $broken);
@@ -259,6 +269,209 @@ final class TransferSystemTest extends TestCase
         self::assertSame($negotiationId, $broken[0]->negotiationId);
         self::assertSame(2, $broken[0]->round);
         self::assertNull($world->components(Negotiation::class)->get($negotiationId));
+    }
+
+    /**
+     * **Le critere de verification du point 3** (docs/17-marche-transferts.md) :
+     * aucune divergence de comportement selon la source de l'intention.
+     *
+     * Deux mondes identiques avancent en pas de temps commun. Le premier laisse
+     * decider le PNJ, derriere un enregistreur qui capture chaque intention
+     * rendue ; le second recoit ces memes intentions par la file du tick
+     * (`TickContext::$intents`), lue par `SubmittedBuyerIntentSource`. La suite
+     * de Faits doit etre rigoureusement la meme.
+     *
+     * Les intentions sont **capturees**, jamais recalculees a la main : rejouer
+     * la formule du PNJ dans le test ne prouverait que la formule, pas
+     * l'interchangeabilite des sources.
+     */
+    public function testTheSameNegotiationUnfoldsIdenticallyWhateverTheSourceOfTheIntents(): void
+    {
+        $recorder = new class (new NpcBuyerIntentSource()) implements BuyerIntentSource {
+            /** @var list<Intent> */
+            public array $produced = [];
+
+            public function __construct(private BuyerIntentSource $inner)
+            {
+            }
+
+            /** @param array<int, true> $targetedPlayers */
+            public function openingBid(TransferMarketView $view, int $buyerClubId, array $targetedPlayers): ?BidForPlayer
+            {
+                return $this->record($this->inner->openingBid($view, $buyerClubId, $targetedPlayers));
+            }
+
+            public function respondToCounter(
+                TransferMarketView $view,
+                int $negotiationId,
+                Negotiation $negotiation,
+                int $counterCents,
+            ): ?RaiseTransferOffer {
+                return $this->record($this->inner->respondToCounter($view, $negotiationId, $negotiation, $counterCents));
+            }
+
+            /**
+             * @template T of Intent
+             * @param T|null $intent
+             * @return T|null
+             */
+            private function record(?Intent $intent): ?Intent
+            {
+                if ($intent !== null) {
+                    $this->produced[] = $intent;
+                }
+
+                return $intent;
+            }
+        };
+
+        $transfer = $this->neverBreaks();
+        [$npcWorld] = $this->createTransferWorld();
+        [$humanWorld] = $this->createTransferWorld();
+
+        $npcTrace = [];
+        $humanTrace = [];
+
+        for ($tick = self::OPENING_DAY; $tick <= self::OPENING_DAY + 10; $tick++) {
+            $recorder->produced = [];
+
+            $this->runTransfer($npcWorld, tick: $tick, transfer: $transfer, buyer: $recorder);
+            $this->runTransfer(
+                $humanWorld,
+                tick: $tick,
+                transfer: $transfer,
+                buyer: new SubmittedBuyerIntentSource(),
+                intents: $recorder->produced,
+            );
+
+            $npcTrace[] = $this->trace($npcWorld);
+            $humanTrace[] = $this->trace($humanWorld);
+        }
+
+        self::assertSame($npcTrace, $humanTrace);
+        self::assertNotSame([], array_merge(...$npcTrace), 'la negociation doit avoir produit quelque chose a comparer');
+    }
+
+    /**
+     * Une source ne parle que pour le club qu'elle nomme : les autres clubs
+     * s'abstiennent au lieu de retomber sur le PNJ. Le repli PNJ est du cablage
+     * `host` (Phase 5), pas une propriete de cette classe.
+     */
+    public function testOnlyTheClubNamedInASubmittedIntentOpensANegotiation(): void
+    {
+        $world = new WorldState();
+        $this->createClub($world);
+        $second = $this->createClub($world);
+        $seller = $this->createClub($world);
+        $target = $this->createFlatPlayer($world, $seller, tick: self::OPENING_DAY);
+
+        $this->runTransfer(
+            $world,
+            tick: self::OPENING_DAY,
+            buyer: new SubmittedBuyerIntentSource(),
+            intents: [new BidForPlayer($second, $target, 3_750_000, 5_750_000)],
+        );
+
+        $opened = $this->opened($world);
+        self::assertCount(1, $opened);
+        self::assertSame($second, $opened[0]->buyerClubId);
+        self::assertSame(3_750_000, $opened[0]->openingOfferCents);
+    }
+
+    /**
+     * Une intention est une demande, pas un ordre (docs/11- §3) : le systeme la
+     * valide. Un PNJ respecte ces regles par construction ; une intention
+     * soumise de l'exterieur, non - et c'est la que le monde se protege.
+     */
+    public function testASubmittedBidForAPlayerTheBuyerAlreadyOwnsIsRejected(): void
+    {
+        $world = new WorldState();
+        $buyer = $this->createClub($world);
+        $this->createClub($world);
+        $own = $this->createFlatPlayer($world, $buyer, tick: self::OPENING_DAY);
+
+        $this->runTransfer(
+            $world,
+            tick: self::OPENING_DAY,
+            buyer: new SubmittedBuyerIntentSource(),
+            intents: [new BidForPlayer($buyer, $own, 3_750_000, 5_750_000)],
+        );
+
+        self::assertSame([], $this->opened($world));
+    }
+
+    /**
+     * Le delai de grace : un acheteur silencieux n'est pas un acheteur qui
+     * renonce. `pendingSinceTick` date la contre-demande, posee au tick
+     * OPENING_DAY + 1 ; avec trois ticks de grace la negociation survit aux
+     * ticks +2 et +3 (une et deux attentes) et s'eteint au +4 (trois).
+     */
+    public function testASilentBuyerKeepsTheNegotiationAliveForTheGracePeriod(): void
+    {
+        $transfer = new TransferBalance(
+            positionScarcityMin: 1.0,
+            positionScarcityMax: 1.0,
+            breakBaseProbability: 0.0,
+            breakRoundGrowth: 0.0,
+            breakGapWeight: 0.0,
+            responseGraceTicks: 3,
+        );
+
+        [$world] = $this->createTransferWorld();
+
+        $this->runTransfer($world, tick: self::OPENING_DAY, transfer: $transfer);
+        $negotiationId = $this->opened($world)[0]->negotiationId;
+
+        $this->runTransfer($world, tick: self::OPENING_DAY + 1, transfer: $transfer, buyer: $this->silentBuyer());
+
+        for ($tick = self::OPENING_DAY + 2; $tick <= self::OPENING_DAY + 3; $tick++) {
+            $this->runTransfer($world, tick: $tick, transfer: $transfer, buyer: $this->silentBuyer());
+
+            self::assertSame([], $this->broken($world), "la negociation ne doit pas s'eteindre au tick {$tick}");
+            self::assertNotNull($world->components(Negotiation::class)->get($negotiationId));
+        }
+
+        $this->runTransfer($world, tick: self::OPENING_DAY + 4, transfer: $transfer, buyer: $this->silentBuyer());
+
+        self::assertCount(1, $this->broken($world), 'passe le delai, la question expire');
+        self::assertNull($world->components(Negotiation::class)->get($negotiationId));
+    }
+
+    /** Sans delai de grace (le defaut, donc le regime PNJ), le silence eteint la negociation des le tick suivant. */
+    public function testWithoutAGracePeriodASilentBuyerEndsTheNegotiationAtOnce(): void
+    {
+        $transfer = $this->neverBreaks();
+
+        [$world] = $this->createTransferWorld();
+
+        $this->runTransfer($world, tick: self::OPENING_DAY, transfer: $transfer);
+        $this->runTransfer($world, tick: self::OPENING_DAY + 1, transfer: $transfer, buyer: $this->silentBuyer());
+
+        self::assertSame([], $this->broken($world), 'la contre-demande du tour 1 est posee, pas encore repondue');
+
+        $this->runTransfer($world, tick: self::OPENING_DAY + 2, transfer: $transfer, buyer: $this->silentBuyer());
+
+        self::assertCount(1, $this->broken($world));
+    }
+
+    private function silentBuyer(): BuyerIntentSource
+    {
+        return new class implements BuyerIntentSource {
+            /** @param array<int, true> $targetedPlayers */
+            public function openingBid(TransferMarketView $view, int $buyerClubId, array $targetedPlayers): ?BidForPlayer
+            {
+                return null;
+            }
+
+            public function respondToCounter(
+                TransferMarketView $view,
+                int $negotiationId,
+                Negotiation $negotiation,
+                int $counterCents,
+            ): ?RaiseTransferOffer {
+                return null;
+            }
+        };
     }
 
     /**
@@ -377,11 +590,14 @@ final class TransferSystemTest extends TestCase
         );
     }
 
+    /** @param list<Intent> $intents */
     private function runTransfer(
         WorldState $world,
         int $tick,
         int $seed = 1,
         ?TransferBalance $transfer = null,
+        ?BuyerIntentSource $buyer = null,
+        array $intents = [],
     ): void {
         $ruleset = new Ruleset('test', new Balance(
             contract: new ContractBalance(),
@@ -391,7 +607,8 @@ final class TransferSystemTest extends TestCase
             transfer: $transfer ?? new TransferBalance(positionScarcityMin: 1.0, positionScarcityMax: 1.0),
         ));
 
-        (new Pipeline([new TransferSystem()]))->tick($world, tick: $tick, worldSeed: $seed, ruleset: $ruleset, intents: []);
+        (new Pipeline([new TransferSystem($buyer ?? new NpcBuyerIntentSource())]))
+            ->tick($world, tick: $tick, worldSeed: $seed, ruleset: $ruleset, intents: $intents);
     }
 
     /** @return list<TransferNegotiationOpened> */
@@ -419,6 +636,37 @@ final class TransferSystemTest extends TestCase
             $world->outQueue()->pending(),
             static fn (object $event): bool => $event instanceof TransferNegotiationBroken,
         ));
+    }
+
+    /**
+     * Le monde minimal d'une negociation : un acheteur sans gardien, un vendeur
+     * qui en a un.
+     *
+     * @return array{0: WorldState, 1: int, 2: int, 3: int} [monde, acheteur, vendeur, cible]
+     */
+    private function createTransferWorld(): array
+    {
+        $world = new WorldState();
+        $buyer = $this->createClub($world);
+        $seller = $this->createClub($world);
+        $target = $this->createFlatPlayer($world, $seller, tick: self::OPENING_DAY);
+
+        return [$world, $buyer, $seller, $target];
+    }
+
+    /**
+     * Les Faits emis pendant le dernier tick, sous une forme comparable - le
+     * `Pipeline` vide la file au debut de chaque tick, donc `pending()` ne
+     * contient jamais que le tick courant.
+     *
+     * @return list<string>
+     */
+    private function trace(WorldState $world): array
+    {
+        return array_map(
+            static fn (object $event): string => $event::class . json_encode(get_object_vars($event), JSON_THROW_ON_ERROR),
+            $world->outQueue()->pending(),
+        );
     }
 
     private function createClub(WorldState $world, int $balanceCents = 100_000_000): int

@@ -10,7 +10,7 @@ Ce document est le suivi du dernier lot de la Phase 2 (`15-roadmap.md` §4 Phase
 - Ce document et `15-roadmap.md` §Phase 2 sont mis à jour au fil de l'eau, avec la même honnêteté que les lots précédents : ce qui a marché, ce qui a été mesuré nuisible et retiré, les écarts au plan.
 - Rien de ce chantier ne sort du périmètre Phase 2 (pas de gouvernance de club, pas de mécanique d'observation humaine — Phase 5).
 
-Statut global : **0/5**
+Statut global : **3/5**
 
 ---
 
@@ -89,7 +89,26 @@ valeur = base × modif × indice_inflation_global
 
 **Vérification.** Test que l'injection d'intents manuels (simulant un humain) via l'API `IntentSource`, à la place de l'implémentation PNJ, produit le même effet observable côté système — aucune divergence de comportement selon la source de l'intent.
 
-**Statut.** ☐
+**Statut.** ☑ Fait le 2026-08-07.
+
+> **Deux hypothèses de ce document corrigées par le code.**
+>
+> 1. **`IntentSource` n'existait pas.** Ni l'interface, ni le `WorldView` de son esquisse (`11-` §3). Seuls `Core\Messaging\Intent` et `Core\Messaging\DecisionRequest` existaient : deux marqueurs vides, zéro implémentation en production. Ce point ne « branche » donc rien sur de l'existant, il crée le point d'articulation de zéro.
+> 2. **Le contenu réel du point n'est pas l'interface, c'est le découpage en ticks.** `advance()` faisait le tour complet en un tick : le vendeur contre-proposait *et* l'acheteur répondait, trois lignes plus bas. Un humain ne peut pas répondre à une contre-offre qu'il n'a pas vue — les Faits d'un tick ne sont visibles qu'au suivant (`13-` §2). Sans ce découpage, une source « humaine » est une fiction et le test de substituabilité serait creux : il n'exercerait qu'une valeur pré-calculée qui coïncide avec celle du PNJ.
+>
+> **Livré.** `Football\Intents\` : `BidForPlayer` et `RaiseTransferOffer` (les deux premières intentions concrètes du monde), l'interface `BuyerIntentSource`, `TransferMarketView` (la vue partagée), `NpcBuyerIntentSource` (la logique du point 2, déplacée telle quelle) et `SubmittedBuyerIntentSource` (**premier consommateur réel de `TickContext::$intents`**, qui cesse d'être de la plomberie morte). `Negotiation` porte `pendingCounterCents`/`pendingSinceTick`, `TransferBalance` porte `responseGraceTicks`.
+>
+> **Écart tranché : interface de domaine, pas `Core\IntentSource`.** L'esquisse de `11-` §3 est générique et suppose un `WorldView` dont le contenu (projection ? filtre par acteur ?) ne se décide pas avec un seul consommateur pour en juger — c'est la règle « deux consommateurs réels, jamais un seul, jamais par anticipation ». La propriété que le doc réclame vraiment (PNJ et humain indiscernables du noyau, LSP, `11-` §8) est tenue en entier par `BuyerIntentSource` ; la généralisation attendra le second domaine qui en aura besoin.
+>
+> **Ce qui a changé de nature : de la règle à la politique.** Trois comportements ne sont plus imposés par le noyau mais choisis par `NpcBuyerIntentSource`, et une autre source a le droit d'en décider autrement : n'acheter qu'au premier poste sous-effectif, viser le meilleur rapport qualité perçue / prix, et renoncer dès que la contre-demande dépasse le plafond. Ce dernier point sort littéralement de `TransferSystem`. En regard, le système gagne une **validation** des intentions reçues (`11-` §3 : « mises en file, validées, puis consommées ») : un acheteur déjà engagé, un joueur déjà ciblé, un joueur déjà au club acheteur, un joueur sans compétences ou sans potentiel sont rejetés. Un PNJ respecte ces règles par construction, une intention soumise de l'extérieur non.
+>
+> **Le délai de grâce (`responseGraceTicks`, défaut `0`).** Un PNJ répond toujours dans le tick où il voit la contre-demande — il calcule, il n'attend pas. Un humain, lui, lit le Fait à la fin du tick N et ne peut répondre qu'au N+1 ; « je n'ai rien envoyé » veut alors dire « je réfléchis », pas « je me retire ». Mais l'attente doit être bornée : `maxRounds` compte les tours, pas les ticks, et un tour n'avance que quand l'acheteur répond. C'est la version minimale de l'`expiresAtTick` que `16-` §1 attache aux `DecisionRequest` — l'échéance sans le canal. À `0`, strictement sans effet sur un monde 100 % PNJ.
+>
+> **Mesuré, et c'est le point important : rien n'a bougé.** Même population que le point 2 (500 joueurs, 18 clubs, 40 saisons, graine 42) : **715 négociations, médiane 2 tours, moyenne 2,81, 44,9 % au premier tour, 74,1 s** — identique au chiffre près à la mesure du point 2 réouvert. Attendu et vérifié à la main avant l'implémentation : le découpage déplace *où dans le tick* le nombre de l'acheteur est décidé (fin du tick N → début du tick N+1), pas le nombre de ticks ni de tours, ni les ticks où le tirage de rupture a lieu. Un écart aurait signalé un bug, pas une nouveauté.
+>
+> **Seule divergence de comportement assumée** : une rupture sur plafond arrive un tick plus tard qu'avant (l'acheteur prend un tick pour décliner), avec le même `round` dans le Fait. Trop rare pour déplacer la distribution ci-dessus.
+>
+> **Non fait, délibérément.** Pas de composite « humain d'abord, PNJ en repli » : `11-` §3 en fait une propriété, mais rien ne peuple `TickContext::$intents` en production aujourd'hui — c'est du câblage `host`, Phase 5. Pas de `DecisionRequest` : il n'a aucun canal (`SystemContext` ne sait émettre qu'un `DomainEvent`), lui en créer un est une addition d'architecture à part entière. Pas de `NpcBuyerIntentSourceTest` séparé : les treize tests de `TransferSystemTest` *sont* l'assertion de ce comportement, un test unitaire en doublon aurait été écrit par anticipation.
 
 ---
 

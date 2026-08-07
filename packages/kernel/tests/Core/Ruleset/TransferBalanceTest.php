@@ -33,6 +33,7 @@ final class TransferBalanceTest extends TestCase
         self::assertSame(50, $balance->patienceReference);
         self::assertSame(0.5, $balance->patienceFactorMin);
         self::assertSame(2.0, $balance->patienceFactorMax);
+        self::assertSame(0, $balance->responseGraceTicks, 'un monde 100 % PNJ n\'attend jamais : le defaut doit rester sans effet');
     }
 
     public function testFieldsRoundTripWhenGivenExplicitly(): void
