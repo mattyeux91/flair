@@ -67,4 +67,21 @@ final class Scheduler
     {
         return count($this->entries);
     }
+
+    /**
+     * Les entrees en attente, avec leurs cles de tri. Sert la persistance
+     * (Core\Snapshot\SnapshotCodec) : un evenement seulement planifie n'a
+     * emis aucun Fait, donc l'event log ne le rattraperait pas - un snapshot
+     * qui l'ignorerait le perdrait pour de bon (docs/13- §5).
+     *
+     * Rendu tel quel, sans tri : `drainDueBy()` est la seule lecture
+     * ordonnee, et la restauration reconstruit la file par `schedule()` -
+     * l'ordre de stockage n'a jamais d'effet observable.
+     *
+     * @return list<ScheduledEntry>
+     */
+    public function entries(): array
+    {
+        return $this->entries;
+    }
 }

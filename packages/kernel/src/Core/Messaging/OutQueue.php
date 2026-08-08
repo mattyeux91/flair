@@ -64,6 +64,20 @@ final class OutQueue
     }
 
     /**
+     * Les entrees en attente, avec leurs cles de tri - ce que `pending()` ne
+     * peut pas rendre, puisqu'il jette (systemIndex, entityId, seq) pour ne
+     * garder que les evenements. Sert la persistance
+     * (Core\Snapshot\SnapshotCodec) : ce que le tick N a emis doit etre
+     * traite au tick N+1 meme si le processus meurt entre les deux.
+     *
+     * @return list<OutQueueEntry>
+     */
+    public function entries(): array
+    {
+        return $this->entries;
+    }
+
+    /**
      * @param list<OutQueueEntry> $entries
      * @return list<DomainEvent>
      */

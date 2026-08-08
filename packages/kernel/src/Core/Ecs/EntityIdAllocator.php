@@ -21,4 +21,14 @@ final class EntityIdAllocator
     {
         return $this->next++;
     }
+
+    /**
+     * Le prochain identifiant, sans le consommer : la seule facon de faire
+     * survivre le compteur a un redemarrage (Core\Snapshot\SnapshotCodec).
+     * La restauration passe par le constructeur.
+     */
+    public function next(): int
+    {
+        return $this->next;
+    }
 }

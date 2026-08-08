@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flair\Kernel\Football\Events;
 
 use Flair\Kernel\Core\Messaging\DomainEvent;
+use Flair\Kernel\Core\Snapshot\SnapshotArrayOf;
 
 /**
  * La saison d'une competition est terminee, et voici son classement final :
@@ -48,6 +49,7 @@ final class SeasonConcluded implements DomainEvent
     /** @param list<int> $finalRanking clubId du premier au dernier du classement */
     public function __construct(
         public int $competitionId,
+        #[SnapshotArrayOf('int')]
         public array $finalRanking,
     ) {
     }

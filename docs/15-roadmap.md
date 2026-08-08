@@ -87,6 +87,8 @@ Finances des clubs, grand livre monétaire, contrats, marché des transferts mul
 
 > **Critère de sortie :** invariant de conservation monétaire vert sur 20 saisons, et inflation dans la cible du ruleset.
 
+> ✅ **Phase close le 2026-08-08.** Les deux moitiés du critère (la seconde réécrite, voir la note ⚠️ ci-dessous) sont **mécanisées et vertes** : `Harness\Tests\Regression\MonetaryConservationTest` (les deux cas, avec le garde-fou qui exige qu'il ait réellement circulé des indemnités) et `Harness\Tests\Regression\InflationRegressionTest` (no-op strict au défaut, stationnarité réelle à 3 %). Suites au moment de la clôture : kernel 300 tests, harness 72, Regression 7. Deux limites mesurées, chiffrées et **non corrigées**, à connaître avant la Phase 3 : le décrochage de l'emploi à 3 % d'inflation, et un marché réel mais économiquement inerte (~3 transferts par saison, indemnité médiane à 9 % de `baseValueCents`). La seconde n'est pas un défaut d'équilibrage à rattraper ici — elle tient à ce qu'aucun prix de ce monde n'est encore un prix d'**équilibre** — mais c'est le chiffre à surveiller, parce que c'est le volume de la boucle de jeu de la Phase 5.
+
 > ⚠️ **Seconde moitié réécrite le 2026-08-07, à la fin du lot 3.** « Inflation dans la cible » n'était défini nulle part — ni la grandeur, ni la fenêtre, ni la tolérance, ni le nombre de graines — et il s'est avéré, mesure à l'appui, **sans contenu tel que formulé**. Ce monde n'a aucune inflation endogène : salaires et valeurs sont des formules du `Ruleset`, pas des prix d'équilibre, donc aucune quantité de monnaie ne les déplace (mesuré : masse et masse salariale plates trente saisons durant, sans aucun régulateur). L'indice d'inflation est donc nécessairement une **décision** de politique monétaire, et le taux réalisé égale la cible **par construction** — le vérifier ne prouve rien.
 >
 > L'énoncé qui le remplace, et que `Harness\Tests\Regression\InflationRegressionTest` mécanise :
@@ -191,6 +193,24 @@ Finances des clubs, grand livre monétaire, contrats, marché des transferts mul
 Event store, snapshots, boucle du Host, cadence temps réel, verrou mono-writer, un monde qui tourne en continu.
 
 > **Critère de sortie :** tuer le processus au hasard, le relancer, et le monde reprend sans incohérence.
+
+> **Lot 1 — sérialisation du `WorldState` : fait le 2026-08-08.** Premier lot de la phase, et délibérément celui-ci : tant que l'état ne se sérialise pas, il n'y a rien à écrire en base et l'event store, le verrou et la boucle du Host ne sont que de la plomberie autour du vide. Il se conçoit et se vérifie **sans aucune infrastructure** — c'est le bénéfice du noyau pur, et ça met le critère de sortie de la phase sous test avant même que Postgres existe.
+>
+> Livré dans `Core\Snapshot\` (kernel, donc pur et sans I/O — le format appartient au noyau, le Host ne stockera que des octets) : `TypeRegistry` (clé stable ↔ classe, aucun FQCN dans le payload, et le même registre alimentera la colonne `events.type`), `SnapshotCodec`, `ValueCodec` (réflexif sur les propriétés promues), `SnapshotContract`, l'attribut `SnapshotArrayOf`, l'enveloppe `WorldSnapshot`, `JsonSnapshotFormat`, plus `Kernel::VERSION` et `Football\FootballTypes`. Détail classe par classe dans `packages/kernel/README.md`, format dans `13-` §5.
+>
+> **Trois choses que le code a corrigées dans la conception écrite ici :**
+>
+> 1. **Le tick n'est pas dans le `WorldState`** — `13-` §8 écrivait `$state->tick + 1`, qui n'a jamais existé : le tick vit dans `TickContext`, comme la graine. D'où une **enveloppe**, sans quoi un monde rechargé ne sait ni quel jour on est ni comment tirer ses aléas.
+> 2. **Le rejeu du delta est abandonné, mesures à l'appui** (`13-` §5, révisé) : snapshot **à chaque tick**, dans la transaction qui écrit les événements. Mesuré sur 500 joueurs / 18 clubs / 12 saisons : 0,38 Mo par snapshot (0,05 Mo gzippé), 6,9 ms pour encoder, 13,7 ms pour relire, contre 6,1 ms de coût moyen d'un tick. À 1 tick/h, rejouer n'achète rien et rouvre le piège du `13-` §6.
+> 3. **La conformité est mécanisée, pas mémorisée.** Un type du domaine oublié serait de l'état perdu au redémarrage, en silence — le pire mode de panne possible. `Tests\Core\Snapshot\SnapshotConformanceTest` balaie `src/Football/{Components,Singletons,Events}` sur disque et exige que chaque type soit enregistré **ou atteignable** depuis un type enregistré (ce qui laisse leur place aux types de valeur : `Position` n'est jamais un composant, `StandingsEntry` n'existe qu'imbriquée). Une liste tenue à la main aurait eu exactement le défaut qu'on corrigeait.
+>
+> **Le critère de sortie de la phase est déjà sous test**, sans base de données : `Harness\Tests\Regression\SnapshotContinuityTest` interrompt un run au premier tick où chaque structure fragile est réellement occupée — OutQueue non vide, Scheduler non vide, `Negotiation` en cours (le seul état multi-tick du monde) — ne garde que la chaîne JSON, et vérifie que la suite est indiscernable d'un run jamais interrompu : même hash d'état **et** même hash de séquence d'événements. Le test échoue si l'une des trois structures n'a jamais été couverte, sur le modèle du garde-fou de `MonetaryConservationTest`. Éprouvé par trois sabotages du codec (Scheduler, OutQueue, compteur d'entités jetés tour à tour) : **les trois sont détectés**.
+>
+> **Trou fermé au passage** : `Harness\Support\WorldHasher` tenait sa propre liste de types, à laquelle il manquait `BoardPatience`, `Negotiation` et le singleton `MarketInflation` — tout le marché des transferts était hors du test de déterminisme depuis le lot 3, sans que rien ne le signale. Elle dérive désormais de `FootballTypes`, dont l'exhaustivité est garantie par le test de conformité. Deux listes du même monde finissent toujours par diverger ; il n'y en a plus qu'une.
+>
+> **Non-régression vérifiée dans un même build**, jamais contre des nombres notés dans un document (`13-` §4.1) : empreinte complète d'un run 500 joueurs / 18 clubs / 12 saisons, arbre pré-lot contre arbre courant, via un autoloader dédié pointant tour à tour sur les deux arbres — **état et séquence d'événements identiques au chiffre près** (5 697 événements). Attendu : le lot n'ajoute aucune entité au genesis et ne touche aucun flux RNG.
+>
+> Restent dans la phase : event store Postgres, projections, verrou advisory mono-writer, `AdvanceWorldCommand` et son déclenchement par cron, SSE. Laravel n'a été nécessaire à aucune ligne de ce lot.
 
 ### Phase 4 — API + admin *(≈ 4 semaines)*
 

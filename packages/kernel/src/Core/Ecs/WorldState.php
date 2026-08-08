@@ -23,6 +23,14 @@ use Flair\Kernel\Core\Messaging\Scheduler;
  * N'expose volontairement aucune methode "toutes les entites du monde" :
  * une requete se fait toujours par intersection de colonnes (§2), jamais par
  * balayage global.
+ *
+ * componentTypes()/singletonInstances()/nextEntityId() n'y contreviennent
+ * pas : elles enumerent des **types** et le compteur d'entites, pas des
+ * entites. L'interdiction ci-dessus porte sur les requetes du domaine, qui
+ * doivent partir d'une colonne ; la serialisation, elle, doit au contraire
+ * etre exhaustive par construction - un type qu'un snapshot ne saurait pas
+ * enumerer serait de l'etat perdu au redemarrage, en silence
+ * (Core\Snapshot\SnapshotCodec).
  */
 final class WorldState
 {
@@ -80,5 +88,47 @@ final class WorldState
     {
         /** @var T|null */
         return $this->singletons[$type] ?? null;
+    }
+
+    /**
+     * Les types de composants **reellement peuples**. components() cree un
+     * store vide a la lecture : un type dont le store existe mais est vide
+     * n'est pas un fait du monde, seulement la trace d'une lecture, et il n'a
+     * rien a faire dans un snapshot.
+     *
+     * @return list<class-string>
+     */
+    public function componentTypes(): array
+    {
+        $types = [];
+        foreach ($this->componentStores as $type => $store) {
+            if ($store->entities() !== []) {
+                $types[] = $type;
+            }
+        }
+
+        return $types;
+    }
+
+    /**
+     * Les singletons presents, sans ordre garanti : l'appelant qui a besoin
+     * d'un ordre total le derive de son propre critere (le codec de snapshot
+     * trie par cle de registre), jamais de l'ordre d'insertion.
+     *
+     * @return list<object>
+     */
+    public function singletonInstances(): array
+    {
+        return array_values($this->singletons);
+    }
+
+    /**
+     * Le prochain EntityId qui sera alloue. Sert exclusivement a la
+     * persistance : le perdre reattribuerait des identifiants deja utilises,
+     * alors que docs/12- §2 les promet uniques et jamais reutilises.
+     */
+    public function nextEntityId(): int
+    {
+        return $this->entityIds->next();
     }
 }
