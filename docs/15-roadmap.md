@@ -62,7 +62,7 @@ Chaque phase a un **critère de sortie mesurable**. On ne passe pas à la suivan
 
 C'est la phase la plus importante du projet. Si elle échoue, rien d'autre n'a d'intérêt.
 
-> **Mesuré empiriquement le 2026-08-02** (`packages/harness/bin/aggregate.php`, seeds 42 et 7, 500 joueurs / 18 clubs) : le critère "20 saisons" tel qu'écrit est trop court pour une population initiale de 500 joueurs répartie sur tout l'éventail d'âges (`Harness\Population\PopulationFactory`) — elle n'est pas encore à l'équilibre d'âge à l'année 20 (effectif encore en décroissance transitoire de 459 à ~320). Deux options pour rendre le critère opérationnel : (a) partir d'une population déjà à l'équilibre d'âge (nécessiterait un mode de génération dédié, hors périmètre actuel), ou (b) mesurer sur une fenêtre de 30-40 saisons avec une population initiale large. On retient (b). Résultat sur 40 saisons : effectif stationnaire ~313-329 joueurs dès l'année ~13 (confirmé sur deux graines indépendantes), répartition domicile/nul/extérieur 41.8%/29.6%/28.6% (proche du réel), scores les plus fréquents 1-1/0-0/1-0/2-1 dans un ordre réaliste. Sur 19 saisons (seed 42) : 11 champions différents sur 18 clubs (deux clubs à 4 titres chacun, aucun quasi-monopole). **Phase 0 est close sur cette base.**
+> **Mesuré empiriquement le 2026-08-02** (`packages/harness/bin/aggregate.php`, seeds 42 et 7, 500 joueurs / 18 clubs) : le critère "20 saisons" tel qu'écrit est trop court pour une population initiale de 500 joueurs répartie sur tout l'éventail d'âges (`Worldgen\WorldFactory`, alors `Harness\Population\PopulationFactory`) — elle n'est pas encore à l'équilibre d'âge à l'année 20 (effectif encore en décroissance transitoire de 459 à ~320). Deux options pour rendre le critère opérationnel : (a) partir d'une population déjà à l'équilibre d'âge (nécessiterait un mode de génération dédié, hors périmètre actuel), ou (b) mesurer sur une fenêtre de 30-40 saisons avec une population initiale large. On retient (b). Résultat sur 40 saisons : effectif stationnaire ~313-329 joueurs dès l'année ~13 (confirmé sur deux graines indépendantes), répartition domicile/nul/extérieur 41.8%/29.6%/28.6% (proche du réel), scores les plus fréquents 1-1/0-0/1-0/2-1 dans un ordre réaliste. Sur 19 saisons (seed 42) : 11 champions différents sur 18 clubs (deux clubs à 4 titres chacun, aucun quasi-monopole). **Phase 0 est close sur cette base.**
 
 ### Phase 1 — Le harness d'équilibrage *(≈ 2 semaines)*
 
@@ -86,6 +86,8 @@ Deux ajouts qui font la valeur de cette phase :
 Finances des clubs, grand livre monétaire, contrats, marché des transferts multi-tours, perception/scouting, agents PNJ.
 
 > **Critère de sortie :** invariant de conservation monétaire vert sur 20 saisons, et inflation dans la cible du ruleset.
+
+> ✅ **Phase close le 2026-08-08.** Les deux moitiés du critère (la seconde réécrite, voir la note ⚠️ ci-dessous) sont **mécanisées et vertes** : `Harness\Tests\Regression\MonetaryConservationTest` (les deux cas, avec le garde-fou qui exige qu'il ait réellement circulé des indemnités) et `Harness\Tests\Regression\InflationRegressionTest` (no-op strict au défaut, stationnarité réelle à 3 %). Suites au moment de la clôture : kernel 300 tests, harness 72, Regression 7. Deux limites mesurées, chiffrées et **non corrigées**, à connaître avant la Phase 3 : le décrochage de l'emploi à 3 % d'inflation, et un marché réel mais économiquement inerte (~3 transferts par saison, indemnité médiane à 9 % de `baseValueCents`). La seconde n'est pas un défaut d'équilibrage à rattraper ici — elle tient à ce qu'aucun prix de ce monde n'est encore un prix d'**équilibre** — mais c'est le chiffre à surveiller, parce que c'est le volume de la boucle de jeu de la Phase 5.
 
 > ⚠️ **Seconde moitié réécrite le 2026-08-07, à la fin du lot 3.** « Inflation dans la cible » n'était défini nulle part — ni la grandeur, ni la fenêtre, ni la tolérance, ni le nombre de graines — et il s'est avéré, mesure à l'appui, **sans contenu tel que formulé**. Ce monde n'a aucune inflation endogène : salaires et valeurs sont des formules du `Ruleset`, pas des prix d'équilibre, donc aucune quantité de monnaie ne les déplace (mesuré : masse et masse salariale plates trente saisons durant, sans aucun régulateur). L'indice d'inflation est donc nécessairement une **décision** de politique monétaire, et le taux réalisé égale la cible **par construction** — le vérifier ne prouve rien.
 >
@@ -192,6 +194,46 @@ Event store, snapshots, boucle du Host, cadence temps réel, verrou mono-writer,
 
 > **Critère de sortie :** tuer le processus au hasard, le relancer, et le monde reprend sans incohérence.
 
+> ✅ **Atteint le 2026-08-08** (lot 3 ci-dessous), et vérifié au sens littéral : un vrai sous-processus, un vrai SIGKILL, trois fois de suite — `Host\Tests\CrashRecoveryTest`.
+
+> **Lot 1 — sérialisation du `WorldState` : fait le 2026-08-08.** Premier lot de la phase, et délibérément celui-ci : tant que l'état ne se sérialise pas, il n'y a rien à écrire en base et l'event store, le verrou et la boucle du Host ne sont que de la plomberie autour du vide. Il se conçoit et se vérifie **sans aucune infrastructure** — c'est le bénéfice du noyau pur, et ça met le critère de sortie de la phase sous test avant même que Postgres existe.
+>
+> Livré dans `Core\Snapshot\` (kernel, donc pur et sans I/O — le format appartient au noyau, le Host ne stockera que des octets) : `TypeRegistry` (clé stable ↔ classe, aucun FQCN dans le payload, et le même registre alimentera la colonne `events.type`), `SnapshotCodec`, `ValueCodec` (réflexif sur les propriétés promues), `SnapshotContract`, l'attribut `SnapshotArrayOf`, l'enveloppe `WorldSnapshot`, `JsonSnapshotFormat`, plus `Kernel::VERSION` et `Football\FootballTypes`. Détail classe par classe dans `packages/kernel/README.md`, format dans `13-` §5.
+>
+> **Trois choses que le code a corrigées dans la conception écrite ici :**
+>
+> 1. **Le tick n'est pas dans le `WorldState`** — `13-` §8 écrivait `$state->tick + 1`, qui n'a jamais existé : le tick vit dans `TickContext`, comme la graine. D'où une **enveloppe**, sans quoi un monde rechargé ne sait ni quel jour on est ni comment tirer ses aléas.
+> 2. **Le rejeu du delta est abandonné, mesures à l'appui** (`13-` §5, révisé) : snapshot **à chaque tick**, dans la transaction qui écrit les événements. Mesuré sur 500 joueurs / 18 clubs / 12 saisons : 0,38 Mo par snapshot (0,05 Mo gzippé), 6,9 ms pour encoder, 13,7 ms pour relire, contre 6,1 ms de coût moyen d'un tick. À 1 tick/h, rejouer n'achète rien et rouvre le piège du `13-` §6.
+> 3. **La conformité est mécanisée, pas mémorisée.** Un type du domaine oublié serait de l'état perdu au redémarrage, en silence — le pire mode de panne possible. `Tests\Core\Snapshot\SnapshotConformanceTest` balaie `src/Football/{Components,Singletons,Events}` sur disque et exige que chaque type soit enregistré **ou atteignable** depuis un type enregistré (ce qui laisse leur place aux types de valeur : `Position` n'est jamais un composant, `StandingsEntry` n'existe qu'imbriquée). Une liste tenue à la main aurait eu exactement le défaut qu'on corrigeait.
+>
+> **Le critère de sortie de la phase est déjà sous test**, sans base de données : `Harness\Tests\Regression\SnapshotContinuityTest` interrompt un run au premier tick où chaque structure fragile est réellement occupée — OutQueue non vide, Scheduler non vide, `Negotiation` en cours (le seul état multi-tick du monde) — ne garde que la chaîne JSON, et vérifie que la suite est indiscernable d'un run jamais interrompu : même hash d'état **et** même hash de séquence d'événements. Le test échoue si l'une des trois structures n'a jamais été couverte, sur le modèle du garde-fou de `MonetaryConservationTest`. Éprouvé par trois sabotages du codec (Scheduler, OutQueue, compteur d'entités jetés tour à tour) : **les trois sont détectés**.
+>
+> **Trou fermé au passage** : `Harness\Support\WorldHasher` tenait sa propre liste de types, à laquelle il manquait `BoardPatience`, `Negotiation` et le singleton `MarketInflation` — tout le marché des transferts était hors du test de déterminisme depuis le lot 3, sans que rien ne le signale. Elle dérive désormais de `FootballTypes`, dont l'exhaustivité est garantie par le test de conformité. Deux listes du même monde finissent toujours par diverger ; il n'y en a plus qu'une.
+>
+> **Non-régression vérifiée dans un même build**, jamais contre des nombres notés dans un document (`13-` §4.1) : empreinte complète d'un run 500 joueurs / 18 clubs / 12 saisons, arbre pré-lot contre arbre courant, via un autoloader dédié pointant tour à tour sur les deux arbres — **état et séquence d'événements identiques au chiffre près** (5 697 événements). Attendu : le lot n'ajoute aucune entité au genesis et ne touche aucun flux RNG.
+>
+> **Lot 2 — `packages/worldgen` : fait le 2026-08-08.** Un déblocage, pas une fonctionnalité. `host` doit pouvoir **créer** un monde, et le graphe de `11-` §7 lui interdit d'importer `harness` : un outil de mesure ne peut pas devenir la source des mondes de production. La genèse a donc quitté `harness/src/Population/` pour son propre package — `WorldFactory` (ex-`PopulationFactory`), `ClubFactory`, `CompetitionFactory`, `StaffFactory`, plus un `WorldSpec` neuf.
+>
+> **La spec s'est scindée là où elle mélangeait deux choses.** `PopulationSpec` portait la forme du monde *et* une durée de run (`years`) qui n'a rien à faire dans un générateur de monde. `Worldgen\WorldSpec` ne garde que le monde ; `Harness\Population\PopulationSpec` survit avec `years` et **sa signature à plat inchangée**, en gagnant un `world()` — les ~20 sites de construction en arguments nommés n'ont pas bougé d'une ligne, seuls les 11 appels à `populate()` ont changé.
+>
+> **Le seul critère de réussite d'un lot pareil est l'exactitude bit-à-bit**, et les suites de tests ne peuvent pas la prouver : elles comparent des runs entre eux dans un même build, jamais contre le build précédent. Vérifié comme au lot 1 — `git worktree` sur la révision d'avant, un script d'empreinte à autoloader maison, deux exécutions : **état, séquence d'événements, compteur d'entités et liste des `EntityId` joueurs identiques** sur 500 joueurs / 18 clubs / 12 saisons (5 697 événements).
+>
+> Deux dettes soldées au passage, puisqu'on touchait aux README : `packages/harness/README.md` décrivait encore un `src/Simulation/PipelineFactory` supprimé depuis que l'ordre du pipeline est dérivé par `SystemGraph`, et une description de `WorldHasher` périmée depuis le lot snapshot.
+>
+> **Lot 3 — `packages/host` : fait le 2026-08-08. Le critère de sortie de la phase est atteint.** Trois tables (`worlds`, `events`, `snapshots`), `AdvanceWorld`, `CreateWorld`, verrou advisory mono-writer, et un CLI (`bin/host.php`). Stack : `illuminate/database` seul — **pas** de skeleton Laravel, parce que `api → host` fait de `host` une *dépendance* et que deux skeletons d'application ne se composent pas. La Phase 4 mettra Laravel complet dans `api`.
+>
+> **Tout tient dans une seule transaction** : verrou, lecture du snapshot, `step()`, écriture des Faits, écriture du snapshot, mise à jour du tick. C'est cette atomicité, et elle seule, qui rend le critère vrai — tuer le processus laisse la base avant ou après le tick, jamais au milieu.
+>
+> `Harness\Tests\Regression\SnapshotContinuityTest` mécanisait la propriété côté noyau ; `Host\Tests\CrashRecoveryTest` la vérifie **pour de vrai** : un sous-processus réel, un **SIGKILL** en plein vol, trois fois de suite, puis deux assertions distinctes — la base est cohérente (tick, snapshot et dernier Fait journalisé d'accord) et le monde repris est **identique** à un monde jamais interrompu. Éprouvé par sabotage : sans transaction du tout, détecté **4 fois sur 4** ; avec deux transactions successives, **2 fois sur 6** (la fenêtre vulnérable ne dure que quelques microsecondes). C'est un filet probabiliste, la garantie reste structurelle — dit tel quel dans le test.
+>
+> **Trois choses mesurées, dont deux imprévues.**
+>
+> 1. **Le coût d'écriture en base : 17,8 ms/tick contre 18,7 ms de simulation** (500 joueurs / 18 clubs). Première confirmation chiffrée de `13-` §7 — la base coûte autant que le noyau. À un tick par heure, les deux sont sans objet.
+> 2. **`jsonb` réordonne les clés d'objet.** Un snapshot relu depuis `jsonb` n'est donc plus identique octet pour octet à ce que le noyau a produit, alors que `SnapshotCodec` garantit cette stabilité. La relecture restait correcte, mais la propriété se perdait en silence à la frontière de la base. `snapshots.state` est passé en `json` (texte conservé tel quel) ; `events.payload` reste en `jsonb`, les projections de la Phase 4 devront l'interroger.
+> 3. **Le verrou advisory survit 0,7 à 3,4 ms au processus tué**, le temps que PostgreSQL constate la connexion perdue. Sans conséquence pour un cron horaire ; fatal pour un test qui enchaîne mise à mort et reprise immédiate — c'est ce qui rendait `CrashRecoveryTest` instable (4 échecs sur 8) avant qu'il n'attende la libération du verrou. 0 échec sur 10 depuis.
+>
+> Restent dans la phase, et ils appartiennent en réalité à la Phase 4 : projections, SSE. Le jour venu, **les projections devront rejoindre cette même transaction** (sinon un client voit un monde incohérent après un crash) et **la diffusion SSE devra rester dehors** (publier avant le commit annoncerait un tick qui peut encore être annulé).
+
 ### Phase 4 — API + admin *(≈ 4 semaines)*
 
 Projections, API de requêtes, flux SSE, IHM d'administration pour explorer et éditer le monde.
@@ -223,7 +265,7 @@ Moteur L1 Markov, narration émergente, multi-pays, coupes continentales, média
 > - Pour que ça tienne, l'offre doit **excéder la demande** : les académies produisent nettement plus de joueurs que les effectifs n'en absorbent.
 > - Les joueurs en trop restent **sans club** et partent à la retraite selon leur **personnalité**, ce qui donne enfin un rôle décisionnel aux attributs mentaux aujourd'hui dormants (`leadership`, `discipline`).
 >
-> Ça remplace deux bricolages du lot des postes : le pilotage par le besoin ci-dessus, et la distribution imposée des archétypes au genesis (`Harness\Population\PopulationFactory::archetypeDeal()`). Ça suppose aussi que le marché des transferts existe, sans quoi un joueur sans club n'a aucun chemin de retour.
+> Ça remplace deux bricolages du lot des postes : le pilotage par le besoin ci-dessus, et la distribution imposée des archétypes au genesis (`Worldgen\WorldFactory::archetypeDeal()`). Ça suppose aussi que le marché des transferts existe, sans quoi un joueur sans club n'a aucun chemin de retour.
 
 ---
 

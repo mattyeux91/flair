@@ -2,11 +2,8 @@
 
 declare(strict_types=1);
 
-namespace Flair\Harness\Tests\Population;
+namespace Flair\Worldgen\Tests;
 
-use Flair\Harness\Population\PopulationFactory;
-use Flair\Harness\Population\PopulationSpec;
-use Flair\Harness\Population\StaffFactory;
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Support\Rng;
 use Flair\Kernel\Football\Components\Contract;
@@ -15,6 +12,9 @@ use Flair\Kernel\Football\Components\Person;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
 use Flair\Kernel\Football\Components\Scout;
 use Flair\Kernel\Football\Components\SquadMembership;
+use Flair\Worldgen\StaffFactory;
+use Flair\Worldgen\WorldFactory;
+use Flair\Worldgen\WorldSpec;
 use PHPUnit\Framework\TestCase;
 
 final class StaffFactoryTest extends TestCase
@@ -91,9 +91,9 @@ final class StaffFactoryTest extends TestCase
     public function testStaffIdentifiersComeAfterEveryPlayerIdentifier(): void
     {
         $world = new WorldState();
-        $spec = new PopulationSpec(playerCount: 20, years: 1, seed: 1, clubCount: 4);
+        $spec = new WorldSpec(playerCount: 20, seed: 1, clubCount: 4);
 
-        $playerIds = (new PopulationFactory())->populate($world, $spec);
+        $playerIds = (new WorldFactory())->populate($world, $spec);
 
         $staffIds = $world->components(Scout::class)->entities();
         self::assertCount(4, $staffIds);

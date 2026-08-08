@@ -6,7 +6,6 @@ namespace Flair\Harness\Tests\Metrics;
 
 use Flair\Harness\Metrics\EventGraphCollector;
 use Flair\Harness\Metrics\Sampler;
-use Flair\Harness\Population\PopulationFactory;
 use Flair\Harness\Population\PopulationSpec;
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Pipeline\Pipeline;
@@ -23,6 +22,7 @@ use Flair\Kernel\Football\Systems\PlayerDevelopmentSystem;
 use Flair\Kernel\Football\Systems\RetirementSystem;
 use Flair\Kernel\Football\Systems\TrainingSystem;
 use Flair\Kernel\Football\Systems\YouthIntakeSystem;
+use Flair\Worldgen\WorldFactory;
 use PHPUnit\Framework\TestCase;
 
 final class SamplerTest extends TestCase
@@ -52,7 +52,7 @@ final class SamplerTest extends TestCase
         $spec = new PopulationSpec(playerCount: 30, years: 10, seed: 7, clubCount: 4);
 
         $world = new WorldState();
-        $playerIds = (new PopulationFactory())->populate($world, $spec);
+        $playerIds = (new WorldFactory())->populate($world, $spec->world());
         $result = (new Sampler())->run($world, $playerIds, $spec->years, $spec->seed, $ruleset);
 
         self::assertSame($result->populationByYear[$spec->years], array_sum($result->finalAgeHistogram));
@@ -64,7 +64,7 @@ final class SamplerTest extends TestCase
         $spec = new PopulationSpec(playerCount: 200, years: 5, seed: 42, clubCount: 8);
 
         $world = new WorldState();
-        $playerIds = (new PopulationFactory())->populate($world, $spec);
+        $playerIds = (new WorldFactory())->populate($world, $spec->world());
         $result = (new Sampler())->run($world, $playerIds, $spec->years, $spec->seed, $ruleset);
 
         self::assertNotSame([], $result->goalsPerMatchHistogram);
@@ -95,7 +95,7 @@ final class SamplerTest extends TestCase
         $spec = new PopulationSpec(playerCount: 200, years: $years, seed: 42, clubCount: 6);
 
         $world = new WorldState();
-        $playerIds = (new PopulationFactory())->populate($world, $spec);
+        $playerIds = (new WorldFactory())->populate($world, $spec->world());
         $result = (new Sampler())->run($world, $playerIds, $spec->years, $spec->seed, $ruleset);
 
         self::assertCount($years - 1, $result->seasonHistory);
@@ -114,7 +114,7 @@ final class SamplerTest extends TestCase
         $spec = new PopulationSpec(playerCount: 60, years: 5, seed: 42, clubCount: 6);
 
         $world = new WorldState();
-        $playerIds = (new PopulationFactory())->populate($world, $spec);
+        $playerIds = (new WorldFactory())->populate($world, $spec->world());
         $eventGraph = new EventGraphCollector();
         (new Sampler())->run($world, $playerIds, $spec->years, $spec->seed, $ruleset, $eventGraph);
 
@@ -132,7 +132,7 @@ final class SamplerTest extends TestCase
         $spec = new PopulationSpec(playerCount: 50, years: 5, seed: 42, clubCount: 0);
 
         $world = new WorldState();
-        $playerIds = (new PopulationFactory())->populate($world, $spec);
+        $playerIds = (new WorldFactory())->populate($world, $spec->world());
         $result = (new Sampler())->run($world, $playerIds, $spec->years, $spec->seed, $ruleset);
 
         self::assertSame([], $result->goalsPerMatchHistogram);
@@ -154,7 +154,7 @@ final class SamplerTest extends TestCase
      * deux pipelines, pas juste changer d'etiquette.
      *
      * Ce qui reste rigoureusement garanti, et ce que ce test verifie : la
-     * **population initiale** (creee par `PopulationFactory` avant que le
+     * **population initiale** (creee par `WorldFactory` avant que le
      * moindre systeme ne tourne, donc avec des ids stables quel que soit le
      * pipeline) n'est affectee par aucune valeur ni RNG lie a
      * Calendar/Match/CompetitionSystem, qui ne lisent ni n'ecrivent aucun
@@ -180,7 +180,7 @@ final class SamplerTest extends TestCase
     private function finalPopulation(PopulationSpec $spec, Ruleset $ruleset): int
     {
         $world = new WorldState();
-        $playerIds = (new PopulationFactory())->populate($world, $spec);
+        $playerIds = (new WorldFactory())->populate($world, $spec->world());
         $result = (new Sampler())->run($world, $playerIds, $spec->years, $spec->seed, $ruleset);
 
         return $result->populationByYear[$spec->years] ?? 0;
@@ -189,7 +189,7 @@ final class SamplerTest extends TestCase
     private function initialPopulationSkillSignature(PopulationSpec $spec, Ruleset $ruleset, bool $includeMatchSystems): string
     {
         $world = new WorldState();
-        $playerIds = (new PopulationFactory())->populate($world, $spec);
+        $playerIds = (new WorldFactory())->populate($world, $spec->world());
 
         $systems = [
             new YouthIntakeSystem(),

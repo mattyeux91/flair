@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Flair\Harness\Population;
+namespace Flair\Worldgen;
 
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Support\Rng;
@@ -12,18 +12,18 @@ use Flair\Kernel\Football\Components\Facilities;
 use Flair\Kernel\Football\Components\Finances;
 
 /**
- * Cree des clubs synthetiques pour le harness - sans clubs (`Club` +
- * `Facilities`), ni `Football\TrainingSystem` (aucun `SquadMembership` a
- * lire) ni `Football\YouthIntakeSystem` (aucune entite ou promouvoir, cf.
+ * Cree les clubs d'un monde - sans clubs (`Club` + `Facilities`), ni
+ * `Football\TrainingSystem` (aucun `SquadMembership` a lire) ni
+ * `Football\YouthIntakeSystem` (aucune entite ou promouvoir, cf.
  * `Football\YouthIntakeSystem::update`, qui itere `Club::class`) ne peuvent
  * produire le moindre effet - deux systemes entiers du pipeline restaient
- * incalibrables via le harness.
+ * incalibrables tant qu'aucun club n'existait.
  *
- * Qualite d'installations uniforme sur tous les clubs plutot qu'une
- * variance tiree : le harness agrege sur la population entiere, pas par
- * club, donc une variance inter-clubs n'ajouterait aucun signal a ce qui
- * est mesure aujourd'hui - juste du bruit. A revisiter si un indicateur par
- * club apparait.
+ * Qualite d'installations et tresorerie de depart uniformes sur tous les
+ * clubs plutot que tirees : le harness agrege sur la population entiere et
+ * non par club, donc une variance inter-clubs n'ajouterait aucun signal a ce
+ * qui est mesure aujourd'hui - juste du bruit. A revisiter quand un
+ * indicateur par club, ou un monde de production, en aura besoin.
  */
 final class ClubFactory
 {
@@ -53,11 +53,11 @@ final class ClubFactory
      * une classe partagee).
      *
      * **Methode separee, appelee apres la population de joueurs** (voir
-     * `PopulationFactory::populate()`), jamais depuis `create()` ci-dessus :
+     * `WorldFactory::populate()`), jamais depuis `create()` ci-dessus :
      * `create()` ne tire aujourd'hui aucun nombre aleatoire et est appelee
      * *avant* la boucle des joueurs. Y ajouter des tirages y decalerait le
      * flux RNG partage de toute la population de joueurs, pas seulement du
-     * staff - le meme risque que `PopulationFactory::populate()` documente
+     * staff - le meme risque que `WorldFactory::populate()` documente
      * deja pour la position du staff, en pire (le staff, lui, est deja apres
      * les joueurs).
      *

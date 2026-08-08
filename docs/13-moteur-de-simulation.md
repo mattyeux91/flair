@@ -341,7 +341,23 @@ Tout ce qui circule dans les files n'a pas vocation à devenir de l'histoire :
 
 Et parmi les Faits eux-mêmes, **seuls ceux qui passent le seuil de pertinence** sont émis. Sans cette discipline, `FatigueChanged` sur 8 000 joueurs × 365 ticks inonde l'event store de 3 millions d'entrées de bruit par saison. Voir `16-evenements-et-cascades.md` §2.
 
-**Snapshots** : sérialisation complète du `WorldState` à intervalle régulier (fin de saison, et toutes les N ticks). Le démarrage charge le dernier snapshot et rejoue le delta. Sans snapshot, redémarrer un monde de 10 ans coûte des minutes.
+**Snapshots** : sérialisation complète du `WorldState`. Sans snapshot, redémarrer un monde de 10 ans coûte des minutes.
+
+> **Révisé le 2026-08-08, au lot snapshot : un snapshot par tick, et aucun rejeu.** Ce paragraphe disait « à intervalle régulier (fin de saison, et toutes les N ticks). Le démarrage charge le dernier snapshot et **rejoue le delta** ». Le rejeu est précisément le piège du §6 ci-dessous — rejouer un journal avec un noyau qui a bougé produit un autre monde — et il n'achète rien à 1 tick/h. Mesuré sur le monde de référence (500 joueurs, 18 clubs, 12 saisons simulées, 776 personnes vivantes, 4 248 entités allouées) : **0,38 Mo de JSON par snapshot** (0,05 Mo gzippé), **6,9 ms** pour encoder, **13,7 ms** pour relire, contre **6,1 ms** de coût moyen d'un tick. Snapshotter chaque tick triple donc le CPU d'un tick — c'est-à-dire rien du tout, à un tick par heure — et rend le redémarrage exact **par construction**, à condition d'écrire le snapshot et les événements dans la même transaction. À l'échelle cible du §7 (≈ 12 000 entités) l'ordre de grandeur reste ≈ 1 Mo et ≈ 20 ms ; l'échappatoire, le jour où ça coûtera, est de ne conserver que le dernier snapshot plus un par saison — pas de revenir au rejeu.
+
+**Le format**, implémenté dans `Core\Snapshot\` du kernel (pur, sans I/O : le noyau possède le format, le Host ne stocke que des octets) :
+
+```
+{ "format":1, "kernelVersion":…, "rulesetVersion":…, "worldId":…, "tick":…, "seed":…,
+  "state": { "nextEntityId":…, "components":{…}, "singletons":{…},
+             "scheduler":[…], "outQueue":[…] } }
+```
+
+Trois points que le code a imposés et qu'il vaut mieux ne pas redécouvrir :
+
+1. **Le tick n'est pas dans le `WorldState`** — il vit dans `TickContext`, comme la graine (le §8 ci-dessous écrivait `$state->tick + 1`, qui n'a jamais existé). D'où une **enveloppe** autour de l'état, sans laquelle un monde rechargé ne sait ni quel jour on est ni comment tirer ses aléas.
+2. **Le `Scheduler` et l'`OutQueue` en font partie, et c'est la moitié qu'on oublie.** Un événement seulement planifié n'a émis aucun Fait : l'event log ne le rattraperait pas, il serait perdu pour de bon.
+3. **Aucun FQCN dans le payload.** Un `TypeRegistry` traduit `clé stable ↔ classe`, pour que renommer une classe n'invalide ni un snapshot ni une ligne d'event log. C'est le même registre qui alimentera la colonne `type` ci-dessous — deux consommateurs réels, pas une abstraction posée par anticipation.
 
 > **Corollaire, et il se paie cher si on l'oublie : le `WorldState` est le _présent_, pas l'histoire.** Puisqu'il est sérialisé en entier à chaque snapshot, tout ce qu'on y laisse traîner est recopié indéfiniment. Une entité dont la raison d'être est passée doit être dépouillée par le système qui l'a créée — qui crée détruit.
 >
@@ -412,36 +428,41 @@ final class AdvanceWorldCommand
     {
         $this->lock->acquireOrExit($worldId);      // advisory lock Postgres
 
-        $world   = $this->worlds->load($worldId);
-        $state   = $this->snapshots->loadLatestAndReplay($worldId);
-        $intents = $this->intentInbox->drain($worldId);
+        $world    = $this->worlds->load($worldId);
+        $snapshot = $this->snapshots->loadLatest($worldId);   // plus de rejeu, cf. §5
+        $state    = $snapshot->restore($this->codec);
+        $intents  = $this->intentInbox->drain($worldId);
 
         $result = step($state, new TickContext(
-            tick:    $state->tick + 1,
+            tick:    $snapshot->tick + 1,      // le tick vient de l'enveloppe, pas de l'etat
             seed:    $world->seed,
             intents: $intents,
             ruleset: $this->rulesets->get($world->rulesetVersion),
         ));
 
-        $this->db->transactional(function () use ($worldId, $result) {
+        $this->db->transactional(function () use ($worldId, $world, $snapshot, $result) {
             $this->eventStore->append($worldId, $result->events);
             $this->projections->apply($result->events);
+            $this->snapshots->save(WorldSnapshot::capture(   // meme transaction : cf. ci-dessous
+                $this->codec,
+                $result->state,
+                $worldId,
+                $snapshot->tick + 1,
+                $world->seed,
+                $world->rulesetVersion,
+            ));
         });
 
         $this->stream->publish($worldId, $result->events);   // SSE
-
-        if ($this->isSnapshotTick($result->state)) {
-            $this->snapshots->save($worldId, $result->state);
-        }
     }
 }
 ```
 
 Points à respecter :
 - **Un seul writer par monde.** Un advisory lock Postgres garantit qu'aucun second processus ne fait avancer le même monde — indispensable avec un déclenchement par cron, où deux exécutions peuvent se chevaucher.
-- **Écriture des événements et des projections dans la même transaction**, sinon les clients voient un monde incohérent après un crash.
+- **Événements, projections et snapshot dans la même transaction**, sinon les clients voient un monde incohérent après un crash — et surtout, un snapshot en avance ou en retard sur l'event log rendrait l'histoire du monde fausse. C'est cette atomicité, et elle seule, qui fait tenir le critère de sortie de la Phase 3 sans rejeu.
 - **Le tick ne dépend pas de la latence réseau.** Si les intentions arrivent en retard, elles partent au tick suivant. Le monde n'attend personne — c'est ce qui rend le jeu asynchrone tolérable.
-- **Le coût de rechargement doit rester borné.** `loadLatestAndReplay` recharge un snapshot à chaque tick : c'est acceptable à 1 tick/h, ça ne l'est plus à 1 tick/s. Si un jour tu veux des ticks rapides, c'est là qu'un worker persistant (Swoole / FrankenPHP) devient nécessaire — l'architecture ne change pas, seul le mode d'exécution du Host change.
+- **Le coût de rechargement doit rester borné.** Recharger un snapshot à chaque tick coûte ~14 ms au monde de référence (§5) : acceptable à 1 tick/h, plus du tout à 1 tick/s. Si un jour tu veux des ticks rapides, c'est là qu'un worker persistant (Swoole / FrankenPHP) devient nécessaire — l'architecture ne change pas, seul le mode d'exécution du Host change.
 
 Dans le harness, la même fonction `step()` est appelée en boucle dans un seul processus CLI, sans persistance ni SSE. C'est exactement le bénéfice du noyau pur : **un seul code de simulation, deux modes d'exécution.**
 

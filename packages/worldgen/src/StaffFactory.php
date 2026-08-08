@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Flair\Harness\Population;
+namespace Flair\Worldgen;
 
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Support\Rng;

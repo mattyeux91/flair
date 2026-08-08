@@ -23,22 +23,22 @@ declare(strict_types=1);
 require __DIR__ . '/../vendor/autoload.php';
 
 use Flair\Harness\Comparison\RulesetOverride;
-use Flair\Harness\Population\PopulationFactory;
 use Flair\Harness\Population\PopulationSpec;
 use Flair\Harness\Simulation\StepRunner;
 use Flair\Harness\Support\WorldInspector;
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Messaging\DomainEvent;
 use Flair\Kernel\Core\Ruleset\Ruleset;
+use Flair\Worldgen\WorldFactory;
 
 const EVENT_LOG_CAPACITY = 200;
 
 $options = getopt('', ['players:', 'seed:', 'clubs:', 'facilities-quality:', 'set:']);
 
 // PopulationSpec::$years n'est consomme que par Metrics\Sampler (bornes de sa
-// boucle) - PopulationFactory::populate() ne le lit jamais. Sans utilite ici,
-// ou la longueur du run est dictee par les commandes `step`, pas par une
-// option de depart.
+// boucle) - la generation du monde ne le voit meme pas (Worldgen\WorldSpec ne
+// le porte pas). Sans utilite ici, ou la longueur du run est dictee par les
+// commandes `step`, pas par une option de depart.
 $spec = new PopulationSpec(
     playerCount: (int) ($options['players'] ?? 200),
     years: 1,
@@ -75,7 +75,7 @@ foreach ($rawSet as $entry) {
 $ruleset = $overrides === [] ? $baselineRuleset : RulesetOverride::withFields($baselineRuleset, $overrides);
 
 $world = new WorldState();
-$playerIds = (new PopulationFactory())->populate($world, $spec);
+$playerIds = (new WorldFactory())->populate($world, $spec->world());
 $runner = new StepRunner($world, $ruleset, $spec->seed);
 
 /** @var list<array{tick: int, event: DomainEvent}> $eventLog */

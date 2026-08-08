@@ -23,14 +23,22 @@ use Flair\Kernel\Football\FootballPipeline;
 final class StepRunner
 {
     private readonly Simulation $simulation;
-    private int $tick = 0;
+    private int $tick;
 
+    /**
+     * `$startTick` sert a reprendre un monde restaure depuis un snapshot au
+     * tick ou il s'etait arrete (Core\Snapshot\WorldSnapshot) : le tick ne
+     * vit pas dans le WorldState, personne d'autre ne peut le lui redonner.
+     * Defaut 0, donc comportement inchange pour un monde neuf.
+     */
     public function __construct(
         private readonly WorldState $world,
         private readonly Ruleset $ruleset,
         private readonly int $worldSeed,
+        int $startTick = 0,
     ) {
         $this->simulation = new Simulation(FootballPipeline::build());
+        $this->tick = $startTick;
     }
 
     /**

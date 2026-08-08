@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Flair\Harness\Tests\Regression;
 
-use Flair\Harness\Population\PopulationFactory;
 use Flair\Harness\Population\PopulationSpec;
 use Flair\Harness\Simulation\StepRunner;
 use Flair\Kernel\Core\Ecs\WorldState;
@@ -14,6 +13,7 @@ use Flair\Kernel\Football\Components\Employment;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
 use Flair\Kernel\Football\Components\Scout;
 use Flair\Kernel\Football\Components\SquadMembership;
+use Flair\Worldgen\WorldFactory;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -55,7 +55,7 @@ final class SquadIntegrityTest extends TestCase
     {
         $spec = new PopulationSpec(playerCount: 500, years: 20, seed: 42, clubCount: 18);
         $world = new WorldState();
-        (new PopulationFactory())->populate($world, $spec);
+        (new WorldFactory())->populate($world, $spec->world());
 
         (new StepRunner($world, new Ruleset('ci'), $spec->seed))->advance($spec->years * 365);
 

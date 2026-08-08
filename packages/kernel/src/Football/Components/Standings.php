@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Flair\Kernel\Football\Components;
 
+use Flair\Kernel\Core\Snapshot\SnapshotArrayOf;
+
 /**
  * Le classement d'une competition, porte par l'entite competition
  * elle-meme (docs/12- §3 : `Competition` porte `Standings`). Seul writer :
@@ -20,6 +22,7 @@ final readonly class Standings
 {
     /** @param array<int, StandingsEntry> $entries keye par clubId */
     public function __construct(
+        #[SnapshotArrayOf(StandingsEntry::class)]
         public array $entries = [],
     ) {
     }

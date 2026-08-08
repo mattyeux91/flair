@@ -76,7 +76,7 @@ final class WorldInspector
     /**
      * Classement de l'unique competition du monde (Phase 0 : une seule,
      * cf. docblock Football\Components\Competition). Renvoie [] si aucune
-     * competition n'existe (monde sans clubs, cf. Population\PopulationFactory).
+     * competition n'existe (monde sans clubs, cf. Worldgen\WorldFactory).
      *
      * @return list<array{clubId: int, clubName: string, played: int, won: int, drawn: int, lost: int, goalsFor: int, goalsAgainst: int, points: int}>
      */

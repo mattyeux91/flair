@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace Flair\Harness\Tests\Regression;
 
 use Flair\Harness\Metrics\Sampler;
-use Flair\Harness\Population\PopulationFactory;
 use Flair\Harness\Population\PopulationSpec;
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Ruleset\Ruleset;
+use Flair\Worldgen\WorldFactory;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -36,7 +36,7 @@ final class CalibrationRegressionTest extends TestCase
     {
         $spec = new PopulationSpec(playerCount: 500, years: 25, seed: 42, clubCount: 18);
         $world = new WorldState();
-        $playerIds = (new PopulationFactory())->populate($world, $spec);
+        $playerIds = (new WorldFactory())->populate($world, $spec->world());
         $result = (new Sampler())->run($world, $playerIds, $spec->years, $spec->seed, new Ruleset('ci'));
 
         $finalPopulation = $result->populationByYear[$spec->years];

@@ -1,17 +1,19 @@
 # `packages/harness` — harness d'équilibrage
 
-Simule des populations synthétiques sur le pipeline football du `kernel` et agrège des métriques de santé du monde (courbes de compétence, pyramide des âges, distribution des scores, équilibre compétitif, graphe d'événements). Dépend de `kernel` (path repository), jamais l'inverse (`docs/11-` §7).
+Simule des mondes sur le pipeline football du `kernel` et agrège des métriques de santé du monde (courbes de compétence, pyramide des âges, distribution des scores, équilibre compétitif, graphe d'événements). Dépend de `kernel` et de `worldgen` (path repositories), jamais l'inverse (`docs/11-` §7).
+
+> **La genèse d'un monde n'est plus ici** : elle a quitté `src/Population/` pour `packages/worldgen/` le 2026-08-08, parce que le futur `host` doit pouvoir créer un monde sans importer un outil de mesure. Le harness en reste un client parmi d'autres.
 
 Détail classe par classe des systèmes/composants simulés : `packages/kernel/README.md`. Ce README ne documente que ce qui est spécifique au harness.
 
 ## Arborescence
 
-- **`src/Population/`** — construction d'un monde initial : `StaffFactory` (un recruteur par club — `Person` + `Employment` + `Scout` —, appelé **en dernier** par `PopulationFactory` pour que les identifiants des joueurs restent ceux d'avant l'arrivée du staff), `PopulationFactory` (orchestre les autres + répartit les joueurs sur les clubs, round-robin, via `SquadMembership`), `ClubFactory` (clubs synthétiques + `Facilities`, qualité uniforme — sans clubs, `TrainingSystem`/`YouthIntakeSystem` restent incalibrables), `CompetitionFactory` (l'unique compétition de la Phase 0, sans quoi `CalendarSystem` n'a rien à planifier), `PopulationSpec` (paramètres d'un run, regroupés pour ne pas faire grossir une liste positionnelle sur les trois points d'appel qui en ont besoin).
-- **`src/Simulation/`** — `PipelineFactory` (seule source de vérité pour l'ordre du pipeline football, vérifié par `Tests\Simulation\PipelineFactoryTest`), `StepRunner` (enveloppe interactive tick-par-tick pour `bin/sandbox.php`, sans agrégation — ce n'est pas son rôle).
+- **`src/Population/`** — il n'y reste que `PopulationSpec` : les paramètres d'un run, c'est-à-dire **un monde à engendrer et pendant combien d'années le faire tourner**. Tous ses champs sauf `years` décrivent la forme du monde et sont convertis en `Worldgen\WorldSpec` par `world()` ; `years` n'a nulle part ailleurs où aller, c'est une question d'appelant, pas une propriété du monde. La signature reste volontairement à plat — une vingtaine de sites de construction l'utilisent en arguments nommés.
+- **`src/Simulation/`** — `StepRunner` (enveloppe interactive tick-par-tick pour `bin/sandbox.php`, sans agrégation — ce n'est pas son rôle ; `startTick` permet de reprendre un monde restauré depuis un snapshot). L'ordre du pipeline football **n'est plus ici** : il est déclaré une fois dans `Kernel\Football\FootballPipeline` et *dérivé* des déclarations `reads()`/`writes()` par `Core\Pipeline\SystemGraph`.
 - **`src/Metrics/`** — `Sampler` (fait tourner une simulation complète et échantillonne courbes/pyramide/scores/historique de saisons — voir son docblock pour le détail des invariants suivis), `Stats` (fonctions statistiques pures), `AggregateResult` (sortie agrégée, indépendante du format de rendu), `CompetitiveBalance`/`CompetitiveBalanceResult` (Gini des titres + rotation du top 5, post-traitement pur sur `AggregateResult::$seasonHistory`, `docs/14-` §7), `EventGraphCollector`/`EventGraphResult` (volume d'événements par type + backlog annuel du `Scheduler`, opt-in via `Sampler::run(..., $eventGraph)`, `docs/16-` §6 — voir la limitation documentée sur la profondeur de cascade et les entités sur-modifiées, non mesurables sans changer le contrat du noyau).
 - **`src/Comparison/`** — `PairedSeedComparison` (rejoue le même jeu de graines avec deux `Ruleset`, isole l'effet du bruit, `docs/13-` §4.0), `RulesetOverride` (construit un `Ruleset` modifié à partir d'un ensemble de champs de calibration, tous groupes de `Balance` confondus).
 - **`src/Report/`** — `TextReport` (rendu console), `JsonSerializer` (rendu JSON consommé par `public/app.js`) — même structure `AggregateResult`, aucune logique propre.
-- **`src/Support/`** — `WorldInspector` (lecture à la demande d'un `WorldState`, vérité pas perception — un outil de debug interne, pas un client de jeu), `WorldHasher` (hash déterministe d'un `WorldState` football et d'une séquence d'événements — même machine/même PHP seulement, `docs/13-` §4.8, pas une forme canonique cross-machine ; énumère explicitement les types de composants football connus, `WorldState` n'exposant volontairement aucun balayage global).
+- **`src/Support/`** — `WorldInspector` (lecture à la demande d'un `WorldState`, vérité pas perception — un outil de debug interne, pas un client de jeu), `WorldHasher` (hash déterministe d'un `WorldState` football et d'une séquence d'événements — même machine/même PHP seulement, `docs/13-` §4.8, pas une forme canonique cross-machine ; **sa liste de types dérive de `Kernel\Football\FootballTypes`**, le registre de persistance, depuis le lot snapshot — elle était tenue à la main et il y manquait `BoardPatience`, `Negotiation` et `MarketInflation`).
 - **`bin/aggregate.php`** — CLI de calibrage, sans plafond de taille (contrairement à `public/index.php`). `--set champ=valeur` (répétable) bascule en comparaison à graines appariées. `--event-graph` ajoute la section graphe d'événements au rapport.
 - **`bin/sandbox.php`** — stepper interactif tick-par-tick sur `StepRunner`.
 - **`public/`** — mini-appli web (PHP intégré, bornes de taille de requête distinctes du CLI) consommant `JsonSerializer` via `app.js`. Hors périmètre PHPStan pour l'instant (superglobales HTTP incompatibles avec le niveau max sans bruit).
@@ -22,7 +24,7 @@ Détail classe par classe des systèmes/composants simulés : `packages/kernel/R
 composer install
 vendor/bin/phpunit                    # suite par défaut (rapide, ~40s) - exclut tests/Regression
 vendor/bin/phpunit --testsuite Regression   # ~35s, run de calibrage complet (500 joueurs/18 clubs/25 saisons)
-vendor/bin/phpstan analyse             # niveau max sur src/tests/bin
+composer analyse                       # niveau max sur src/tests/bin (= phpstan --memory-limit=1G)
 ```
 
 `tests/Regression/CalibrationRegressionTest.php` est le garde-fou de non-régression du critère de sortie Phase 0 (`docs/15-roadmap.md` §4) : assertions numériques directes sur `Sampler::run()`, bornes larges (±8 points, 250-400 joueurs) pour attraper une vraie régression de calibrage sans réagir au bruit normal entre graines. `tests/Determinism/DeterministicRunTest.php` vérifie que même graine → même hash d'état et même hash de séquence d'événements sur le pipeline complet (via `WorldHasher`), critère de sortie Phase 1 distinct des vecteurs figés `Rng`/`Hash` déjà testés côté `kernel`.
@@ -74,7 +76,7 @@ Construit une population synthétique, fait tourner tout le pipeline football su
 
 **Deux expériences distinctes autour de la perception, à ne pas confondre :**
 - `--set baseErrorPoints=0` — perception contre omniscience, **même population des deux côtés** : c'est bien une comparaison à graines appariées, et l'interrupteur de mesure du lot de perception.
-- `--scout-judgement-spread=0` — tous les recruteurs égaux : le jugement d'un scout est une donnée du **monde**, pas un levier de `Ruleset` (voir `Population\PopulationSpec`), donc ce changement régénère la population et demande **deux runs séparés** à lire côte à côte.
+- `--scout-judgement-spread=0` — tous les recruteurs égaux : le jugement d'un scout est une donnée du **monde**, pas un levier de `Ruleset` (voir `Worldgen\WorldSpec`), donc ce changement régénère la population et demande **deux runs séparés** à lire côte à côte.
 
 Un champ inconnu ou une valeur hors bornes (`talentSkew`, `baseIntakePerClub` — les deux seuls champs qui bornent une boucle de tirage RNG) fait échouer la commande avant toute simulation.
 

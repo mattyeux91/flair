@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Flair\Harness\Tests\Population;
+namespace Flair\Worldgen\Tests;
 
-use Flair\Harness\Population\ClubFactory;
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Support\Rng;
 use Flair\Kernel\Football\Components\BoardPatience;
+use Flair\Worldgen\ClubFactory;
 use PHPUnit\Framework\TestCase;
 
 final class ClubFactoryTest extends TestCase

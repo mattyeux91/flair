@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Flair\Harness\Tests\Regression;
 
 use Flair\Harness\Comparison\RulesetOverride;
-use Flair\Harness\Population\PopulationFactory;
 use Flair\Harness\Population\PopulationSpec;
 use Flair\Harness\Simulation\StepRunner;
 use Flair\Kernel\Core\Ecs\WorldState;
@@ -14,6 +13,7 @@ use Flair\Kernel\Football\Components\Finances;
 use Flair\Kernel\Football\Components\SeasonIncome;
 use Flair\Kernel\Football\Events\TransferAgreed;
 use Flair\Kernel\Football\Singletons\MonetaryMass;
+use Flair\Worldgen\WorldFactory;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -80,7 +80,7 @@ final class MonetaryConservationTest extends TestCase
     {
         $spec = new PopulationSpec(playerCount: 500, years: 20, seed: 42, clubCount: 18, startingBalanceCents: 10_000_000);
         $world = new WorldState();
-        (new PopulationFactory())->populate($world, $spec);
+        (new WorldFactory())->populate($world, $spec->world());
 
         $initialTotal = $this->sumFinances($world);
 

@@ -1,0 +1,221 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Le Host, en ligne de commande (docs/13- §8).
+ *
+ * Un script PHP nu plutot qu'une application console : c'est l'idiome deja
+ * etabli du repo (`harness/bin/aggregate.php`, `harness/bin/sandbox.php`), et
+ * un framework console n'aurait ici aucun second consommateur. Laravel est
+ * present ou il travaille - `illuminate/database` pour la connexion, le schema
+ * et les transactions.
+ *
+ * Usage :
+ *   php bin/host.php install                        cree les tables
+ *   php bin/host.php create <monde> [--players=500] [--clubs=18] [--seed=42]
+ *   php bin/host.php advance <monde> [--ticks=1]    avance, un tick par transaction
+ *   php bin/host.php status [<monde>]               ou en sont les mondes
+ *   php bin/host.php events <monde> [--limit=20]    les derniers Faits
+ *
+ * `advance --ticks=N` reste **N transactions successives**, jamais une grosse.
+ * Le cron n'en demandera qu'une a la fois ; l'option ne sert qu'au rattrapage
+ * et au developpement, et elle ne doit pas changer les proprietes de reprise.
+ */
+
+require __DIR__ . '/../vendor/autoload.php';
+
+use Flair\Host\AdvanceOutcome;
+use Flair\Host\AdvanceWorld;
+use Flair\Host\CreateWorld;
+use Flair\Host\Database\Database;
+use Flair\Host\Database\Schema;
+use Flair\Host\Store\EventStore;
+use Flair\Host\Store\SnapshotStore;
+use Flair\Host\Store\WorldRepository;
+use Flair\Host\WorldLock;
+use Flair\Kernel\Football\FootballTypes;
+use Flair\Worldgen\WorldSpec;
+
+/** @var list<string> $arguments */
+$arguments = array_values(array_filter(
+    is_array($_SERVER['argv'] ?? null) ? $_SERVER['argv'] : [],
+    is_string(...),
+));
+
+$command = $arguments[1] ?? 'help';
+$target = isset($arguments[2]) && !str_starts_with($arguments[2], '--') ? $arguments[2] : null;
+
+$options = [];
+foreach (array_slice($arguments, 2) as $argument) {
+    if (preg_match('/^--([a-z-]+)=(.*)$/', $argument, $matches) === 1) {
+        $options[$matches[1]] = $matches[2];
+    }
+}
+
+$database = Database::fromEnvironment();
+$worlds = new WorldRepository($database);
+$snapshots = new SnapshotStore($database);
+$events = new EventStore($database, FootballTypes::registry());
+
+try {
+    exit(run($command, $target, $options, $database, $worlds, $snapshots, $events));
+} catch (Throwable $error) {
+    fwrite(STDERR, 'Erreur : ' . $error->getMessage() . PHP_EOL);
+    exit(1);
+}
+
+/** @param array<string, string> $options */
+function run(
+    string $command,
+    ?string $target,
+    array $options,
+    Database $database,
+    WorldRepository $worlds,
+    SnapshotStore $snapshots,
+    EventStore $events,
+): int {
+    switch ($command) {
+        case 'install':
+            (new Schema($database))->install();
+            echo "Schema installe (worlds, events, snapshots)." . PHP_EOL;
+
+            return 0;
+
+        case 'create':
+            if ($target === null) {
+                fwrite(STDERR, 'Usage : host.php create <monde> [--players=500] [--clubs=18] [--seed=42]' . PHP_EOL);
+
+                return 1;
+            }
+
+            $spec = new WorldSpec(
+                playerCount: (int) ($options['players'] ?? 500),
+                seed: (int) ($options['seed'] ?? 42),
+                clubCount: (int) ($options['clubs'] ?? 18),
+            );
+
+            $record = (new CreateWorld($database, $worlds, $snapshots))($target, $spec);
+            printf(
+                "Monde \"%s\" cree au tick 0 : %d joueurs, %d clubs, graine %d, noyau %s.%s",
+                $record->id,
+                $spec->playerCount,
+                $spec->clubCount,
+                $record->seed,
+                $record->kernelVersion,
+                PHP_EOL,
+            );
+
+            return 0;
+
+        case 'advance':
+            if ($target === null) {
+                fwrite(STDERR, 'Usage : host.php advance <monde> [--ticks=1]' . PHP_EOL);
+
+                return 1;
+            }
+
+            $advance = new AdvanceWorld($database, $worlds, $events, $snapshots, new WorldLock($database));
+            $ticks = max(1, (int) ($options['ticks'] ?? 1));
+            $simulation = 0.0;
+            $persistence = 0.0;
+            $written = 0;
+            $last = $advance($target);
+
+            for ($i = 1; $i < $ticks && $last->outcome === AdvanceOutcome::Advanced; $i++) {
+                $simulation += $last->simulationSeconds;
+                $persistence += $last->persistenceSeconds;
+                $written += $last->events;
+                $last = $advance($target);
+            }
+
+            if ($last->outcome === AdvanceOutcome::Advanced) {
+                $simulation += $last->simulationSeconds;
+                $persistence += $last->persistenceSeconds;
+                $written += $last->events;
+            }
+
+            if ($last->outcome === AdvanceOutcome::Unknown) {
+                fwrite(STDERR, "Monde \"{$target}\" inconnu, ou sans snapshot pour le reprendre." . PHP_EOL);
+
+                return 1;
+            }
+
+            if ($last->outcome === AdvanceOutcome::Busy) {
+                echo "Monde \"{$target}\" deja en cours d'avancement par un autre processus, rien ecrit." . PHP_EOL;
+
+                return 0;
+            }
+
+            printf(
+                "Monde \"%s\" au tick %d. %d tick(s), %d Fait(s). Simulation %.1f ms/tick, persistance %.1f ms/tick.%s",
+                $target,
+                $last->tick,
+                $ticks,
+                $written,
+                $simulation / $ticks * 1000,
+                $persistence / $ticks * 1000,
+                PHP_EOL,
+            );
+
+            return 0;
+
+        case 'status':
+            $records = $target === null
+                ? $worlds->all()
+                : array_filter([$worlds->find($target)]);
+
+            if ($records === []) {
+                echo 'Aucun monde.' . PHP_EOL;
+
+                return 0;
+            }
+
+            printf("%-20s %10s %8s %10s  %s%s", 'monde', 'tick', 'graine', 'faits', 'noyau/ruleset', PHP_EOL);
+            foreach ($records as $record) {
+                printf(
+                    "%-20s %10d %8d %10d  %s / %s%s",
+                    $record->id,
+                    $record->tick,
+                    $record->seed,
+                    $events->countFor($record->id),
+                    $record->kernelVersion,
+                    $record->rulesetVersion,
+                    PHP_EOL,
+                );
+            }
+
+            return 0;
+
+        case 'events':
+            if ($target === null) {
+                fwrite(STDERR, 'Usage : host.php events <monde> [--limit=20]' . PHP_EOL);
+
+                return 1;
+            }
+
+            foreach ($events->tail($target, (int) ($options['limit'] ?? 20)) as $event) {
+                printf('tick %6d #%-3d %-45s %s%s', $event['tick'], $event['seq'], $event['type'], $event['payload'], PHP_EOL);
+            }
+
+            return 0;
+
+        default:
+            echo <<<TXT
+            Host Flair - fait vivre un monde en base.
+
+              install                                       cree les tables
+              create <monde> [--players=] [--clubs=] [--seed=]
+              advance <monde> [--ticks=1]
+              status [<monde>]
+              events <monde> [--limit=20]
+
+            Connexion par variables d'environnement (defauts = docker-compose.yml) :
+              FLAIR_DB_HOST, FLAIR_DB_PORT, FLAIR_DB_NAME, FLAIR_DB_USER, FLAIR_DB_PASSWORD
+
+            TXT;
+
+            return 0;
+    }
+}

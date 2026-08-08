@@ -10,18 +10,26 @@ Le harness **dépend** du kernel, jamais l'inverse. Cette direction est structur
 
 ```
    kernel   → (rien)
-   harness  → kernel
+   worldgen → kernel
+   harness  → kernel, worldgen
 ```
 
-Bénéfice concret : le harness peut écrire directement dans un `WorldState` (il n'est pas
-un système, il n'a pas de déclarations à respecter), construire des populations
-synthétiques, et lire n'importe quel composant sans passer par les gardes du pipeline.
-C'est exactement ce que ferait un futur `worldgen`, et exactement ce qu'un système du
-noyau n'a pas le droit de faire.
+Bénéfice concret : ni le harness ni `worldgen` ne sont des systèmes — ils n'ont aucune
+déclaration `reads()`/`writes()` à respecter, ils peuvent donc écrire directement dans un
+`WorldState` et lire n'importe quel composant sans passer par les gardes du pipeline.
+C'est exactement ce qu'un système du noyau n'a pas le droit de faire.
 
-## 2. Le monde synthétique
+## 2. Le monde de départ
 
-Le harness fabrique un monde de départ : N joueurs, M clubs, une compétition.
+Un monde de départ — N joueurs, M clubs, une compétition, un recruteur par club — est
+fabriqué par **`packages/worldgen/`**, pas par le harness.
+
+> Cette séparation date du 2026-08-08 et elle a une raison précise : le `host` (Phase 3)
+> doit pouvoir créer un monde, et le graphe de dépendances lui interdit d'importer un
+> outil de mesure. Le harness est donc devenu un client de `worldgen` parmi d'autres.
+> `Worldgen\WorldSpec` dit **de quoi le monde est fait**, `Harness\Population\PopulationSpec`
+> ajoute la seule chose qui n'appartient pas au monde : **pendant combien d'années on le
+> fait tourner**.
 
 Un détail de conception vaut la peine : **la population initiale et l'intake tirent leur
 talent selon la même loi**, via la même `Football\Generation\PlayerFactory`. Ce n'est pas
@@ -33,10 +41,16 @@ de la mutualisation de code par confort.
 > ininterprétable. La duplication ne serait pas du code en double, elle serait une
 > divergence silencieuse du modèle.
 
-Même raisonnement pour les salaires : `PopulationFactory` utilise `WageModel`, pour que le
-monde démarre à l'échelle de salaires vers laquelle il convergera. Sinon la masse
+Même raisonnement pour les salaires : `Worldgen\WorldFactory` utilise `WageModel`, pour que
+le monde démarre à l'échelle de salaires vers laquelle il convergera. Sinon la masse
 salariale dérive pendant les quatre premières années et la ligne de base du grand livre
 n'est comparable à rien.
+
+> **Règle d'or de `worldgen`, à connaître avant d'y toucher :** l'ordre des tirages
+> aléatoires et des allocations d'`EntityId` y est une donnée d'architecture. Le
+> réordonner change le monde entier et rend incomparables toutes les mesures déjà
+> enregistrées — dix-huit scouts ajoutés au genesis ont suffi, une fois, à faire diverger
+> deux arbres pourtant identiques par ailleurs. Détail dans `packages/worldgen/README.md`.
 
 ## 3. La technique centrale : les graines appariées
 

@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace Flair\Harness\Tests\Support;
 
-use Flair\Harness\Population\PopulationFactory;
 use Flair\Harness\Population\PopulationSpec;
 use Flair\Harness\Support\WorldHasher;
 use Flair\Harness\Tests\Metrics\Fixtures\FakeEventA;
 use Flair\Harness\Tests\Metrics\Fixtures\FakeEventB;
 use Flair\Kernel\Core\Ecs\WorldState;
+use Flair\Worldgen\WorldFactory;
 use PHPUnit\Framework\TestCase;
 
 final class WorldHasherTest extends TestCase
@@ -19,10 +19,10 @@ final class WorldHasherTest extends TestCase
         $spec = new PopulationSpec(playerCount: 20, years: 1, seed: 42, clubCount: 4);
 
         $worldA = new WorldState();
-        (new PopulationFactory())->populate($worldA, $spec);
+        (new WorldFactory())->populate($worldA, $spec->world());
 
         $worldB = new WorldState();
-        (new PopulationFactory())->populate($worldB, $spec);
+        (new WorldFactory())->populate($worldB, $spec->world());
 
         self::assertSame(WorldHasher::hashWorld($worldA), WorldHasher::hashWorld($worldB));
     }
@@ -30,10 +30,10 @@ final class WorldHasherTest extends TestCase
     public function testHashWorldDiffersWhenPopulationDiffers(): void
     {
         $worldA = new WorldState();
-        (new PopulationFactory())->populate($worldA, new PopulationSpec(playerCount: 20, years: 1, seed: 42, clubCount: 4));
+        (new WorldFactory())->populate($worldA, (new PopulationSpec(playerCount: 20, years: 1, seed: 42, clubCount: 4))->world());
 
         $worldB = new WorldState();
-        (new PopulationFactory())->populate($worldB, new PopulationSpec(playerCount: 20, years: 1, seed: 7, clubCount: 4));
+        (new WorldFactory())->populate($worldB, (new PopulationSpec(playerCount: 20, years: 1, seed: 7, clubCount: 4))->world());
 
         self::assertNotSame(WorldHasher::hashWorld($worldA), WorldHasher::hashWorld($worldB));
     }

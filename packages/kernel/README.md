@@ -14,6 +14,8 @@ src/Core/
   Support/      PRNG déterministe, arithmétique 32 bits, calendrier simulé
   Ruleset/      règles paramétriques versionnées, imbriquées par sous-domaine
   Simulation/   step() — assemble tout ce qui précède
+  Snapshot/     sérialisation complète du WorldState (pure, sans I/O)
+src/Kernel.php  Kernel::VERSION — la moitié « noyau » du couple auquel un monde est épinglé
 src/Football/   le domaine football, au-dessus du kernel générique
 ```
 
@@ -22,7 +24,7 @@ src/Football/   le domaine football, au-dessus du kernel générique
 - **`EntityIdAllocator`** — compteur monotone, jamais de réutilisation d'id, `0` réservé comme sentinelle "aucune entité".
 - **`ComponentReader<T>`** — vue lecture seule d'une colonne (`get()`/`entities()`). Existe pour que `SystemContext::read()` puisse rendre un handle qui n'a physiquement pas de `set()`.
 - **`ComponentStore<T>`** — une colonne par type de composant, implémente `ComponentReader<T>` : `set()`/`get()`/`remove()`, et `entities()` qui renvoie **toujours** les ids triés, jamais l'ordre d'insertion (`docs/12-` §2 — "la source n°1 de non-reproductibilité silencieuse"). Accès complet et non gardé — c'est le stockage brut, que worldgen et le harness écrivent légitimement via `WorldState` sans être des systèmes. Un `System`, lui, n'y touche jamais directement.
-- **`WorldState`** — agrège l'allocateur, un `ComponentStore` par type de composant, les singletons (adressés par type via `singleton()`/`setSingleton()`), **et** le `Scheduler`/`OutQueue` du monde. Ces deux derniers ont rejoint `WorldState` précisément parce que `step()` ne prend que `WorldState` + `TickContext` — rien d'autre ne pourrait les faire survivre d'un appel à l'autre (voir `docs/13-` §5, note sur les snapshots).
+- **`WorldState`** — agrège l'allocateur, un `ComponentStore` par type de composant, les singletons (adressés par type via `singleton()`/`setSingleton()`), **et** le `Scheduler`/`OutQueue` du monde. Ces deux derniers ont rejoint `WorldState` précisément parce que `step()` ne prend que `WorldState` + `TickContext` — rien d'autre ne pourrait les faire survivre d'un appel à l'autre (voir `docs/13-` §5, note sur les snapshots). `componentTypes()`/`singletonInstances()`/`nextEntityId()` existent pour la persistance seule : elles énumèrent des **types** et un compteur, pas des entités, donc elles ne rouvrent pas l'interdit « toutes les entités du monde » — une requête du domaine part toujours d'une colonne, une sérialisation doit au contraire être exhaustive par construction.
 
 ### `Messaging/`
 
@@ -80,6 +82,22 @@ Famille à part entière plutôt qu'un fichier isolé à la racine de `Core/` : 
       return new StepResult($state, $state->outQueue()->pending());
   }
   ```
+
+### `Snapshot/`
+
+La sérialisation complète du `WorldState` (`docs/13-` §5). **Pure et sans I/O** : rend des données, n'écrit nulle part — le stockage appartiendra au Host, mais le *format* appartient au noyau, parce que c'est le noyau qui définit la forme de l'état. Un composant qui change de forme casse alors le build du noyau, jamais le redémarrage d'un monde vivant.
+
+- **`TypeRegistry`** — table `clé stable ↔ class-string`, en trois familles (composants, singletons, événements). Le payload ne contient **jamais un FQCN** : renommer une classe ne doit pas invalider les snapshots déjà écrits. Les clés sont uniques toutes familles confondues (sinon `classFor()` serait ambigu) et les événements sont préfixés `football.event.` pour qu'un futur composant homonyme n'oblige jamais à renommer une clé déjà sur disque. Passé en donnée, jamais lu depuis un statique : le noyau ne connaît pas le football.
+- **`SnapshotCodec`** — `encode(WorldState): array` / `decode(array): WorldState`. Couvre exhaustivement ce qui survit d'un tick à l'autre : le compteur d'entités, une colonne par type de composant présent, les singletons, **et** le `Scheduler`/`OutQueue` avec leurs clés de tri. Cette dernière moitié est celle qu'on oublie — un événement seulement planifié n'a émis aucun Fait, donc aucun event log ne le rattraperait. Ordre d'écriture totalement déterminé (types triés par clé, entités par `EntityId`) : deux snapshots du même monde sont identiques octet pour octet.
+- **`ValueCodec`** — l'encodeur réflexif d'une valeur. **L'encodage n'a besoin d'aucune information de type** (chaque valeur est encodée d'après sa classe réelle) ; c'est le décodage qui lit les types déclarés sur les paramètres du constructeur. Les champs sont énumérés depuis ces mêmes paramètres des deux côtés, donc encoder et décoder ne peuvent pas diverger sur la liste des champs. Un objet imbriqué ne porte **aucune étiquette de type** : le type du paramètre suffit à le reconstruire.
+- **`SnapshotContract`** — l'unique endroit où est écrit ce qu'un type doit être pour être sérialisable (enum backed, ou classe à propriétés publiques promues, types dans un ensemble fermé, `#[SnapshotArrayOf]` sur les `array`). Deux consommateurs et c'est voulu : `ValueCodec` à l'exécution (il refuse d'encoder un objet dont il perdrait l'état, plutôt que de l'écrire amoindri) et `SnapshotConformanceTest` au build, sur tout le domaine.
+- **`SnapshotArrayOf`** — attribut qui déclare le type des éléments d'une propriété `array`. La réflexion PHP rend `array` sans son type d'élément : rien ne distingue `array<int, StandingsEntry>` de `list<int>`. C'est la seule information que le système de types ne porte pas et dont le décodeur a besoin — deux annotations dans tout le domaine aujourd'hui.
+- **`WorldSnapshot`** — l'enveloppe : `format`, `kernelVersion`, `rulesetVersion`, `worldId`, `tick`, `seed`, `state`. Elle existe parce que **le tick n'est pas dans le `WorldState`** — il vit dans `TickContext`, comme la graine, et un monde rechargé sans eux ne sait ni quel jour on est ni comment tirer ses aléas. `capture()`/`restore()` sont les deux verbes que le Host utilisera. Une divergence de `format` ou de `kernelVersion` **lève** : un monde vivant se migre explicitement, jamais au chargement (`docs/13-` §6).
+- **`JsonSnapshotFormat`** — `toJson()`/`fromJson()`, pure manipulation de chaîne. `JSON_PRESERVE_ZERO_FRACTION` n'est pas du confort : sans lui `1.0` s'écrit `1` et revient en `int`. La fidélité des flottants est vérifiée par un test sur des doubles adverses (comparés **au bit**, `0.0 === -0.0` étant vrai en PHP) plutôt qu'en lisant `ini_get()`, qui serait un accès à l'environnement dans le noyau.
+
+Ce que le codec ne contient **pas**, et pourquoi : le tick et la graine (enveloppe), le `Ruleset` (le monde est épinglé à une version, `docs/12-` §6), `SeqCounter`/`CreatedEntities` (recréés à chaque `Pipeline::tick()`).
+
+Le critère de sortie de la Phase 3 est mécanisé côté harness, **sans base de données** : `Harness\Tests\Regression\SnapshotContinuityTest` interrompt un run au premier tick où chaque structure fragile est réellement occupée (OutQueue non vide, Scheduler non vide, `Negotiation` en cours), n'en garde que la chaîne JSON, et vérifie que la suite du monde est indiscernable — même hash d'état **et** même hash de séquence d'événements. Les deux sont nécessaires : un `ScheduledEntry` perdu donne souvent le même état final avec une histoire différente.
 
 ## Le tick, de bout en bout
 
@@ -372,8 +390,11 @@ Graphe réel des `use` entre familles (aucun cycle) :
 Ecs         → Messaging
 Pipeline    → Ecs, Messaging, Support, Ruleset (racine)
 Simulation  → Ecs, Pipeline
+Snapshot    → Ecs, Messaging, Kernel (racine)
 Messaging, Support, Ruleset → (rien)
 ```
+
+`Snapshot` dépend de `Ecs`/`Messaging`, jamais l'inverse : `WorldState`, `Scheduler` et `OutQueue` ignorent qu'on les sérialise, ils exposent seulement de quoi être lus.
 
 Parmi les sept interdits structurants de `docs/11-` §9, ce que le code garantit aujourd'hui :
 

@@ -46,11 +46,11 @@ use Flair\Harness\Comparison\PairedSeedComparison;
 use Flair\Harness\Comparison\RulesetOverride;
 use Flair\Harness\Metrics\EventGraphCollector;
 use Flair\Harness\Metrics\Sampler;
-use Flair\Harness\Population\PopulationFactory;
 use Flair\Harness\Population\PopulationSpec;
 use Flair\Harness\Report\TextReport;
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Ruleset\Ruleset;
+use Flair\Worldgen\WorldFactory;
 
 $options = getopt('', ['players:', 'years:', 'seed:', 'clubs:', 'facilities-quality:', 'scout-judgement-spread:', 'board-patience-mean:', 'board-patience-spread:', 'set:', 'event-graph']);
 
@@ -116,7 +116,7 @@ if ($overrides !== []) {
 $eventGraph = array_key_exists('event-graph', $options) ? new EventGraphCollector() : null;
 
 $world = new WorldState();
-$playerIds = (new PopulationFactory())->populate($world, $spec);
+$playerIds = (new WorldFactory())->populate($world, $spec->world());
 $result = (new Sampler())->run($world, $playerIds, $spec->years, $spec->seed, $baselineRuleset, $eventGraph);
 
 echo $report->render($result);

@@ -6,25 +6,7 @@ namespace Flair\Harness\Support;
 
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Messaging\DomainEvent;
-use Flair\Kernel\Football\Components\Club;
-use Flair\Kernel\Football\Components\Competition;
-use Flair\Kernel\Football\Components\Contract;
-use Flair\Kernel\Football\Components\Employment;
-use Flair\Kernel\Football\Components\Facilities;
-use Flair\Kernel\Football\Components\Finances;
-use Flair\Kernel\Football\Components\Fixture;
-use Flair\Kernel\Football\Components\MatchResult;
-use Flair\Kernel\Football\Components\Person;
-use Flair\Kernel\Football\Components\PlayerMentalSkills;
-use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
-use Flair\Kernel\Football\Components\PlayerPotentials;
-use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
-use Flair\Kernel\Football\Components\Scout;
-use Flair\Kernel\Football\Components\SeasonIncome;
-use Flair\Kernel\Football\Components\SquadMembership;
-use Flair\Kernel\Football\Components\Standings;
-use Flair\Kernel\Football\Components\TrainingEffect;
-use Flair\Kernel\Football\Singletons\MonetaryMass;
+use Flair\Kernel\Football\FootballTypes;
 
 /**
  * Hash deterministe (meme machine, meme version de PHP - docs/13- §4.8, pas
@@ -32,64 +14,44 @@ use Flair\Kernel\Football\Singletons\MonetaryMass;
  * sequence d'evenements, pour le test de determinisme d'un run complet exige
  * par le critere de sortie Phase 1 (docs/15- §4).
  *
- * WorldState n'expose volontairement aucune methode "toutes les entites du
- * monde" (cf. son docblock) : ce hasher enumere donc explicitement les types
- * de composants football connus, meme esprit que WorldInspector (verite
- * listee, pas generique). `StandingsEntry` n'y figure pas : elle n'est
- * jamais stockee comme composant a part entiere, seulement imbriquee dans
- * Standings::$entries.
+ * **La liste des types hashes est derivee de `Football\FootballTypes`**, le
+ * registre de persistance, et non plus tenue a la main ici. Elle l'etait
+ * jusqu'au lot snapshot, et il y manquait `BoardPatience`, `Negotiation` et
+ * le singleton `MarketInflation` : tout le marche des transferts etait hors
+ * du test de determinisme depuis le lot 3, sans que rien ne le signale. Deux
+ * listes du meme monde finissent toujours par diverger ; il n'y en a plus
+ * qu'une, et le test de conformite du noyau garantit qu'elle est exhaustive.
  *
- * `MonetaryMass` (Phase 2) est le premier singleton du domaine football :
- * hashe separement de `KNOWN_COMPONENT_TYPES`, qui n'enumere que des types
- * portes par un `ComponentStore` (`$world->singleton()`, pas
- * `$world->components()`). Sans cet ajout explicite, une regression de
- * determinisme dans le bookkeeping du singleton passerait ce test sans
- * etre detectee.
+ * Chaque composant est un DTO `readonly` a proprietes publiques -
+ * json_encode() serialise ses proprietes publiques dans l'ordre declare, donc
+ * "meme run -> meme serialisation". L'ordre d'iteration des entites
+ * (ComponentStore::entities(), deja trie par EntityId croissant) garantit que
+ * la meme sequence de composants produit toujours la meme chaine, jamais
+ * l'ordre d'insertion.
  *
- * Chaque composant liste est un DTO `readonly` a proprietes publiques
- * (verifie classe par classe) - json_encode() serialise ses proprietes
- * publiques dans l'ordre declare, donc "meme run -> meme serialisation".
- * L'ordre d'iteration des entites (ComponentStore::entities(), deja trie par
- * EntityId croissant) garantit que la meme sequence de composants produit
- * toujours la meme chaine, jamais l'ordre d'insertion.
+ * Ce n'est volontairement pas le codec de snapshot : celui-ci valide, leve, et
+ * porte une enveloppe. Ici on veut une empreinte, la plus directe possible.
+ * Les deux partagent ce qui doit l'etre - la liste des types - et rien de plus.
  */
 final class WorldHasher
 {
-    /** @var list<class-string> */
-    private const array KNOWN_COMPONENT_TYPES = [
-        Person::class,
-        PlayerPhysicalSkills::class,
-        PlayerTechnicalSkills::class,
-        PlayerMentalSkills::class,
-        PlayerPotentials::class,
-        TrainingEffect::class,
-        SquadMembership::class,
-        Employment::class,
-        Scout::class,
-        Club::class,
-        Facilities::class,
-        Finances::class,
-        SeasonIncome::class,
-        Contract::class,
-        Competition::class,
-        Standings::class,
-        Fixture::class,
-        MatchResult::class,
-    ];
-
     public static function hashWorld(WorldState $world): string
     {
+        $registry = FootballTypes::registry();
         $lines = [];
-        foreach (self::KNOWN_COMPONENT_TYPES as $type) {
+
+        foreach ($registry->componentClasses() as $type) {
             $store = $world->components($type);
             foreach ($store->entities() as $entityId) {
                 $lines[] = $type . '#' . $entityId . '=' . json_encode($store->get($entityId));
             }
         }
 
-        $mass = $world->singleton(MonetaryMass::class);
-        if ($mass !== null) {
-            $lines[] = MonetaryMass::class . '=' . json_encode($mass);
+        foreach ($registry->singletonClasses() as $type) {
+            $singleton = $world->singleton($type);
+            if ($singleton !== null) {
+                $lines[] = $type . '=' . json_encode($singleton);
+            }
         }
 
         return hash('sha256', implode("\n", $lines));

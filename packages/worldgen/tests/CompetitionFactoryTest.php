@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Flair\Harness\Tests\Population;
+namespace Flair\Worldgen\Tests;
 
-use Flair\Harness\Population\CompetitionFactory;
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Football\Components\Competition;
+use Flair\Worldgen\CompetitionFactory;
 use PHPUnit\Framework\TestCase;
 
 final class CompetitionFactoryTest extends TestCase

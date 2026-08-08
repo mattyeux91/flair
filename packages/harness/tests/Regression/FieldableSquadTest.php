@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Flair\Harness\Tests\Regression;
 
-use Flair\Harness\Population\PopulationFactory;
 use Flair\Harness\Population\PopulationSpec;
 use Flair\Harness\Simulation\StepRunner;
 use Flair\Kernel\Core\Ecs\WorldState;
@@ -16,6 +15,7 @@ use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
 use Flair\Kernel\Football\Components\Position;
 use Flair\Kernel\Football\Components\SquadMembership;
 use Flair\Kernel\Football\Support\PositionModel;
+use Flair\Worldgen\WorldFactory;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -76,7 +76,7 @@ final class FieldableSquadTest extends TestCase
     {
         $spec = new PopulationSpec(playerCount: 500, years: self::YEARS, seed: 42, clubCount: 18);
         $world = new WorldState();
-        (new PopulationFactory())->populate($world, $spec);
+        (new WorldFactory())->populate($world, $spec->world());
         $runner = new StepRunner($world, new Ruleset('regression'), $spec->seed);
 
         $clubYears = 0;

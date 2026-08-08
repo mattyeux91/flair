@@ -1,0 +1,46 @@
+{
+    "name": "flair/host",
+    "description": "Fait vivre un monde en base : event store, snapshots, verrou mono-writer, et la commande qui avance le monde d'un tick.",
+    "type": "project",
+    "license": "proprietary",
+    "require": {
+        "php": ">=8.3",
+        "ext-pdo": "*",
+        "ext-pdo_pgsql": "*",
+        "flair/kernel": "@dev",
+        "flair/worldgen": "@dev",
+        "illuminate/database": "^13.0"
+    },
+    "require-dev": {
+        "phpstan/phpstan": "^2.2",
+        "phpunit/phpunit": "^11.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Flair\\Host\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Flair\\Host\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "analyse": "phpstan analyse --memory-limit=1G"
+    },
+    "repositories": [
+        {
+            "type": "path",
+            "url": "../kernel"
+        },
+        {
+            "type": "path",
+            "url": "../worldgen"
+        }
+    ],
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}

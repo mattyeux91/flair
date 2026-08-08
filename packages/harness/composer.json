@@ -5,7 +5,8 @@
     "license": "proprietary",
     "require": {
         "php": ">=8.3",
-        "flair/kernel": "@dev"
+        "flair/kernel": "@dev",
+        "flair/worldgen": "@dev"
     },
     "require-dev": {
         "phpstan/phpstan": "^2.2",
@@ -22,12 +23,17 @@
         }
     },
     "scripts": {
-        "serve": "php -d opcache.enable_cli=1 -d opcache.jit_buffer_size=64M -d opcache.jit=tracing -S localhost:8000 -t public"
+        "serve": "php -d opcache.enable_cli=1 -d opcache.jit_buffer_size=64M -d opcache.jit=tracing -S localhost:8000 -t public",
+        "analyse": "phpstan analyse --memory-limit=1G"
     },
     "repositories": [
         {
             "type": "path",
             "url": "../kernel"
+        },
+        {
+            "type": "path",
+            "url": "../worldgen"
         }
     ],
     "config": {

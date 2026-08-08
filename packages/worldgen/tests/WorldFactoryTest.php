@@ -2,10 +2,8 @@
 
 declare(strict_types=1);
 
-namespace Flair\Harness\Tests\Population;
+namespace Flair\Worldgen\Tests;
 
-use Flair\Harness\Population\PopulationFactory;
-use Flair\Harness\Population\PopulationSpec;
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Ruleset\ContractBalance;
 use Flair\Kernel\Core\Ruleset\YouthIntakeBalance;
@@ -19,16 +17,19 @@ use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
 use Flair\Kernel\Football\Components\SquadMembership;
 use Flair\Kernel\Football\Support\WageModel;
+use Flair\Worldgen\ClubFactory;
+use Flair\Worldgen\WorldFactory;
+use Flair\Worldgen\WorldSpec;
 use PHPUnit\Framework\TestCase;
 
-final class PopulationFactoryTest extends TestCase
+final class WorldFactoryTest extends TestCase
 {
     public function testCreatesTheRequestedNumberOfClubsWithFacilitiesAndAStartingBalance(): void
     {
         $world = new WorldState();
-        $spec = new PopulationSpec(playerCount: 20, years: 1, seed: 1, clubCount: 4, facilitiesQuality: 1.3, startingBalanceCents: 7_500_000);
+        $spec = new WorldSpec(playerCount: 20, seed: 1, clubCount: 4, facilitiesQuality: 1.3, startingBalanceCents: 7_500_000);
 
-        (new PopulationFactory())->populate($world, $spec);
+        (new WorldFactory())->populate($world, $spec);
 
         $clubIds = $world->components(Club::class)->entities();
         self::assertCount(4, $clubIds);
@@ -52,11 +53,11 @@ final class PopulationFactoryTest extends TestCase
     public function testAssignsAContractMatchingSquadMembershipToEveryClubbedPlayer(): void
     {
         $world = new WorldState();
-        $spec = new PopulationSpec(playerCount: 9, years: 1, seed: 1, clubCount: 3);
+        $spec = new WorldSpec(playerCount: 9, seed: 1, clubCount: 3);
         $talent = new YouthIntakeBalance();
         $contracts = new ContractBalance();
 
-        $playerIds = (new PopulationFactory())->populate($world, $spec, atTick: 1, talent: $talent, contracts: $contracts);
+        $playerIds = (new WorldFactory())->populate($world, $spec, atTick: 1, talent: $talent, contracts: $contracts);
 
         foreach ($playerIds as $playerId) {
             $membership = $world->components(SquadMembership::class)->get($playerId);
@@ -78,14 +79,14 @@ final class PopulationFactoryTest extends TestCase
 
     /**
      * Sans etalement, toute la population arriverait a terme la meme annee et
-     * le monde entier changerait de club en bloc (cf. `PopulationFactory::employ()`).
+     * le monde entier changerait de club en bloc (cf. `WorldFactory::employ()`).
      */
     public function testStaggersContractExpiryAcrossThePopulation(): void
     {
         $world = new WorldState();
-        $spec = new PopulationSpec(playerCount: 60, years: 1, seed: 7, clubCount: 3);
+        $spec = new WorldSpec(playerCount: 60, seed: 7, clubCount: 3);
 
-        $playerIds = (new PopulationFactory())->populate($world, $spec, atTick: 1);
+        $playerIds = (new WorldFactory())->populate($world, $spec, atTick: 1);
 
         $expiryYears = [];
         foreach ($playerIds as $playerId) {
@@ -105,9 +106,9 @@ final class PopulationFactoryTest extends TestCase
     public function testDistributesPlayersAcrossClubsRoundRobin(): void
     {
         $world = new WorldState();
-        $spec = new PopulationSpec(playerCount: 9, years: 1, seed: 1, clubCount: 3, facilitiesQuality: 1.0);
+        $spec = new WorldSpec(playerCount: 9, seed: 1, clubCount: 3, facilitiesQuality: 1.0);
 
-        $playerIds = (new PopulationFactory())->populate($world, $spec);
+        $playerIds = (new WorldFactory())->populate($world, $spec);
 
         self::assertCount(9, $playerIds);
 
@@ -127,9 +128,9 @@ final class PopulationFactoryTest extends TestCase
     public function testZeroClubsLeavesPlayersWithoutSquadMembership(): void
     {
         $world = new WorldState();
-        $spec = new PopulationSpec(playerCount: 5, years: 1, seed: 1, clubCount: 0);
+        $spec = new WorldSpec(playerCount: 5, seed: 1, clubCount: 0);
 
-        $playerIds = (new PopulationFactory())->populate($world, $spec);
+        $playerIds = (new WorldFactory())->populate($world, $spec);
 
         self::assertSame([], $world->components(Club::class)->entities());
         foreach ($playerIds as $playerId) {
@@ -145,9 +146,9 @@ final class PopulationFactoryTest extends TestCase
     public function testCreatesACompetitionWhenClubsExist(): void
     {
         $world = new WorldState();
-        $spec = new PopulationSpec(playerCount: 5, years: 1, seed: 1, clubCount: 3);
+        $spec = new WorldSpec(playerCount: 5, seed: 1, clubCount: 3);
 
-        (new PopulationFactory())->populate($world, $spec);
+        (new WorldFactory())->populate($world, $spec);
 
         self::assertCount(1, $world->components(Competition::class)->entities());
     }
@@ -155,9 +156,9 @@ final class PopulationFactoryTest extends TestCase
     public function testDoesNotCreateACompetitionWithoutClubs(): void
     {
         $world = new WorldState();
-        $spec = new PopulationSpec(playerCount: 5, years: 1, seed: 1, clubCount: 0);
+        $spec = new WorldSpec(playerCount: 5, seed: 1, clubCount: 0);
 
-        (new PopulationFactory())->populate($world, $spec);
+        (new WorldFactory())->populate($world, $spec);
 
         self::assertSame([], $world->components(Competition::class)->entities());
     }
