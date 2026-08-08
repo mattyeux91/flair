@@ -50,6 +50,25 @@ Détail : `17-marche-transferts.md` point 5.
 
 Aucun des deux n'est arrivé, et le construire avant serait de l'anticipation — le critère du projet est « deux consommateurs réels ». `Host\Rules\RulesetForWorld` est le **site unique** à rebrancher le jour venu : tant qu'une seule version est acceptée, genèse et avancement lisent forcément les mêmes règles, et la classe de désaccord est inatteignable.
 
+### D7 — Le journal est bavard là où rien ne se raconte, et muet là où tout se raconterait
+
+**Déclencheur : maintenant, et il a une date de péremption.** `events.payload` n'a **aucune colonne de version de format** et `Core\Snapshot\ValueCodec` est strict dans les deux sens : ajouter ou retirer un Fait est gratuit tant qu'aucun monde ne compte, et devient une migration ensuite. C'est le même déclencheur que la dette des Faits inattribuables, qui a été soldée pour cette raison exacte.
+
+Le digest (lot 3 de la Phase 4) est le contrôle qualité des seuils d'émission que `14-` §9 promettait. Verdict, lu sur une vraie page :
+
+- **Muet là où tout se raconterait.** Le digest sait écrire « large victoire à domicile contre X (5-1) » et **jamais pourquoi**. Il n'existe ni buteur, ni blessure, ni débuts, ni performance individuelle — le moteur L0 Dixon-Coles ne produit qu'un score. L'exemple de `14-` §9 (« Diallo a marqué 7 buts en 9 matchs — sa valeur a doublé ») décrit un monde qui n'existe pas.
+- **Bavard là où rien ne se raconte.** `TransferCounterDemanded` pèse **10,6 %** des Faits d'une fenêtre représentative — de la procédure de négociation, inscrite dans `FactAmplitude::NEVER_NEWSWORTHY` parce qu'aucun lecteur n'en voudra jamais. `16-` §2 dit qu'un Fait mérite d'être émis s'il franchit un seuil comportemental, est irréversible, ou est racontable : ces trois-là ne sont ni l'un ni l'autre.
+
+Ce qui empêche de trancher tout de suite, et pourquoi c'est une dette et non un lot : ajouter un Fait de performance suppose que le moteur en produise la matière, ce qui touche `MatchSystem` et rejoint **D2**. Retirer les Faits de négociation est en revanche isolé et bon marché.
+
+### D8 — Les noms du monde sont des identifiants
+
+**Déclencheur : le premier lecteur humain qui n'est pas l'exploitant** — donc le client de jeu (Phase 5), ou tout partage d'une page à un tiers.
+
+`Worldgen\WorldFactory` nomme les joueurs `"Joueur {$entity}"` et les clubs `"Club synthetique {$n}"`. Tant que la seule surface est l'administration, c'est sans conséquence et même pratique (le nom porte l'`EntityId`). Dès qu'un digest est censé se lire comme un récit, c'est le plus gros obstacle qui reste — et **le moins cher à lever de tous ceux inscrits ici**.
+
+Noté en lisant le digest, pas cherché.
+
 ### D6 — Un club vise 22 joueurs, en a 16,5, et n'en veut que 20
 
 **Déclencheur : le prochain travail sur la démographie ou sur `ContractBalance::$targetSquadSize`** — et obligatoirement avant de conclure quoi que ce soit d'une mesure de « déficit d'effectif ».

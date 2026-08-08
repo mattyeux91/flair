@@ -162,6 +162,66 @@ final class PagesMatchJsonTest extends TestCase
         self::assertGreaterThan(0, $retired, 'Le monde doit avoir vu partir des joueurs, page et JSON compris.');
     }
 
+    /**
+     * Le digest est le cas ou cette discipline compte le plus : ce que la page
+     * affiche n'est pas un chiffre mais une **phrase**, et une phrase composee
+     * dans un template Blade serait invisible du JSON, donc invisible de ce
+     * test. C'est pourquoi `Read\Digest\FactSentence` vit dans `src/`.
+     */
+    public function testTheDigestPageCarriesTheSameSentencesAsItsJsonRoute(): void
+    {
+        $worldId = $this->world->create('pages');
+        $this->world->advance($worldId, 430);
+
+        $clubId = $this->firstClubIdFromJson($worldId);
+
+        // Toute la vie du monde : la fenetre par defaut de 90 jours tomberait
+        // en pleine intersaison, ou il ne se passe presque rien (mesure : un
+        // facteur ~30 entre le mois du mercato et le dernier mois de l'annee).
+        $json = $this->getJson("/api/worlds/{$worldId}/clubs/{$clubId}/digest?days=431");
+        $json->assertOk();
+
+        /** @var array<string, mixed> $digest */
+        $digest = $json->json();
+
+        $html = $this->get("/worlds/{$worldId}/clubs/{$clubId}/digest?days=431");
+        $html->assertOk();
+
+        $html->assertSee(self::text($digest, 'clubName'), escape: false);
+
+        /** @var array<string, mixed> $summary */
+        $summary = self::array($digest, 'summary');
+        $html->assertSee(sprintf(
+            '%d&nbsp;/&nbsp;%d&nbsp;/&nbsp;%d',
+            self::int($summary, 'won'),
+            self::int($summary, 'drawn'),
+            self::int($summary, 'lost'),
+        ), escape: false);
+
+        $told = 0;
+
+        foreach (['highlights', 'world'] as $block) {
+            foreach (self::array($digest, $block) as $entry) {
+                self::assertIsArray($entry);
+                /** @var array<string, mixed> $entry */
+                $html->assertSee(self::text($entry, 'sentence'));
+                $told++;
+            }
+        }
+
+        self::assertGreaterThan(0, $told, 'Une saison complete doit produire au moins un fait raconte.');
+
+        // La ventilation par type est un livrable du lot, pas un detail de mise
+        // au point : elle doit etre sur la page, pas seulement dans le JSON.
+        /** @var array<string, mixed> $byType */
+        $byType = self::array($digest, 'factsByType');
+        self::assertNotSame([], $byType);
+
+        foreach (array_keys($byType) as $type) {
+            $html->assertSee((string) $type, escape: false);
+        }
+    }
+
     public function testTheIndexListsTheWorldWithoutDecodingIt(): void
     {
         $worldId = $this->world->create('pages');

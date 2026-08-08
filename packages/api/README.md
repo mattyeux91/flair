@@ -28,7 +28,7 @@ php bin/host.php advance alpha --ticks=420    # 420 ticks pour avoir un classeme
 
 Connexion par `FLAIR_DB_*` dans `.env` — mêmes noms que le CLI du Host, mêmes défauts que le `docker-compose.yml`.
 
-## Trois routes, un seul vrai écran
+## Cinq routes, deux vrais écrans
 
 | | |
 |---|---|
@@ -36,6 +36,7 @@ Connexion par `FLAIR_DB_*` dans `.env` — mêmes noms que le CLI du Host, même
 | `/worlds/{world}` | le monde : tick, classement, clubs, masse monétaire |
 | `/worlds/{world}/clubs/{club}` | la fiche d'un club |
 | `/worlds/{world}/clubs/{club}/history` | **dix ans d'histoire**, en blocs par saison |
+| `/worlds/{world}/clubs/{club}/digest?days=90` | **« qu'ai-je raté ? »**, une fenêtre de N jours |
 
 Et les mêmes DTO en JSON sous `/api/…`. Ce ne sont pas des routes de confort : voir « le test qui compte » plus bas.
 
@@ -115,6 +116,48 @@ On charge l'intervalle complet et on filtre en PHP. Le filtre SQL serait ~8× pl
 
 L'échappatoire, si un monde vieillit assez : **dériver les prédicats SQL de la même déclaration**. Une source, la vitesse du SQL. Le déclencheur est mesurable — `ClubHistoryView::$factsRead`, autour de 23 000 Faits, soit une cinquantaine d'années.
 
+## Le digest : « il s'est passé trois mois, qu'ai-je raté ? »
+
+Seconde moitié du critère de sortie de la Phase 4 (`docs/14-` §9). Trois blocs, et le premier est le plus important :
+
+1. **Le bilan** — non trié, toujours affiché. C'est ici que vivent les ~90 matchs ordinaires d'une fenêtre en pleine saison : agrégés en une ligne V/N/D ils informent, listés ils noient.
+2. **Ce qu'il faut retenir** — 8 lignes au maximum, triées `amplitude × poids_du_rôle × fraîcheur` (forme de `docs/14-` §3 : une base, deux modificateurs bornés). Un match n'y entre **que** par exception — trois buts d'écart au minimum.
+3. **Ailleurs dans le monde** — 4 lignes, les Faits marquants qui ne nomment pas ce club, racontés sans point de vue.
+
+Le « poids du rôle » est la *proximité* de `docs/14-` §9, et il ne se redéclare pas : il sort de `History\ClubMentions::roleOf()`, déjà seul à savoir à quel titre un club est nommé.
+
+⚠️ **`ROLE_WEIGHTS` est exhaustive sur `ClubRole`, sans repli.** Un `?? 1.0` a été retiré parce que PHPStan niveau max le signale comme mort — ce qui en fait le garde-fou du couple : ajouter un rôle sans lui donner de poids ne compile plus. Un repli silencieux aurait donné le poids **maximal** à un rôle inconnu.
+
+### La densité des Faits varie d'un facteur ~30 dans l'année
+
+Mesuré sur `dix-ans`, Faits par mois de l'année simulée :
+
+| jours | 0-180 | 180-210 (mercato) | 210-270 | 270-365 (intersaison) |
+|---|---|---|---|---|
+| Faits/an | ~30/mois | **~178** | ~43 | **< 3/mois** |
+
+Conséquence à connaître avant de juger un digest vide : **le monde `dix-ans` s'arrête au tick 3650, c'est-à-dire au jour 0 d'une année**, donc la fenêtre par défaut de 90 jours tombe intégralement dans l'intersaison — 12 Faits, dont zéro concernant le club. Ce n'est pas une panne, et c'est pourquoi `?days=` existe.
+
+Sur une fenêtre représentative (`?days=250`, 432 Faits dont 43 pour le club), le digest rend ceci :
+
+```
+bilan 10/4/5, 26:15 — 2 arrivées, 6 prolongations, 1 jeune promu
+
+Champion : la saison s'achève à la 1re place sur 18, avec 61 points.
+Large victoire à domicile contre Club synthetique 9 (5-1).
+Joueur 261, sans club, signe à Club synthetique 12 (660 € par semaine).
+Large victoire à domicile contre Club synthetique 7 (4-0).
+Lourde défaite à domicile contre Club synthetique 16 (0-3).
+```
+
+### Coût
+
+Page **41,9 ms** par défaut, **35,2 ms** à `days=400` — moins cher que l'histoire complète (63,3 ms) sur le même monde, la fenêtre étant plus courte. Aucune projection, aucune table : `Host\Store\EventStore::between()` existait déjà.
+
+### `factsByType` est un livrable, pas du débogage
+
+`docs/14-` §9 fait du digest **le contrôle qualité des seuils d'émission** : s'il est illisible, ce sont les seuils qui sont mal réglés. Encore faut-il pouvoir le constater. La ventilation par type est donc **sur la page**, recalculée à chaque lecture, au lieu de dormir dans un document que plus personne ne recalcule — le mode de panne exact que la dette D5 a coûté.
+
 ## La vérité cachée, et qui a le droit de la voir
 
 Ces pages montrent la **vérité** du monde : la note au meilleur poste calculée sur les compétences réelles. C'est légitime parce que la seule surface qui existe aujourd'hui est celle d'**exploitation** — un exploitant voit son monde, sinon il ne peut pas l'inspecter, et la Phase 4 lui demande d'« explorer et éditer » (`docs/15-` §4).
@@ -138,6 +181,9 @@ Et ce n'est pas un espoir : `estimate()` rend un `int` sur la **même échelle 1
 - **`Read\WorldSummaryReader`**, **`Read\StandingsReader`**, **`Read\WorldListReader`**.
 - **`Read\History\ClubMentions`/`ClubMention`/`ClubRole`** — quels clubs un Fait concerne, et à quel titre. Le seul endroit du projet qui le sait.
 - **`Read\History\ClubHistoryReader`** — les blocs par saison.
+- **`Read\Digest\DigestReader`** — le digest de retour d'absence : fenêtre, filtre, tri, découpe en trois blocs.
+- **`Read\Digest\FactAmplitude`** — combien un Fait mérite d'être raconté, sur `[0, 1]`. **Le seul endroit qui le sait**, et en creux l'inventaire de ce que le journal du monde sait raconter aujourd'hui.
+- **`Read\Digest\FactSentence`** — un Fait, en une phrase française, du point de vue d'un club ou sans point de vue.
 - **`Read\View\*`** — les DTO. Plats, `readonly`, sérialisables tels quels : c'est le contrat que HTML et JSON partagent.
 - **`Format\Money`** — centimes → euros. Le noyau ne connaît que des **centimes entiers**, ce qui rend l'invariant monétaire exact ; la conversion n'appartient qu'à l'affichage, jamais à un DTO (un DTO porteur de chaînes formatées ne serait plus exploitable par un client qui veut recalculer).
 - **`App\Providers\AppServiceProvider`** — le seul endroit où Laravel et `host` se touchent.
@@ -154,7 +200,7 @@ La dépendance est **à sens unique** : `App\` connaît `Flair\Api\`, jamais l'i
 Deux raisons de le faire ainsi, et une mauvaise à écarter :
 
 - **La convention du dépôt.** `CLAUDE.md` dit « namespace racine `Flair\` », et les quatre autres paquets sont `Flair\Kernel\`, `Flair\Host\`, `Flair\Worldgen\`, `Flair\Harness\`, tous dans `src/`. Ici c'est `App\` qui est l'import de Laravel-land, pas `src/` qui est exotique.
-- **Le cœur de lecture est substantiel et n'a rien à voir avec HTTP.** Neuf classes qui lisent un ECS ; Laravel n'y sert à rien. Le digest (lot 3), SSE (lot 4) et `game-web` réutiliseront cette couche.
+- **Le cœur de lecture est substantiel et n'a rien à voir avec HTTP.** Neuf classes qui lisent un ECS ; Laravel n'y sert à rien. Le digest (lot 3) l'a déjà réutilisée sans rien changer à ce qui existait ; SSE (lot 4) et `game-web` suivront.
 - ~~« Le jour où l'admin sortira en paquet séparé, `src/` part sans rien toucher »~~ — c'est vrai, mais c'est un **bonus, jamais la justification**. Une frontière posée pour un futur hypothétique serait l'anticipation que ce projet refuse partout ailleurs.
 
 > ⚠️ **Deux racines coûtent une décision par fichier**, et une frontière qui coûte ça sans rien garantir est **pire que pas de frontière**. Elle est donc mécanisée, pas conventionnelle — sans quoi il faudrait tout ramener sous `App\` et l'assumer.
@@ -205,4 +251,4 @@ Les vues Blade ne sont pas analysées (elles compilent en PHP dans `storage/`). 
 
 Aucune écriture du monde — **lecture seule**. Éditer un monde persisté signifierait écrire un snapshot hors de `Host\AdvanceWorld`, donc percer l'atomicité mono-writer qui fait tenir le critère de sortie de la Phase 3 ; c'est une décision à part.
 
-Restent pour la Phase 4 : le digest de retour d'absence (lot 3), et SSE (lot 4, hors critère de sortie — à un tick par heure il ne vaut pas mieux qu'un rafraîchissement).
+Reste pour la Phase 4 : SSE (lot 4, **hors critère de sortie** — à un tick par heure il ne vaut pas mieux qu'un rafraîchissement).

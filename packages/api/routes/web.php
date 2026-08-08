@@ -25,3 +25,15 @@ Route::get('/worlds/{world}/clubs/{club}', [ClubController::class, 'show'])
 Route::get('/worlds/{world}/clubs/{club}/history', [ClubController::class, 'history'])
     ->whereNumber('club')
     ->name('clubs.history');
+
+/*
+ * Le digest de retour d'absence (docs/14- §9). `?days=` ouvre ou resserre la
+ * fenetre, 90 jours par defaut - l'enonce meme du critere de sortie de la
+ * phase. Ce n'est pas un confort de developpement : la densite des Faits varie
+ * d'un facteur ~30 selon l'endroit de la saison ou la fenetre tombe (mesure sur
+ * le monde de reference : ~180 Faits au mois du mercato, ~1 sur le dernier mois
+ * de l'intersaison), et un digest se juge sur une fenetre representative.
+ */
+Route::get('/worlds/{world}/clubs/{club}/digest', [ClubController::class, 'digest'])
+    ->whereNumber('club')
+    ->name('clubs.digest');

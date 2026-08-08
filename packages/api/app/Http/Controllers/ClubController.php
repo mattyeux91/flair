@@ -5,13 +5,16 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use Flair\Api\Read\ClubSheetReader;
+use Flair\Api\Read\Digest\DigestReader;
 use Flair\Api\Read\History\ClubHistoryReader;
 use Flair\Api\Read\LoadedWorld;
 use Flair\Api\Read\View\ClubHistoryView;
 use Flair\Api\Read\View\ClubSheetView;
+use Flair\Api\Read\View\DigestView;
 use Flair\Api\Read\WorldReader;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 /**
  * La fiche d'un club - l'ecran de ce lot.
@@ -33,6 +36,7 @@ final class ClubController extends Controller
         private readonly WorldReader $reader,
         private readonly ClubSheetReader $sheets,
         private readonly ClubHistoryReader $histories,
+        private readonly DigestReader $digests,
     ) {
     }
 
@@ -54,6 +58,34 @@ final class ClubController extends Controller
     public function historyJson(string $world, int $club): JsonResponse
     {
         return response()->json($this->historyOf($world, $club));
+    }
+
+    public function digest(Request $request, string $world, int $club): View
+    {
+        return view('clubs.digest', ['digest' => $this->digestOf($request, $world, $club)]);
+    }
+
+    public function digestJson(Request $request, string $world, int $club): JsonResponse
+    {
+        return response()->json($this->digestOf($request, $world, $club));
+    }
+
+    /**
+     * `?days=` est lu ici et pas dans le lecteur : `Flair\Api\Read\` ne connait
+     * pas HTTP, c'est ce que `Tests\Architecture\ReadLayerStaysFrameworkFreeTest`
+     * verifie. La borne haute evite qu'une URL demande dix ans de digest, ce qui
+     * n'aurait aucun sens - l'histoire du club est faite pour ca.
+     */
+    private function digestOf(Request $request, string $worldId, int $clubId): DigestView
+    {
+        $days = min(730, max(1, $request->integer('days', DigestReader::DEFAULT_DAYS)));
+        $digest = $this->digests->read($this->world($worldId), $clubId, $days);
+
+        if ($digest === null) {
+            abort(404, "Aucun club {$clubId} dans le monde \"{$worldId}\".");
+        }
+
+        return $digest;
     }
 
     private function historyOf(string $worldId, int $clubId): ClubHistoryView

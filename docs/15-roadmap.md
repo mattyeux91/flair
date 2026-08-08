@@ -244,7 +244,7 @@ Projections, API de requêtes, flux SSE, IHM d'administration pour explorer et �
 
 C'est la première fois que le monde devient *visible*. Ne repousse pas cette phase plus loin — psychologiquement, elle compte.
 
-#### Découpage retenu (ouvert le 2026-08-08) — **première moitié du critère de sortie atteinte**
+#### Découpage retenu (ouvert le 2026-08-08) — **critère de sortie atteint le 2026-08-08**
 
 | Lot | Contenu | État |
 |---|---|---|
@@ -252,7 +252,7 @@ C'est la première fois que le monde devient *visible*. Ne repousse pas cette ph
 | 1 | `packages/api`, la couche de lecture, la fiche d'un club | ✅ 2026-08-08 |
 | 2 | Dix ans d'histoire d'un club, en blocs par saison | ✅ 2026-08-08 |
 | — | Les dettes de Faits que le lot 2 a mises à nu | ✅ 2026-08-08 |
-| 3 | Le digest cadré **club** | à faire |
+| 3 | Le digest cadré **club** | ✅ 2026-08-08 |
 | 4 | SSE | à faire, **hors critère de sortie** |
 
 SSE en dernier et hors critère : à un tick par heure, un flux temps réel ne vaut pas mieux qu'un rafraîchissement, et rien dans le critère ne l'exige.
@@ -268,6 +268,19 @@ Ce qui les empêche de diverger, c'est qu'elles n'ont **qu'une source** — la c
 Ce qui a été mesuré et rend l'attente raisonnable : fiche de club **28,7 ms**, histoire de dix ans **57,1 ms**, `Seq Scan` sur dix ans d'event log à **2,17 ms**. Le déclencheur est nommé (`ClubHistoryView::$factsRead`) et l'échappatoire aussi — dériver les prédicats SQL de la même déclaration que le filtre PHP, pour avoir une source et la vitesse du SQL.
 
 > ⚠️ **Ce que le lot 2 a appris, et qui dépasse la phase.** Rendre le monde visible est aussi ce qui le rend *vérifiable* : le seul vrai bug du lot — 753 prolongations sur 819 signatures comptées comme des arrivées, une page annonçant « 7 arrivées » pour un club qui n'avait recruté personne — a été trouvé **en ouvrant la vraie page**, par aucun test. Et deux Faits se sont révélés incapables de dire qui ils concernaient, ce qui a donné la règle de contenu de `16-` §2.
+
+#### Le lot 3 (digest) ferme la phase — et ce qu'il a appris sur les seuils
+
+Trois blocs (bilan agrégé / 8 faits marquants / 4 faits du monde), tri `amplitude × poids_du_rôle × fraîcheur`, **aucun changement au noyau**, aucune table. Détail dans `packages/api/README.md`. Page à 41,9 ms, moins cher que l'histoire complète.
+
+**Le digest est le contrôle qualité des seuils d'émission promis par `14-` §9, et il a rendu son verdict** :
+
+1. **La densité des Faits varie d'un facteur ~30 dans l'année** — ~178 Faits au mois du mercato, moins de 3 par mois pendant l'intersaison (jours 270-365). La moyenne « ~115 Faits par trimestre » du lot 0 ne décrit **aucune** fenêtre réelle. Conséquence immédiate : `dix-ans` s'arrêtant au jour 0 d'une année, son digest par défaut est vide — 12 Faits, zéro pour le club. Ce n'est pas une panne, c'est l'intersaison.
+2. **Sur une fenêtre représentative, le digest se lit vraiment en trente secondes** : le titre, une correction 5-1, deux recrues sans club, une défaite 0-3, et un bandeau 10/4/5. Le critère de sortie est atteint au sens propre.
+3. **Ce qui manque au journal est maintenant visible en creux**, et c'est le vrai livrable : le digest sait dire « large victoire 5-1 » mais **jamais pourquoi** — pas de buteur, pas de blessure, pas de débuts. Et 10,6 % des Faits d'une fenêtre sont des `TransferCounterDemanded`, pure procédure qu'aucun lecteur ne voudra jamais. Ce sont les deux bouts du même réglage : le journal est trop bavard là où rien ne se raconte, et muet là où tout se raconterait.
+4. **Les noms sont des identifiants** (`Joueur 261`, `Club synthetique 12`, `WorldFactory`) — le plus gros obstacle à ce qu'un digest ressemble à un récit, et il ne coûte presque rien à lever.
+
+> Rien de tout ça n'a été corrigé dans le lot, **délibérément** : ajouter des Faits au noyau se décide le digest sous les yeux, et c'est maintenant possible. Urgence à ne pas perdre — `events.payload` n'a pas de colonne de version, donc ajouter un Fait est gratuit tant qu'aucun monde ne compte, et devient une migration ensuite.
 
 ### Phase 5 — Le jeu d'agent *(≈ 6 semaines, et le vrai inconnu)*
 

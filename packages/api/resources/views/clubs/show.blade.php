@@ -20,6 +20,7 @@
             <li><b>{{ $club->standing->rank }}<sup>e</sup></b> — {{ $club->standing->points }} pts en {{ $club->standing->played }} journees</li>
         @endif
         <li><a href="{{ route('clubs.history', [$worldId, $club->id]) }}">son histoire →</a></li>
+        <li><a href="{{ route('clubs.digest', [$worldId, $club->id]) }}">qu'ai-je raté ? →</a></li>
     </ul>
 
     <h2>Le club</h2>
