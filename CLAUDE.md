@@ -18,6 +18,7 @@ Ce fichier est un **index et un aide-mémoire des règles chères à violer par 
 | `15-roadmap.md` | Phases, critères de sortie, décisions à verrouiller avant de coder |
 | `16-evenements-et-cascades.md` | Taxonomie Fait/DecisionRequest/Intent, seuils d'émission, contrôle des cascades, Event Monitor |
 | `17-marche-transferts.md` | Chantier de suivi du lot 3 (Phase 2) : marché des transferts et inflation, découpé en 5 points vérifiables |
+| `18-dettes.md` | **Le seul endroit où une dette attend.** Pas de déclencheur, pas d'entrée ; ce qui peut être mécanisé en sort pour devenir un test |
 | `archive/ressource.md`, `archive/ressource2.md` | Sources internes non normatives (brouillon d'origine, déjà digéré par `10-`–`16-`) — ne pas les traiter comme référence de conception |
 
 ## Règles non négociables

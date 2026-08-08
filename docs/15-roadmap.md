@@ -296,6 +296,9 @@ Moteur L1 Markov, narration émergente, multi-pays, coupes continentales, média
 
 ## 5. Ce qu'il ne faut pas faire
 
+> Le pendant de cette section est `18-dettes.md` : ce qu'on s'est **déjà** autorisé à remettre à plus tard, avec le déclencheur qui dit quand. Une dette sans déclencheur n'y entre pas, et ce qui peut être mécanisé en sort pour devenir un test.
+
+
 | Tentation | Pourquoi c'est un piège |
 |---|---|
 | Moteur de match positionnel 2D | 80 % du temps de dev, valeur marginale. Le cimetière des clones de FM. |
@@ -335,4 +338,6 @@ Les décisions 1 à 4, 6 et 7 sont chères à corriger plus tard. La cinquième 
 | `13-moteur-de-simulation.md` | Tick hybride, scheduler, déterminisme, event sourcing, dimensionnement |
 | `14-algorithmes.md` | Moteurs de match, développement, composition de facteurs, marché, économie, équilibre, narration |
 | `16-evenements-et-cascades.md` | Taxonomie des messages, seuils d'émission, contrôle des cascades, Event Monitor |
+| `17-marche-transferts.md` | Chantier du marché des transferts et de l'inflation (Phase 2, lot 3), en 5 points |
+| `18-dettes.md` | Les dettes ouvertes, chacune avec son déclencheur — et ce qui n'y entre pas |
 | `ressource.md`, `ressource2.md` | Sources internes (discussion avec un ami) — matière première, non normatives |
