@@ -244,6 +244,31 @@ Projections, API de requêtes, flux SSE, IHM d'administration pour explorer et �
 
 C'est la première fois que le monde devient *visible*. Ne repousse pas cette phase plus loin — psychologiquement, elle compte.
 
+#### Découpage retenu (ouvert le 2026-08-08) — **première moitié du critère de sortie atteinte**
+
+| Lot | Contenu | État |
+|---|---|---|
+| 0 | Le jeu de données : un monde de dix ans en base, et ce qu'il coûte | ✅ 2026-08-08 |
+| 1 | `packages/api`, la couche de lecture, la fiche d'un club | ✅ 2026-08-08 |
+| 2 | Dix ans d'histoire d'un club, en blocs par saison | ✅ 2026-08-08 |
+| — | Les dettes de Faits que le lot 2 a mises à nu | ✅ 2026-08-08 |
+| 3 | Le digest cadré **club** | à faire |
+| 4 | SSE | à faire, **hors critère de sortie** |
+
+SSE en dernier et hors critère : à un tick par heure, un flux temps réel ne vaut pas mieux qu'un rafraîchissement, et rien dans le critère ne l'exige.
+
+#### Deux décisions structurelles, prises d'entrée
+
+**1. Un seul paquet `api`, qui sert le JSON *et* les pages Blade de l'admin — pas de `packages/admin`.** C'est un **écart assumé au graphe de `11-` §7**, et il mérite d'être écrit noir sur blanc plutôt que de vivre dans un commentaire : l'admin est un outil interne mono-utilisateur, un SPA n'y achète rien, et deux paquets n'auraient pas empêché les deux présentations de diverger.
+
+Ce qui les empêche de diverger, c'est qu'elles n'ont **qu'une source** — la couche de lecture `Api\Read\`, et un test (`Tests\Http\PagesMatchJsonTest`) qui prend les chiffres du JSON, les met sous la forme de la page et exige de les y retrouver. La frontière entre `src/` (lecture, PHP nu) et `app/` (adaptation Laravel) est tenue mécaniquement, par balayage du disque, pas par convention. **Si elle gêne un jour à l'usage, la bonne réponse est de tout ramener sous `App\` et de l'assumer — jamais de la laisser mentir.**
+
+**2. Zéro table de projection**, jusqu'à ce qu'un écran soit *mesuré* trop lent. L'event log et le snapshot répondent aux deux moitiés du critère de sortie ; et `snapshot + PerceptionModel` à la lecture est de toute façon la seule forme conforme à `12-` §4, une projection stockée figeant une vérité qui devrait être dérivée par observateur.
+
+Ce qui a été mesuré et rend l'attente raisonnable : fiche de club **28,7 ms**, histoire de dix ans **57,1 ms**, `Seq Scan` sur dix ans d'event log à **2,17 ms**. Le déclencheur est nommé (`ClubHistoryView::$factsRead`) et l'échappatoire aussi — dériver les prédicats SQL de la même déclaration que le filtre PHP, pour avoir une source et la vitesse du SQL.
+
+> ⚠️ **Ce que le lot 2 a appris, et qui dépasse la phase.** Rendre le monde visible est aussi ce qui le rend *vérifiable* : le seul vrai bug du lot — 753 prolongations sur 819 signatures comptées comme des arrivées, une page annonçant « 7 arrivées » pour un club qui n'avait recruté personne — a été trouvé **en ouvrant la vraie page**, par aucun test. Et deux Faits se sont révélés incapables de dire qui ils concernaient, ce qui a donné la règle de contenu de `16-` §2.
+
 ### Phase 5 — Le jeu d'agent *(≈ 6 semaines, et le vrai inconnu)*
 
 Client d'incarnation : recruter un client, le scouter, le placer, négocier, gérer sa carrière.

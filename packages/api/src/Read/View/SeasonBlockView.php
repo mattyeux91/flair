@@ -8,15 +8,19 @@ namespace Flair\Api\Read\View;
  * Une saison d'un club : ou il a fini, ce qu'il a fait, qui est arrive et qui
  * est parti.
  *
- * ## Le rang est un Fait, les points sont un calcul
+ * ## Une saison conclue est citee, une saison en cours est comptee
  *
- * `$rank` vient de `SeasonConcluded.finalRanking` - c'est le monde qui l'a dit,
- * il est autoritaire. `$points` est **recalcule** depuis les `MatchPlayed` et
- * les baremes du `Ruleset` du monde, parce que l'event log ne porte pas les
- * points finaux. Un test exige que le recalcul de la saison en cours egale le
- * `Standings` du snapshot ; le jour ou `CompetitionSystem` changerait sa facon
- * d'attribuer les points, c'est ce test qui rougirait, pas cette page qui
- * mentirait en silence.
+ * Pour une saison **conclue**, tout vient de `SeasonConcluded.finalTable` :
+ * rang, points, bilan et buts sont ce que le monde a publie, personne ne les
+ * recalcule. Pour la saison **en cours**, ce Fait n'existe pas encore, donc
+ * le bilan est compte sur les `MatchPlayed` et les points appliques depuis les
+ * baremes du `Ruleset` du monde.
+ *
+ * Les deux chemins doivent coincider tant qu'aucune regle n'attribue de points
+ * hors d'un resultat de match, et c'est un test qui le tient
+ * (`ClubHistoryReaderTest`) - pas une convention. Le jour ou un retrait de
+ * points existera, le chemin « cite » restera juste et le chemin « compte »
+ * deviendra faux : c'est pour cette raison que le premier a la priorite.
  *
  * `$rank` est `null` pour une saison **en cours** : elle n'a pas encore ete
  * conclue, donc personne n'a de classement final. Ce n'est pas une donnee
@@ -29,6 +33,7 @@ final readonly class SeasonBlockView
      * @param list<MovementView> $departures
      * @param list<MovementView> $youthPromoted
      * @param list<MovementView> $renewals
+     * @param list<MovementView> $retirements
      * @param list<LoggedFactView> $log
      */
     public function __construct(
@@ -49,6 +54,8 @@ final readonly class SeasonBlockView
         public array $youthPromoted,
         /** Contrats prolonges au meme club - ni une arrivee ni un depart. */
         public array $renewals,
+        /** Ceux qui ont raccroche sous ce maillot : un depart dont personne ne profite. */
+        public array $retirements,
         public int $facilitiesInvestedCents,
         public int $transferSpendCents,
         public int $transferIncomeCents,

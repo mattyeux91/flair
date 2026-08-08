@@ -32,7 +32,10 @@ jobs:
         working-directory: packages/harness
       - run: vendor/bin/phpunit
         working-directory: packages/harness
-      - run: vendor/bin/phpstan analyse
+      # `composer analyse` et pas `vendor/bin/phpstan analyse` : le script
+      # porte `--memory-limit=1G`, et depuis que `public/` est analyse le
+      # defaut de 128 Mo ne suffit plus (constate : OOM en plein worker).
+      - run: composer analyse
         working-directory: packages/harness
       - run: vendor/bin/phpunit --testsuite Regression
         working-directory: packages/harness

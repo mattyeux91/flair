@@ -139,10 +139,15 @@ final class CompetitionSystem implements System
     }
 
     /**
-     * Classement d'une table, du premier au dernier. Vide si aucun match n'a
-     * ete joue.
+     * La table classee, du premier au dernier. Vide si aucun match n'a ete
+     * joue.
      *
-     * @return list<int> clubId
+     * Les lignes sont rendues **entieres**, pas reduites a leurs `clubId` : ce
+     * tri est la derniere occasion de la saison de fixer ses chiffres, et
+     * `Standings` sera vide des le prochain `SeasonStarted` (cf. le docblock de
+     * `SeasonConcluded`). Ce qui n'est pas publie ici est perdu pour toujours.
+     *
+     * @return list<StandingsEntry>
      */
     private static function rank(Standings $standings): array
     {
@@ -153,7 +158,7 @@ final class CompetitionSystem implements System
             ?: $b->goalsFor <=> $a->goalsFor
             ?: $a->clubId <=> $b->clubId);
 
-        return array_map(static fn (StandingsEntry $entry): int => $entry->clubId, $entries);
+        return $entries;
     }
 
     private function applyResult(SystemContext $ctx, MatchResult $result): void

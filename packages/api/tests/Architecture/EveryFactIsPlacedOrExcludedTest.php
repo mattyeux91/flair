@@ -6,10 +6,12 @@ namespace Flair\Api\Tests\Architecture;
 
 use Flair\Api\Read\History\ClubMentions;
 use Flair\Kernel\Core\Messaging\DomainEvent;
+use Flair\Kernel\Core\Snapshot\SnapshotArrayOf;
 use Flair\Kernel\Football\FootballTypes;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use ReflectionNamedType;
+use ReflectionParameter;
 
 /**
  * Le test qui rend l'oubli impossible, cote histoire.
@@ -25,8 +27,13 @@ use ReflectionNamedType;
  * La regle est « place **ou** explicitement exclu ». L'exclusion n'est pas une
  * echappatoire : elle demande d'inscrire le type dans
  * `ClubMentions::NOT_ABOUT_A_CLUB` avec sa raison, ce qui transforme un oubli
- * en decision relisible. Deux des cinq exclusions actuelles y sont marquees
- * « dette connue », ce qui est precisement l'information qu'on veut voir.
+ * en decision relisible.
+ *
+ * Cette liste a compte cinq entrees, dont **deux marquees « dette connue »** -
+ * `PlayerRetired` et `TransferCounterDemanded`, deux Faits qui ne portaient pas
+ * de quoi les attribuer a un club. C'etait exactement l'information qu'on
+ * voulait voir : les Faits ont ete corriges, et il ne reste que trois
+ * exclusions, toutes de vraies decisions.
  */
 final class EveryFactIsPlacedOrExcludedTest extends TestCase
 {
@@ -103,10 +110,7 @@ final class EveryFactIsPlacedOrExcludedTest extends TestCase
                 'float' => (float) $counter++,
                 'string' => 'x' . $counter++,
                 'bool' => true,
-                // `SeasonConcluded::$finalRanking` : un classement plausible,
-                // dont les identifiants ne recoupent pas ceux des autres
-                // champs de facon ambigue.
-                'array' => [10, 11, 12],
+                'array' => $this->fabricateList($parameter, $counter),
                 default => null,
             };
         }
@@ -116,5 +120,39 @@ final class EveryFactIsPlacedOrExcludedTest extends TestCase
         return $event instanceof DomainEvent
             ? $event
             : self::fail("{$class} est enregistre comme Fait mais n'implemente pas DomainEvent.");
+    }
+
+    /**
+     * Trois elements du type que le parametre **declare deja** via
+     * `SnapshotArrayOf` - l'attribut dont le codec se sert pour serialiser ce
+     * meme champ.
+     *
+     * Suivre cette declaration plutot qu'ecrire `[10, 11, 12]` en dur est ce
+     * qui empeche ce test de vieillir : le jour ou un Fait porte une liste
+     * d'objets (`SeasonConcluded::$finalTable` est le premier), une constante
+     * d'entiers ferait tomber `ClubMentions` sur une erreur de type, et le
+     * test accuserait le code au lieu de lui-meme.
+     *
+     * @return list<mixed>
+     */
+    private function fabricateList(ReflectionParameter $parameter, int &$counter): array
+    {
+        $attributes = $parameter->getAttributes(SnapshotArrayOf::class);
+        $of = $attributes === [] ? 'int' : $attributes[0]->newInstance()->type;
+
+        if ($of === 'int') {
+            return [10, 11, 12];
+        }
+
+        self::assertTrue(class_exists($of), "SnapshotArrayOf({$of}) ne designe ni 'int' ni une classe.");
+
+        // Le premier parametre porte l'identifiant dans tous les types de
+        // valeur du domaine (`StandingsEntry::$clubId`), et les suivants ont
+        // un defaut : trois lignes distinctes suffisent a ce test.
+        return [
+            new $of($counter++),
+            new $of($counter++),
+            new $of($counter++),
+        ];
     }
 }

@@ -12,6 +12,8 @@ use Flair\Api\Read\View\SeasonBlockView;
 use Flair\Api\Tests\ReadTestCase;
 use Flair\Kernel\Football\Components\Club;
 use Flair\Kernel\Football\Components\Person;
+use Flair\Kernel\Football\Components\StandingsEntry;
+use Flair\Kernel\Football\Events\SeasonConcluded;
 
 /**
  * L'histoire d'un club, contre un monde reellement joue.
@@ -73,7 +75,7 @@ final class ClubHistoryReaderTest extends ReadTestCase
 
         $season = $this->season($history->seasons, self::FIRST_COMPETITION_SEASON);
 
-        // Le rang vient de `SeasonConcluded.finalRanking` : c'est un Fait, il
+        // Le rang vient de `SeasonConcluded.finalTable` : c'est un Fait, il
         // fait autorite. Il n'est jamais recalcule.
         self::assertNotNull($season->rank, 'La saison de competition est conclue, elle doit porter un rang.');
         self::assertSame(4, $season->clubsRanked);
@@ -90,14 +92,16 @@ final class ClubHistoryReaderTest extends ReadTestCase
     }
 
     /**
-     * **Le garde-fou du recalcul.** Les points ne sont pas dans l'event log :
-     * on les reconstruit depuis les `MatchPlayed` et les baremes du `Ruleset`.
-     * Rien n'empecherait ce calcul de diverger de ce que le monde a reellement
-     * fait - sauf ceci.
+     * **Le garde-fou du chemin « compte ».** Une saison en cours n'a pas encore
+     * de `SeasonConcluded` : son bilan est compte sur les `MatchPlayed` et ses
+     * points appliques depuis les baremes du `Ruleset`. Rien n'empecherait ce
+     * calcul de diverger de ce que le monde fait reellement - sauf ceci.
      *
-     * La comparaison porte sur la saison **en cours**, la seule dont le
+     * La comparaison porte donc sur la saison **en cours**, la seule dont le
      * `Standings` du snapshot soit encore le reflet : une fois la saison
-     * suivante generee, le classement repart de zero.
+     * suivante generee, le classement repart de zero. C'est precisement
+     * pourquoi une saison conclue est **citee** et non comptee - voir
+     * `testAConcludedSeasonQuotesTheFactRatherThanRecountingIt`.
      */
     public function testRecomputedPointsMatchTheStandingsOfTheSnapshot(): void
     {
@@ -136,6 +140,81 @@ final class ClubHistoryReaderTest extends ReadTestCase
         }
 
         self::assertSame(4, $compared, 'Les quatre clubs doivent avoir ete compares.');
+    }
+
+    /**
+     * **Une saison conclue est citee, pas recomptee.**
+     *
+     * Chaque chiffre du bloc doit etre celui de la ligne du club dans
+     * `SeasonConcluded.finalTable`, le proces-verbal publie par le monde. Ce
+     * que ce test peut prouver : que la lecture prend bien sa source dans le
+     * Fait. Ce qu'il ne peut pas encore prouver : que ca **change** quelque
+     * chose - aucune regle n'attribue aujourd'hui de points hors d'un resultat
+     * de match, donc les deux chemins donnent le meme resultat. Le jour ou un
+     * retrait de points existera, ce test sera le seul a distinguer les deux,
+     * et c'est pour ce jour-la qu'il est ecrit.
+     */
+    public function testAConcludedSeasonQuotesTheFactRatherThanRecountingIt(): void
+    {
+        $worldId = $this->world->create('proces-verbal');
+        $this->world->advance($worldId, self::TICKS);
+        $world = $this->read($worldId);
+
+        $clubs = $world->state->components(Club::class)->entities();
+        $history = (new ClubHistoryReader($this->world->events))->read($world, $clubs[0]);
+        self::assertNotNull($history);
+
+        $block = $this->season($history->seasons, self::FIRST_COMPETITION_SEASON);
+        $line = $this->officialLine($worldId, $clubs[0]);
+
+        self::assertSame($line->played, $block->played);
+        self::assertSame($line->won, $block->won);
+        self::assertSame($line->drawn, $block->drawn);
+        self::assertSame($line->lost, $block->lost);
+        self::assertSame($line->goalsFor, $block->goalsFor);
+        self::assertSame($line->goalsAgainst, $block->goalsAgainst);
+        self::assertSame($line->points, $block->points);
+    }
+
+    /**
+     * **La dette que ce lot solde.** `PlayerRetired` ne portait que `playerId`
+     * et `ageYears` : les retraites d'un club etaient invisibles dans son
+     * histoire, et le reconstruire depuis les `ContractSigned` aurait ete
+     * silencieusement faux (les contrats du genesis ne sont pas dans l'event
+     * log). Le Fait porte desormais son club.
+     *
+     * Compte sur les quatre clubs : le monde produit des retraites, la question
+     * est que la lecture les place - pas qu'un club en particulier en subisse.
+     */
+    public function testRetirementsAreAttributedToTheClubThatLosesThePlayer(): void
+    {
+        $worldId = $this->world->create('retraites');
+        $this->world->advance($worldId, self::TICKS);
+        $world = $this->read($worldId);
+
+        $reader = new ClubHistoryReader($this->world->events);
+        $retirements = 0;
+
+        foreach ($world->state->components(Club::class)->entities() as $clubId) {
+            $history = $reader->read($world, $clubId);
+            self::assertNotNull($history);
+
+            foreach ($history->seasons as $season) {
+                foreach ($season->retirements as $movement) {
+                    self::assertNotSame('', $movement->playerName);
+                    self::assertNotNull($movement->ageYears, 'Une retraite doit dire a quel age.');
+                    self::assertGreaterThanOrEqual(30, $movement->ageYears);
+                    // Une retraite ne fait ni gagner ni perdre d'argent, et
+                    // n'a pas de club d'en face : personne ne recupere le
+                    // joueur.
+                    self::assertNull($movement->feeCents);
+                    self::assertNull($movement->otherClubId);
+                    $retirements++;
+                }
+            }
+        }
+
+        self::assertGreaterThan(0, $retirements, 'Dix-neuf mois de monde doivent produire des retraites.');
     }
 
     /**
@@ -225,6 +304,27 @@ final class ClubHistoryReaderTest extends ReadTestCase
         self::assertNotSame([], $clubs);
 
         return [$world, (new ClubHistoryReader($this->world->events))->read($world, $clubs[0])];
+    }
+
+    /**
+     * La ligne d'un club dans le classement final publie par le monde, lue
+     * directement dans l'event store - sans passer par la couche qu'on teste.
+     */
+    private function officialLine(string $worldId, int $clubId): StandingsEntry
+    {
+        foreach ($this->world->events->between($worldId, 0, self::TICKS) as $recorded) {
+            if (!$recorded->event instanceof SeasonConcluded) {
+                continue;
+            }
+
+            foreach ($recorded->event->finalTable as $entry) {
+                if ($entry->clubId === $clubId) {
+                    return $entry;
+                }
+            }
+        }
+
+        self::fail("Aucun SeasonConcluded ne classe le club {$clubId}.");
     }
 
     /** @param list<SeasonBlockView> $seasons */

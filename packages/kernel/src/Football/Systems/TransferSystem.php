@@ -288,7 +288,14 @@ final class TransferSystem implements System
         );
 
         $ctx->emit(
-            new TransferCounterDemanded($negotiationId, $negotiation->playerId, $negotiation->round, $counterCents),
+            new TransferCounterDemanded(
+                $negotiationId,
+                $negotiation->playerId,
+                $negotiation->round,
+                $counterCents,
+                $negotiation->buyerClubId,
+                $negotiation->sellerClubId,
+            ),
             entityId: $negotiationId,
         );
 

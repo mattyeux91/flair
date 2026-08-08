@@ -17,10 +17,12 @@ use Flair\Kernel\Core\Ruleset\CompetitionBalance;
 use Flair\Kernel\Core\Snapshot\ValueCodec;
 use Flair\Kernel\Football\Components\Club;
 use Flair\Kernel\Football\Components\Person;
+use Flair\Kernel\Football\Components\StandingsEntry;
 use Flair\Kernel\Football\Events\ClubInvestedInFacilities;
 use Flair\Kernel\Football\Events\ContractExpired;
 use Flair\Kernel\Football\Events\ContractSigned;
 use Flair\Kernel\Football\Events\MatchPlayed;
+use Flair\Kernel\Football\Events\PlayerRetired;
 use Flair\Kernel\Football\Events\SeasonConcluded;
 use Flair\Kernel\Football\Events\TransferAgreed;
 use Flair\Kernel\Football\Events\YouthPlayerPromoted;
@@ -122,8 +124,9 @@ final readonly class ClubHistoryReader
     ): SeasonBlockView {
         $won = $drawn = $lost = $goalsFor = $goalsAgainst = 0;
         $rank = $clubsRanked = null;
+        $official = null;
         $facilities = $spend = $income = 0;
-        $arrivals = $departures = $youth = $renewals = [];
+        $arrivals = $departures = $youth = $renewals = $retirements = [];
         $log = [];
 
         // Construits une fois par saison, pas une fois par Fait : le registre
@@ -148,7 +151,8 @@ final readonly class ClubHistoryReader
 
             if ($event instanceof SeasonConcluded) {
                 $rank = $this->mentions->rankIn($event, $clubId);
-                $clubsRanked = count($event->finalRanking);
+                $clubsRanked = count($event->finalTable);
+                $official = $this->mentions->lineIn($event, $clubId);
             }
 
             if ($event instanceof ClubInvestedInFacilities) {
@@ -191,6 +195,18 @@ final readonly class ClubHistoryReader
                 $youth[] = $this->movement($state, $event->playerId, null, null, null, $entry->tick);
             }
 
+            if ($event instanceof PlayerRetired) {
+                $retirements[] = $this->movement(
+                    $state,
+                    $event->playerId,
+                    null,
+                    null,
+                    null,
+                    $entry->tick,
+                    $event->ageYears,
+                );
+            }
+
             $encoded = $codec->encode($event);
 
             $log[] = new LoggedFactView(
@@ -206,12 +222,14 @@ final readonly class ClubHistoryReader
             );
         }
 
-        return new SeasonBlockView(
-            season: $season,
-            fromTick: $season * 365,
-            toTick: ($season + 1) * 365 - 1,
-            rank: $rank,
-            clubsRanked: $clubsRanked,
+        // **Cite si le monde l'a dit, compte sinon.** Une saison conclue porte
+        // sa table dans `SeasonConcluded` : c'est un proces-verbal, il fait
+        // autorite, et le recopier est la seule facon de rester juste le jour
+        // ou des points s'attribueront ailleurs qu'au bout d'un match. Une
+        // saison en cours n'a pas ce Fait, d'ou le comptage sur les
+        // `MatchPlayed` - juste aujourd'hui, et sous test.
+        $record = $official ?? new StandingsEntry(
+            clubId: $clubId,
             played: $won + $drawn + $lost,
             won: $won,
             drawn: $drawn,
@@ -219,10 +237,26 @@ final readonly class ClubHistoryReader
             goalsFor: $goalsFor,
             goalsAgainst: $goalsAgainst,
             points: $won * $points->pointsForWin + $drawn * $points->pointsForDraw,
+        );
+
+        return new SeasonBlockView(
+            season: $season,
+            fromTick: $season * 365,
+            toTick: ($season + 1) * 365 - 1,
+            rank: $rank,
+            clubsRanked: $clubsRanked,
+            played: $record->played,
+            won: $record->won,
+            drawn: $record->drawn,
+            lost: $record->lost,
+            goalsFor: $record->goalsFor,
+            goalsAgainst: $record->goalsAgainst,
+            points: $record->points,
             arrivals: $arrivals,
             departures: $departures,
             youthPromoted: $youth,
             renewals: $renewals,
+            retirements: $retirements,
             facilitiesInvestedCents: $facilities,
             transferSpendCents: $spend,
             transferIncomeCents: $income,
@@ -261,6 +295,7 @@ final readonly class ClubHistoryReader
         ?int $feeCents,
         ?int $wagePerWeekCents,
         int $tick,
+        ?int $ageYears = null,
     ): MovementView {
         return new MovementView(
             playerId: $playerId,
@@ -275,6 +310,7 @@ final readonly class ClubHistoryReader
             feeCents: $feeCents,
             wagePerWeekCents: $wagePerWeekCents,
             tick: $tick,
+            ageYears: $ageYears,
         );
     }
 

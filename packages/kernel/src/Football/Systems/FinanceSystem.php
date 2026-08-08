@@ -251,7 +251,7 @@ final class FinanceSystem implements System
         // lui-meme.
         $inflation = $ctx->singleton(MarketInflation::class) ?? new MarketInflation();
 
-        $meritShare = $event->finalRanking === [] ? 0.0 : max(0.0, min(1.0, $finance->meritShare));
+        $meritShare = $event->finalTable === [] ? 0.0 : max(0.0, min(1.0, $finance->meritShare));
 
         // L'enveloppe, en deux morceaux qui ne disent pas la meme chose : le
         // nominal porte a l'unite du jour, et la croissance que le stock de
@@ -276,7 +276,7 @@ final class FinanceSystem implements System
         $injected = 0;
         $drained = 0;
 
-        foreach (self::orderByRank($clubIds, $event->finalRanking) as $rank => $clubId) {
+        foreach (self::orderByRank($clubIds, $event->ranking()) as $rank => $clubId) {
             $finances = $ctx->read(Finances::class)->get($clubId);
 
             if ($finances === null) {

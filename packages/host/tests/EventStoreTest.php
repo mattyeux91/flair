@@ -114,12 +114,15 @@ final class EventStoreTest extends DatabaseTestCase
     }
 
     /**
-     * Un Fait dont la couche de lecture aura besoin, et qu'on ne peut pas
-     * rattacher a un club : `PlayerRetired` ne porte que `playerId` et
-     * `ageYears`. Verifie ici pour que cette limite soit **mesuree** et non
-     * supposee - c'est elle qui prive le digest des retraites.
+     * **L'inverse exact de ce que ce test verifiait.** Il exigeait que
+     * `PlayerRetired` **n'ait pas** de `clubId`, pour que la limite soit
+     * mesuree plutot que supposee : c'est elle qui privait le digest des
+     * retraites. Le Fait porte desormais son club, et ce test devient le
+     * garde-fou de la propriete qui compte a la relecture - **un employeur
+     * nomme survit a l'aller-retour en base**, ce qu'aucune lecture de l'etat
+     * courant ne pourrait rattraper une fois le contrat retire.
      */
-    public function testPlayerRetiredCarriesNoClub(): void
+    public function testARetirementNamesTheClubThatLosesThePlayer(): void
     {
         $worldId = $this->playedWorld('retraites', 200);
 
@@ -130,11 +133,18 @@ final class EventStoreTest extends DatabaseTestCase
 
         self::assertNotSame([], $retirements, 'Deux cents ticks doivent avoir vu partir des joueurs.');
 
+        $employed = 0;
+
         foreach ($retirements as $entry) {
             $event = $entry->event;
             self::assertInstanceOf(PlayerRetired::class, $event);
-            self::assertObjectNotHasProperty('clubId', $event);
+            $employed += $event->clubId === null ? 0 : 1;
         }
+
+        // `null` reste licite - un joueur sans club raccroche comme un autre -
+        // mais dans un monde ou tout le monde est employe au genesis, la
+        // colonne ne peut pas etre vide de bout en bout.
+        self::assertGreaterThan(0, $employed, 'Aucune retraite ne nomme de club : le champ ne remonte pas de la base.');
     }
 
     private function playedWorld(string $hint, int $ticks): string

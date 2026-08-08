@@ -82,14 +82,25 @@ final class AdvanceWorld
 
     public function __invoke(string $worldId): AdvanceResult
     {
-        /** @var AdvanceResult */
-        return $this->database->connection()->transaction(function () use ($worldId): AdvanceResult {
+        // **Autour** de la transaction, pas dedans : le `COMMIT` arrive apres
+        // le retour de la closure, donc aucun compteur pose a l'interieur ne
+        // peut le voir. C'est ce qui faisait qu'`advance` sous-estimait son
+        // propre cout de 29 % (cf. `AdvanceResult`).
+        $startedTotal = microtime(true);
+
+        /** @var AdvanceResult $result */
+        $result = $this->database->connection()->transaction(function () use ($worldId): AdvanceResult {
             // Le verrou d'abord : inutile de deserialiser un etat de plusieurs
             // centaines de kilo-octets pour decouvrir ensuite qu'un autre
             // processus tient deja ce monde.
             if (!$this->lock->tryAcquire($worldId)) {
                 return AdvanceResult::busy();
             }
+
+            // Le chronometre demarre **avant** le chargement du snapshot : le
+            // `SELECT` d'un JSON de plusieurs centaines de kilo-octets et sa
+            // deserialisation sont du cout de simulation, pas du neant.
+            $startedSimulation = microtime(true);
 
             $world = $this->worlds->find($worldId);
             $snapshot = $world === null ? null : $this->snapshots->latest($worldId);
@@ -100,7 +111,6 @@ final class AdvanceWorld
 
             $tick = $snapshot->tick + 1;
 
-            $startedSimulation = microtime(true);
             $state = $snapshot->restore($this->codec);
             $result = $this->simulation->step($state, new TickContext(
                 tick: $tick,
@@ -132,5 +142,16 @@ final class AdvanceWorld
                 persistenceSeconds: $persistenceSeconds,
             );
         });
+
+        // Le total ne peut se poser qu'ici, une fois le `COMMIT` passe - d'ou
+        // ce reassemblage plutot qu'un compteur de plus dans la closure.
+        return new AdvanceResult(
+            outcome: $result->outcome,
+            tick: $result->tick,
+            events: $result->events,
+            simulationSeconds: $result->simulationSeconds,
+            persistenceSeconds: $result->persistenceSeconds,
+            totalSeconds: microtime(true) - $startedTotal,
+        );
     }
 }

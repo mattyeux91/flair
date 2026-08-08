@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flair\Api\Read\History;
 
 use Flair\Kernel\Core\Messaging\DomainEvent;
+use Flair\Kernel\Football\Components\StandingsEntry;
 use Flair\Kernel\Football\Events\ClubInvestedInFacilities;
 use Flair\Kernel\Football\Events\ContractExpired;
 use Flair\Kernel\Football\Events\ContractSigned;
@@ -65,23 +66,6 @@ final class ClubMentions
         // serialise dans le snapshot, ce qui est un autre besoin.
         SeasonEnded::class => 'passe par le Scheduler, jamais journalise',
         FixtureKickoff::class => 'passe par le Scheduler, jamais journalise',
-
-        // ⚠️ Dette, pas un choix de conception. `PlayerRetired` ne porte que
-        // `playerId` et `ageYears` : impossible de savoir quel club perd ce
-        // joueur. Reconstruire le club depuis les `ContractSigned` serait
-        // **silencieusement faux**, les contrats du genesis n'etant pas dans
-        // l'event log - un joueur au meme club depuis l'origine n'a aucun
-        // evenement de signature. Correction : un champ de plus sur le Fait, ou
-        // un genesis qui emet ses contrats. C'est ce qui prive le digest des
-        // retraites (docs/14- §9).
-        PlayerRetired::class => 'ne porte pas le club du joueur (dette connue)',
-
-        // Ne porte que `negotiationId` et `playerId`. Joignable en theorie a
-        // l'ouverture qui nomme les clubs, mais ce serait un etat a
-        // reconstruire pour un evenement de faible valeur narrative - les
-        // tours d'une negociation interessent le marche, pas l'histoire d'un
-        // club, qui retient l'ouverture, l'accord et la rupture.
-        TransferCounterDemanded::class => 'ne porte que la negociation (dette connue)',
     ];
 
     /** @return list<ClubMention> */
@@ -108,9 +92,17 @@ final class ClubMentions
                 new ClubMention($event->clubId, ClubRole::Subject),
             ],
 
+            // `null` pour un joueur qui raccroche sans club : ce n'est pas une
+            // donnee manquante, c'est qu'aucun club ne le perd. Une liste vide
+            // est donc la bonne reponse ici, pas une exclusion.
+            $event instanceof PlayerRetired => $event->clubId === null
+                ? []
+                : [new ClubMention($event->clubId, ClubRole::Subject)],
+
             $event instanceof TransferAgreed,
             $event instanceof TransferNegotiationOpened,
-            $event instanceof TransferNegotiationBroken => [
+            $event instanceof TransferNegotiationBroken,
+            $event instanceof TransferCounterDemanded => [
                 new ClubMention($event->buyerClubId, ClubRole::Buyer),
                 new ClubMention($event->sellerClubId, ClubRole::Seller),
             ],
@@ -121,7 +113,7 @@ final class ClubMentions
             // ressemble a aucun autre.
             $event instanceof SeasonConcluded => array_map(
                 static fn (int $clubId): ClubMention => new ClubMention($clubId, ClubRole::Ranked),
-                $event->finalRanking,
+                $event->ranking(),
             ),
 
             default => [],
@@ -131,9 +123,21 @@ final class ClubMentions
     /** Le rang d'un club dans une saison conclue, 1-indexe. `null` s'il n'y figure pas. */
     public function rankIn(SeasonConcluded $event, int $clubId): ?int
     {
-        $position = array_search($clubId, $event->finalRanking, strict: true);
+        $position = array_search($clubId, $event->ranking(), strict: true);
 
         return $position === false ? null : $position + 1;
+    }
+
+    /** Sa ligne du classement final, avec ses points et son bilan. `null` s'il n'y figure pas. */
+    public function lineIn(SeasonConcluded $event, int $clubId): ?StandingsEntry
+    {
+        foreach ($event->finalTable as $entry) {
+            if ($entry->clubId === $clubId) {
+                return $entry;
+            }
+        }
+
+        return null;
     }
 
     public function concerns(DomainEvent $event, int $clubId): bool

@@ -19,6 +19,7 @@ php bin/host.php create alpha --players=500 --clubs=18 --seed=42
 php bin/host.php advance alpha     # un tick
 php bin/host.php status
 php bin/host.php events alpha --limit=20
+php bin/host.php destroy alpha --force   # irréversible, d'où le --force
 ```
 
 Connexion par variables d'environnement, dont les défauts sont ceux du `docker-compose.yml` : `FLAIR_DB_HOST`, `FLAIR_DB_PORT`, `FLAIR_DB_NAME`, `FLAIR_DB_USER`, `FLAIR_DB_PASSWORD`.
@@ -70,19 +71,27 @@ Mesuré le 2026-08-08, monde de référence (500 joueurs, 18 clubs, graine 42), 
 
 | | |
 |---|---|
-| Durée totale | **177 s** pour 3 650 ticks, soit **48,5 ms/tick** |
+| Durée totale | **181 s** pour 3 650 ticks, soit **49,7 ms/tick** |
 | dont simulation | 17,5 ms/tick |
 | dont écritures dans la transaction | 17,2 ms/tick |
 | dont lecture du snapshot | 5,6 ms/tick |
 | dont le reste (~8 ms) | commit, verrou, lecture de `worlds` |
 | Faits journalisés | **4 610** sur dix ans, soit ~460 par saison |
-| `events` | **1,5 Mo** pour 4 734 lignes |
-| `snapshots` | **104 Mo** en fin de run, **808 ko** après `VACUUM FULL` |
+| `events` | **2,1 Mo** pour 4 734 lignes |
+| `snapshots` | **100 Mo** en fin de run, **808 ko** après `VACUUM FULL` |
 | Taille d'un snapshot | **0,39 Mo** de JSON (1,2 Mo pour les 3 retenus) |
 
 L'écriture en base coûte à peu près autant que le noyau lui-même — confirmation chiffrée de `docs/13-` §7 (« les vrais coûts sont l'écriture en base, pas le CPU »). À un tick par heure, les deux sont sans objet.
 
-> ⚠️ **Ce que `advance` imprime sous-estime le coût réel.** Les deux compteurs de `AdvanceWorld` totalisent 34,7 ms alors que le tick coûte 48,5 ms. L'écart n'est pas du bruit : `SnapshotStore::latest()` est appelé **avant** `$startedSimulation`, et le commit de la transaction arrive **après** le retour de la closure. Les deux sont donc hors des compteurs. Pour juger d'un coût, lire la durée du processus, pas les moyennes affichées.
+> **Ce que `advance` imprime, et ce qu'il taisait.** Ses deux compteurs internes totalisaient 34,7 ms quand le tick en coûtait 48,5 : `SnapshotStore::latest()` était appelé **avant** `$startedSimulation`, et le commit de la transaction arrive **après** le retour de la closure — structurellement hors de portée de tout compteur posé dedans. Corrigé le 2026-08-08 : le chronomètre de simulation englobe désormais le chargement du snapshot, et un troisième compteur `AdvanceResult::$totalSeconds` entoure la transaction entière ; `overheadSeconds()` nomme l'écart plutôt que de le laisser inexpliqué.
+>
+> Les 29 % manquants ont un visage, et il n'était pas devinable :
+>
+> ```
+> 49,7 ms/tick au total : simulation 24,9, persistance 17,9, verrou+commit 6,8
+> ```
+>
+> **Charger le snapshot coûte ~6 ms, soit un quart du « temps de simulation »** — le `SELECT` d'un JSON de 0,4 Mo et sa désérialisation ; et le verrou plus le `COMMIT` en coûtent 6,8, presque autant. Autrement dit le noyau proprement dit tourne en ~19 ms sur 49,7, et **les trois cinquièmes d'un tick sont de la base**. `docs/13-` §7 annonçait que l'écriture serait le facteur limitant ; la lecture et le commit le sont tout autant.
 
 > **Ballonnement de `snapshots`, et sa vraie nature.** Un snapshot par tick avec rétention 3, c'est une insertion et une suppression de ~0,4 Mo par tick : la table monte à **104 Mo pour 808 ko de données vivantes** après 3 650 ticks joués en trois minutes — un facteur 128. Ce n'est *pas* qu'autovacuum n'a rien ramassé (il ne reste que 96 tuples morts) : il a bien libéré l'espace, mais **PostgreSQL ne rend pas les pages au système**, il les garde réutilisables dans le fichier. Les 104 Mo sont donc un plafond que les ticks suivants réutilisent, pas une fuite. À la cadence réelle (24 ticks/jour) ce plafond ne se forme jamais ; il ne se forme qu'en rattrapage massif, et un `VACUUM FULL` le remet à plat.
 
@@ -113,12 +122,12 @@ Composants du dernier snapshot : 18 clubs (avec `Finances`, `Facilities`, `Seaso
 
 Deux choses valent d'être notées, aucune n'étant du ressort de ce package :
 
-- **`Person` s'accumule sans fin.** 732 `Person` pour 373 entités vivantes (355 joueurs + 18 recruteurs) : l'écart de 359 est exactement le nombre de `PlayerRetired`. `Football\RetirementSystem::removes()` retire les quatre composants de compétences mais **garde `Person`** — plausiblement voulu (on veut le nom d'une légende retraitée), mais rien ne le documente, et l'état du monde croît donc linéairement avec son histoire. Sans objet à dix ans, à revoir avant qu'un monde en vive cent.
+- **`Person` s'accumule sans fin, et c'est voulu.** 732 `Person` pour 373 entités vivantes (355 joueurs + 18 recruteurs) : l'écart de 359 est exactement le nombre de `PlayerRetired`. `Football\RetirementSystem::removes()` retire les quatre composants de compétences mais **garde `Person`**. C'était noté comme une dette au motif que rien ne le documentait ; le lot suivant lui a trouvé un **usage réel** — c'est ce qui garde lisible le nom d'un joueur parti ou retraité dans l'histoire d'un club. La rétention est désormais écrite dans le docblock de `RetirementSystem`, avec son prix : l'état d'un monde croît linéairement avec son histoire. À revoir si un monde vit un siècle, jamais sans un remplaçant pour les noms.
 - **L'équilibre compétitif sur une fenêtre de dix ans est trompeur.** Neuf saisons conclues, et le club 17 en gagne **sept d'affilée**. Le harness sur le **même build** et la même graine, en 39 saisons : 12 champions distincts, Gini des titres 0,608, rotation du top 5 48,9 %. Le monde en base n'a donc rien d'anormal — c'est le même monde vu par une fenêtre trop courte, et c'est le piège que `CLAUDE.md` signale déjà (« un Gini lu sur une seule graine est du bruit »). Aucune conclusion de régression n'est tirée ici : la comparer aux chiffres notés dans les documents serait précisément la comparaison interdite, qui doit se faire à graines appariées dans un même build.
 
 ### « Dix ans d'histoire d'un club » : aucun index à poser
 
-`events` porte la primaire `(world_id, tick, seq)` et un index `(world_id, type)`. Rien ne sert un filtre sur le club — et le club n'a même pas de clé unique : `MatchPlayed` porte `homeClubId`/`awayClubId`, `ContractSigned` porte `clubId`, `SeasonConcluded` un tableau `finalRanking`. L'histoire d'un club est donc une **union de prédicats par type**, pas un `payload->>'clubId'`.
+`events` porte la primaire `(world_id, tick, seq)` et un index `(world_id, type)`. Rien ne sert un filtre sur le club — et le club n'a même pas de clé unique : `MatchPlayed` porte `homeClubId`/`awayClubId`, `ContractSigned` porte `clubId`, `SeasonConcluded` un tableau `finalTable` où le rang est la **position**. L'histoire d'un club est donc une **union de prédicats par type**, pas un `payload->>'clubId'`.
 
 Mesuré sur les dix ans, les cent derniers Faits du club 11 :
 
@@ -129,7 +138,7 @@ WHERE world_id = 'dix-ans'
 ORDER BY tick DESC, seq DESC LIMIT 100;
 ```
 
-`Seq Scan`, **2,17 ms**, 385 lignes retenues sur 4 733, tout en cache. Toute la table tient dans 1,5 Mo. **Conclusion : aucun index, aucune projection.** Le seuil à surveiller n'est pas le nombre de saisons mais le nombre de mondes — dix ans coûtent 1,5 Mo d'event log, et le `world_id` en tête de la primaire découpe déjà proprement.
+`Seq Scan`, **2,17 ms**, 385 lignes retenues sur 4 733, tout en cache. Toute la table tient dans 2,1 Mo. **Conclusion : aucun index, aucune projection.** Le seuil à surveiller n'est pas le nombre de saisons mais le nombre de mondes — dix ans coûtent 2,1 Mo d'event log, et le `world_id` en tête de la primaire découpe déjà proprement.
 
 ## Tests
 

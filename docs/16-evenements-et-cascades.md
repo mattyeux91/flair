@@ -88,6 +88,23 @@ Si la réponse est « non » aux trois, le système modifie le composant et se t
 
 Les systèmes qui ont besoin d'un état continu (fatigue, forme, moral) **lisent le composant**, ils ne s'abonnent pas à ses variations. L'abonnement est réservé aux discontinuités.
 
+### La règle du contenu : un Fait porte de quoi l'attribuer à ses sujets
+
+Le test de pertinence dit **quand** émettre. Il ne dit rien sur **quoi mettre dedans**, et c'est l'autre moitié du problème — apprise en Phase 4, en payant.
+
+> **Un Fait porte les identités qu'il concerne, même si aucun système du noyau n'en a besoin aujourd'hui.**
+
+La tentation inverse est raisonnable et fausse : n'y mettre que ce que le consommateur du moment consomme, le reste étant « lisible dans l'état ». Elle ne tient pas, parce qu'**un Fait est la seule trace du passé** et que l'état, lui, ne cesse de changer :
+
+- `PlayerRetired` ne portait que `playerId` et `ageYears`. Son unique consommateur, `SquadSystem`, relisait `Contract` pour retrouver l'employeur — ce qui marche au tick suivant, et **jamais après**, le contrat étant retiré dans la foulée. Résultat : les retraites d'un club étaient invisibles dans son histoire, et les reconstruire depuis les `ContractSigned` aurait été **silencieusement faux** (les contrats du genesis ne sont pas dans l'event log, donc un joueur au même club depuis l'origine n'a aucune signature).
+- `SeasonConcluded` ne portait que l'ordre du classement, au motif que publier les points ferait doublon avec `Standings`. Mais `Standings` est remis à zéro à la saison suivante : pour une saison écoulée il n'y avait pas deux sources, il n'y en avait **aucune**. Le lecteur devait recalculer les points depuis les matchs — juste tant que les points ne viennent que de résultats de match, faux au premier retrait de points, et **faux sans recours**, l'information n'existant plus nulle part.
+
+Le critère pratique, avant d'émettre : *si l'état du monde était effacé et qu'il ne restait que ce journal, cette ligne se comprendrait-elle encore ?* Si la réponse dépend d'un composant qui vit encore, le Fait est incomplet.
+
+Ça ne rouvre pas la porte à tout publier. Ce qui entre, ce sont les **identités et les mesures que le Fait constate** ; ce qui reste dehors, ce sont les variables de décision privées des parties (le prix de réserve d'un vendeur, le plafond d'un acheteur — même logique que la vérité cachée, `12-` §4) et l'état continu que personne ne relira.
+
+⚠️ **Cette correction a une date de péremption.** `events.payload` n'a aucune colonne de version de format et `Core\Snapshot\ValueCodec` est strict dans les deux sens : ajouter un champ à un Fait rend illisible tout Fait déjà en base. Tant qu'aucun monde ne compte, la réponse est de refaire le monde ; après, c'est une migration de payload à écrire.
+
 ---
 
 ## 3. Contrôle des cascades
@@ -241,6 +258,7 @@ Le `correlationId` racine permet de remonter directement à l'événement décle
 | Journaliser les `DecisionRequest` | pollue l'histoire du monde avec des questions sans réponse | transitoire |
 | `EventBus` qui appelle ses abonnés dans l'ordre d'inscription | non déterministe dès qu'un conteneur DI est impliqué | ordre du pipeline (`13-` §4.6) |
 | Une file non triée à la fusion | non déterminisme silencieux | ordre total (`13-` §4.5) |
+| Un Fait qui laisse deviner son sujet depuis l'état courant | l'état change, le Fait reste : l'histoire devient illisible ou fausse | porter les identités concernées (§2) |
 
 ---
 
@@ -249,7 +267,7 @@ Le `correlationId` racine permet de remonter directement à l'événement décle
 Ce document a rempli son office si, devant n'importe quel événement du projet, tu peux répondre sans hésiter :
 
 1. **Est-ce un Fait, une DecisionRequest ou une Intent ?**
-2. **Passe-t-il le test de pertinence ?**
+2. **Passe-t-il le test de pertinence, et se comprendrait-il encore si l'état du monde était effacé ?**
 3. **Est-il journalisé, et dans quel journal ?**
 4. **Quand sera-t-il traité — tick suivant, ou à une échéance ?**
 5. **Qui décide, et que se passe-t-il si personne ne répond ?**

@@ -15,6 +15,10 @@ namespace Flair\Api\Read\View;
  * `$feeCents` est `null` quand aucune indemnite n'a change de mains : fin de
  * contrat, promotion d'un jeune, ou joueur repris sans club. Un zero
  * signifierait « transfert a titre gratuit », ce qui n'est pas la meme chose.
+ *
+ * `$ageYears` n'est renseigne que pour une retraite - le seul mouvement dont
+ * l'age soit l'information principale. Un transfert le tait, faute qu'un Fait
+ * du marche le porte.
  */
 final readonly class MovementView
 {
@@ -26,6 +30,7 @@ final readonly class MovementView
         public ?int $feeCents,
         public ?int $wagePerWeekCents,
         public int $tick,
+        public ?int $ageYears = null,
     ) {
     }
 }

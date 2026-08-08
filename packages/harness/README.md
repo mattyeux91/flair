@@ -16,7 +16,14 @@ Détail classe par classe des systèmes/composants simulés : `packages/kernel/R
 - **`src/Support/`** — `WorldInspector` (lecture à la demande d'un `WorldState`, vérité pas perception — un outil de debug interne, pas un client de jeu), `WorldHasher` (hash déterministe d'un `WorldState` football et d'une séquence d'événements — même machine/même PHP seulement, `docs/13-` §4.8, pas une forme canonique cross-machine ; **sa liste de types dérive de `Kernel\Football\FootballTypes`**, le registre de persistance, depuis le lot snapshot — elle était tenue à la main et il y manquait `BoardPatience`, `Negotiation` et `MarketInflation`).
 - **`bin/aggregate.php`** — CLI de calibrage, sans plafond de taille (contrairement à `public/index.php`). `--set champ=valeur` (répétable) bascule en comparaison à graines appariées. `--event-graph` ajoute la section graphe d'événements au rapport.
 - **`bin/sandbox.php`** — stepper interactif tick-par-tick sur `StepRunner`.
-- **`public/`** — mini-appli web (PHP intégré, bornes de taille de requête distinctes du CLI) consommant `JsonSerializer` via `app.js`. Hors périmètre PHPStan pour l'instant (superglobales HTTP incompatibles avec le niveau max sans bruit).
+- **`public/`** — mini-appli web (PHP intégré, bornes de taille de requête distinctes du CLI) consommant `JsonSerializer` via `app.js`. **Sous PHPStan niveau max depuis le 2026-08-08**, les superglobales passant par `src/Web/Input.php`.
+- **`src/Web/`** — `Input` (lecture vérifiée des entrées HTTP, même idiome que `Host\Store\Row`), `CalibrationFields` (les 82 champs du formulaire de calibration).
+
+  > ⚠️ **Pourquoi ces deux classes existent.** `public/index.php` est resté **cassé tout un lot** — il importait `Harness\Population\PopulationFactory`, partie dans `packages/worldgen`, et le cas nominal du POST (rapport baseline, sans override) était fatal. Rien ne pouvait le dire : ce fichier n'était ni analysé, ni exécuté par un test. Il décrivait au passage 43 champs sur 82, laissant **cinq groupes entiers rendre des `<details>` vides** (Finances, Installations, Contrats, Marché des transferts, Inflation), ajoutés lot après lot sans que personne ne branche l'interface.
+  >
+  > Réparer sans mécaniser aurait juste remis le compteur à zéro. `CalibrationFields` sort la liste du script pour qu'un test puisse la confronter à `RulesetOverride::ALL_FIELDS` **dans les deux sens**, et `Input` est ce qui rend le niveau max tenable sur du `mixed` de superglobale.
+  >
+  > ⚠️ **`composer analyse`, pas `vendor/bin/phpstan analyse`** : depuis que `public/` est analysé, les 128 Mo par défaut ne suffisent plus (OOM en plein worker). Le script porte `--memory-limit=1G`, et la CI l'appelle par le script.
 
 ## Tests et qualité
 
@@ -33,7 +40,7 @@ CI (`.github/workflows/ci.yml`) : deux jobs, `kernel` puis `harness` (phpunit + 
 
 ## Guide d'utilisation
 
-Deux exécutables, deux besoins différents : `bin/aggregate.php` répond à *"est-ce que le monde est plausible sur N saisons ?"* (rapport agrégé, aucune interaction), `bin/sandbox.php` répond à *"que se passe-t-il exactement à cet instant ?"* (REPL, avance manuelle). `public/` (`composer serve`, `localhost:8000`) propose la même chose que `bin/aggregate.php` sous forme d'UI web, pour qui préfère cliquer plutôt que taper des `--set` — pas détaillé ici, options identiques.
+Deux exécutables, deux besoins différents : `bin/aggregate.php` répond à *"est-ce que le monde est plausible sur N saisons ?"* (rapport agrégé, aucune interaction), `bin/sandbox.php` répond à *"que se passe-t-il exactement à cet instant ?"* (REPL, avance manuelle). `public/` (`composer serve`, `localhost:8000`) propose la même chose que `bin/aggregate.php` sous forme d'UI web, pour qui préfère cliquer plutôt que taper des `--set` — pas détaillé ici, options identiques, et les 82 champs calibrables y sont désormais tous.
 
 ### `bin/aggregate.php` — rapport agrégé sur un run complet
 

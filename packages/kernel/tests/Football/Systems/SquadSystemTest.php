@@ -78,7 +78,26 @@ final class SquadSystemTest extends TestCase
         $world = new WorldState();
         $player = $this->employ($world, clubId: 3);
 
-        $this->applyEvents($world, new PlayerRetired($player, ageYears: 36));
+        $this->applyEvents($world, new PlayerRetired($player, ageYears: 36, clubId: 3));
+
+        self::assertNull($world->components(Contract::class)->get($player));
+        self::assertNull($world->components(SquadMembership::class)->get($player));
+    }
+
+    /**
+     * Une retraite delie de **qui que ce soit**, contrairement a une expiration
+     * de contrat, qui est propre a un employeur (cf.
+     * `testAStaleExpiryDoesNotUndoAMoreRecentEngagement` juste en dessous).
+     * Le club que porte le Fait sert a la lecture, jamais a filtrer ici : un
+     * retraite qui garderait un contrat parce qu'il a change de club entre
+     * l'emission et le traitement serait une fuite, pas une prudence.
+     */
+    public function testARetirementReleasesEvenFromAClubItDoesNotName(): void
+    {
+        $world = new WorldState();
+        $player = $this->employ($world, clubId: 2);
+
+        $this->applyEvents($world, new PlayerRetired($player, ageYears: 36, clubId: 1));
 
         self::assertNull($world->components(Contract::class)->get($player));
         self::assertNull($world->components(SquadMembership::class)->get($player));

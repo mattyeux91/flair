@@ -40,6 +40,7 @@
             <div class="tile"><span>Départs</span><strong>{{ count($s->departures) }}</strong></div>
             <div class="tile"><span>Prolongations</span><strong>{{ count($s->renewals) }}</strong></div>
             <div class="tile"><span>Jeunes promus</span><strong>{{ count($s->youthPromoted) }}</strong></div>
+            <div class="tile"><span>Retraites</span><strong>{{ count($s->retirements) }}</strong></div>
             @if ($s->transferSpendCents > 0 || $s->transferIncomeCents > 0)
                 <div class="tile"><span>Indemnités payées</span><strong>{{ Money::roundEuros($s->transferSpendCents) }}</strong></div>
                 <div class="tile"><span>Indemnités reçues</span><strong>{{ Money::roundEuros($s->transferIncomeCents) }}</strong></div>
@@ -85,6 +86,30 @@
             @endif
         @endforeach
 
+        @if ($s->retirements !== [])
+            {{-- Colonnes a part : une retraite n'a ni indemnite ni club d'en face, et l'age y est l'information principale. --}}
+            <div class="scroll" style="margin-top:.75rem">
+                <table>
+                    <thead>
+                    <tr>
+                        <th>Retraites</th>
+                        <th class="n">âge</th>
+                        <th class="n">jour</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    @foreach ($s->retirements as $m)
+                        <tr>
+                            <td>{{ $m->playerName }}</td>
+                            <td class="n">{{ $m->ageYears ?? '—' }}</td>
+                            <td class="n">{{ number_format($m->tick, 0, ',', "\u{202f}") }}</td>
+                        </tr>
+                    @endforeach
+                    </tbody>
+                </table>
+            </div>
+        @endif
+
         <details style="margin-top:.75rem">
             <summary class="note" style="cursor:pointer">{{ count($s->log) }} Faits bruts — ticks {{ $s->fromTick }} à {{ $s->toTick }}</summary>
             <div class="scroll" style="margin-top:.5rem">
@@ -115,17 +140,14 @@
     @endforeach
 
     <p class="note">
-        Le <b>rang</b> est un Fait — <code>SeasonConcluded.finalRanking</code>, où il est encodé par la position dans le tableau.
-        Les <b>points</b> sont en revanche <b>recalculés</b> depuis les matchs et les barèmes du <code>Ruleset</code> du monde,
-        parce que l'event log ne porte pas les points finaux. Un test exige que ce recalcul égale le classement du snapshot pour la saison en cours.
+        Une saison <b>conclue</b> est <b>citée</b> : rang, points, bilan et buts viennent tous de
+        <code>SeasonConcluded.finalTable</code>, le procès-verbal que le monde a publié — le rang y est encodé par la position.
+        Une saison <b>en cours</b> n'a pas encore ce Fait, donc son bilan est <b>compté</b> sur les matchs et ses points appliqués
+        depuis les barèmes du <code>Ruleset</code> du monde. Un test exige que les deux chemins coïncident.
     </p>
     <p class="note">
         Une <b>prolongation</b> n'est ni une arrivée ni un départ : c'est un <code>ContractSigned</code> dont le club précédent est
         le même. Sur le monde de référence à dix ans, c'est le cas de <b>753 signatures sur 819</b> — les compter comme des arrivées
         ferait dire à cette page qu'un club recrute quand il ne fait que garder ses joueurs.
-    </p>
-    <p class="note">
-        Deux Faits manquent à cette page, et c'est une dette connue : <code>PlayerRetired</code> ne porte pas le club du joueur,
-        et <code>TransferCounterDemanded</code> ne porte que la négociation. Les retraites d'un club sont donc invisibles ici.
     </p>
 @endsection

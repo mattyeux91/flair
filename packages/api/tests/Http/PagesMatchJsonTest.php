@@ -124,7 +124,7 @@ final class PagesMatchJsonTest extends TestCase
         $seasons = self::array($history, 'seasons');
         self::assertNotSame([], $seasons, 'Un club doit avoir au moins une saison apres 430 ticks.');
 
-        $ranked = 0;
+        $ranked = $retired = 0;
         foreach ($seasons as $season) {
             self::assertIsArray($season);
             /** @var array<string, mixed> $season */
@@ -145,9 +145,21 @@ final class PagesMatchJsonTest extends TestCase
                 $html->assertSee((string) self::int($season, 'rank'), escape: false);
                 $ranked++;
             }
+
+            // Les retraites ont leur propre tableau, aux colonnes distinctes :
+            // le nom du joueur et son age doivent s'y retrouver tels que le
+            // JSON les donne.
+            foreach (self::array($season, 'retirements') as $retirement) {
+                self::assertIsArray($retirement);
+                /** @var array<string, mixed> $retirement */
+                $html->assertSee(self::text($retirement, 'playerName'), escape: false);
+                $html->assertSee((string) self::int($retirement, 'ageYears'), escape: false);
+                $retired++;
+            }
         }
 
         self::assertGreaterThan(0, $ranked, 'La saison conclue doit porter un rang, sur la page comme dans le JSON.');
+        self::assertGreaterThan(0, $retired, 'Le monde doit avoir vu partir des joueurs, page et JSON compris.');
     }
 
     public function testTheIndexListsTheWorldWithoutDecodingIt(): void

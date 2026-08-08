@@ -82,18 +82,22 @@ Un club **n'a pas de clé unique** dans les payloads de l'event log. Il apparaî
 | `clubId` | `contract_expired`, `contract_signed`, `youth_player_promoted`, `club_invested_in_facilities` |
 | `previousClubId` | `contract_signed` — un transfert entre dans l'histoire des **deux** clubs |
 | `homeClubId` / `awayClubId` | `match_played` |
-| `buyerClubId` / `sellerClubId` | `transfer_agreed`, `transfer_negotiation_opened`, `transfer_negotiation_broken` |
-| `finalRanking[]` | `season_concluded` — le rang **est** la position |
+| `buyerClubId` / `sellerClubId` | `transfer_agreed`, `transfer_negotiation_opened`, `transfer_negotiation_broken`, `transfer_counter_demanded` |
+| `finalTable[].clubId` | `season_concluded` — le rang **est** la position |
 
 « L'histoire du club X » n'est donc pas une requête, c'est une union de cas. Elle est déclarée **une seule fois**, dans `Read\History\ClubMentions`, sur des objets réhydratés par `Host\Store\EventStore::between()` — un `match` sur classe avec accès typé, que PHPStan vérifie. Un `$payload['homeClubId'] ?? null` compilerait aussi bien avec une faute de frappe.
 
 `Tests\Architecture\EveryFactIsPlacedOrExcludedTest` balaie `FootballTypes::registry()->events` et exige que **chaque** type soit traité ou inscrit dans `NOT_ABOUT_A_CLUB` **avec sa raison**. Sans lui, le prochain Fait ajouté au noyau disparaîtrait en silence de l'histoire de tous les clubs.
 
-### Le rang est un Fait, les points sont un calcul
+### Une saison conclue est citée, une saison en cours est comptée
 
-`$rank` vient de `SeasonConcluded.finalRanking` : le monde l'a dit, il fait autorité. `$points` est **recalculé** depuis les `MatchPlayed` et les barèmes du `Ruleset` du monde, parce que **l'event log ne porte pas les points finaux**. Le risque de divergence est réel, et il est tenu par un test : les points recalculés de la saison en cours doivent égaler ceux du `Standings` du snapshot, pour les quatre clubs.
+Pour une saison **conclue**, rang, points, bilan et buts viennent tous de `SeasonConcluded.finalTable` — le procès-verbal que le monde a publié. Rien n'est recalculé.
 
-C'est au passage le second consommateur de `Host\Rules\RulesetForWorld` — un monde épinglé à des règles que ce Host ne sait pas reconstruire **lève** ici, plutôt que d'afficher des points calculés avec les mauvais barèmes.
+Ça n'a pas toujours été vrai. L'événement ne portait que l'ordre du classement, et ce lecteur reconstruisait les points depuis les `MatchPlayed` et les barèmes du `Ruleset`. Ce recalcul n'était juste **que par accident** : il suppose que les points ne viennent que de résultats de match, et le premier retrait de points ou forfait aurait fait mentir cette page sur le passé, **sans recours** — `Standings` étant remis à zéro à la saison suivante, l'information n'aurait existé nulle part. Le Fait porte donc sa table depuis le 2026-08-08 (`docs/16-` §2, « un Fait porte de quoi l'attribuer à ses sujets »).
+
+Le chemin « compté » subsiste pour la saison **en cours**, qui n'a pas encore de `SeasonConcluded`, et c'est là que `Host\Rules\RulesetForWorld` trouve son second consommateur — un monde épinglé à des règles que ce Host ne sait pas reconstruire **lève**, plutôt que d'afficher des points calculés avec les mauvais barèmes.
+
+Les deux chemins doivent coïncider tant qu'aucune règle n'attribue de points hors d'un match, et deux tests le tiennent : le comptage de la saison en cours doit égaler le `Standings` du snapshot pour les quatre clubs, et le bloc d'une saison conclue doit égaler la ligne du Fait, champ par champ.
 
 ### ⚠️ Trois surprises mesurées
 
@@ -101,7 +105,7 @@ C'est au passage le second consommateur de `Host\Rules\RulesetForWorld` — un m
 
 **Le seau 0 n'est pas la première saison de compétition.** Le découpage est `intdiv($tick, 365)`, et une saison est générée quand `tick % 365 === 0`, donc **au tick 365, qui tombe dans le seau 1**. Le seau 0 couvre la première année du monde : mercato et intake, mais aucun match. Le découpage est juste — tout ce qui concerne une saison (génération, journées, clôture, mercato, transferts) tombe dans un seul seau — mais il faut le savoir.
 
-**Deux Faits ne peuvent pas entrer dans l'histoire d'un club, et c'est une dette.** `PlayerRetired` ne porte que `playerId` et `ageYears` : les retraites d'un club sont invisibles. Les reconstruire depuis les `ContractSigned` serait **silencieusement faux**, les contrats du genesis n'étant pas dans l'event log. `TransferCounterDemanded` ne porte que la négociation. C'est le contrôle qualité des seuils d'émission que `docs/14-` §9 promettait, arrivé plus tôt que prévu.
+**Deux Faits ne pouvaient pas entrer dans l'histoire d'un club — soldé.** `PlayerRetired` ne portait que `playerId` et `ageYears`, `TransferCounterDemanded` que la négociation : les retraites d'un club étaient invisibles, et les reconstruire depuis les `ContractSigned` aurait été **silencieusement faux** (les contrats du genesis ne sont pas dans l'event log). C'était le contrôle qualité des seuils d'émission que `docs/14-` §9 promettait, arrivé plus tôt que prévu — et il a donné une règle générale, écrite dans `docs/16-` §2. Les deux Faits portent leurs clubs depuis le 2026-08-08 ; `NOT_ABOUT_A_CLUB` ne compte plus que **trois** exclusions, toutes de vraies décisions.
 
 ### Coût, et le seuil à surveiller
 

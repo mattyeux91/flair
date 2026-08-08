@@ -10,6 +10,7 @@ use Flair\Kernel\Core\Pipeline\SystemContext;
 use Flair\Kernel\Core\Ruleset\RetirementBalance;
 use Flair\Kernel\Core\Support\Rng;
 use Flair\Kernel\Core\Support\SimDate;
+use Flair\Kernel\Football\Components\Contract;
 use Flair\Kernel\Football\Components\Person;
 use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
@@ -46,6 +47,25 @@ use Flair\Kernel\Football\Events\PlayerRetired;
  * Cette separation evite qu'un meme systeme cumule deux responsabilites
  * non liees (SRP) et rend l'invariant "un seul remover par composant"
  * verifiable mecaniquement (`Football\PipelineInvariantsTest`).
+ *
+ * ## Pourquoi il lit `Contract` sans l'ecrire
+ *
+ * Uniquement pour **nommer l'employeur dans le Fait** : un `PlayerRetired`
+ * qui ne porte pas son club est irrattrapable a la lecture (cf. le docblock
+ * de l'evenement). La lecture est licite et ne bouscule rien : `SquadSystem`
+ * est le seul writer de `Contract` et passe deja avant, donc la seule arete
+ * ajoutee au `Core\Pipeline\SystemGraph` etait deja satisfaite - l'ordre
+ * derive est **inchange**, et `Football\PipelineInvariantsTest` le verifie.
+ *
+ * ## `Person` n'est jamais retire, et c'est voulu
+ *
+ * Un retraite garde son `Person` pour toujours : c'est ce qui rend son nom
+ * encore lisible dans l'histoire d'un club, des annees apres qu'il a
+ * raccroche (`Api\Read\History\ClubHistoryReader`). Le prix est mesure et
+ * assume - 732 `Person` pour 373 entites vivantes a dix ans, l'ecart valant
+ * exactement le nombre de `PlayerRetired`. L'etat d'un monde croit donc
+ * lineairement avec son histoire ; a revoir si un monde vit un siecle, pas
+ * avant, et jamais sans un remplacant pour les noms.
  */
 final class RetirementSystem implements System
 {
@@ -60,6 +80,7 @@ final class RetirementSystem implements System
         return [
             Person::class,
             PlayerPotentials::class,
+            Contract::class,
         ];
     }
 
@@ -117,7 +138,17 @@ final class RetirementSystem implements System
                 $ctx->write(PlayerPhysicalSkills::class)->remove($entityId);
                 $ctx->write(PlayerTechnicalSkills::class)->remove($entityId);
                 $ctx->write(PlayerMentalSkills::class)->remove($entityId);
-                $ctx->emit(new PlayerRetired($entityId, (int) $ageYears), entityId: $entityId);
+                $ctx->emit(
+                    new PlayerRetired(
+                        $entityId,
+                        (int) $ageYears,
+                        // Lu maintenant, pendant que le contrat existe encore :
+                        // `SquadSystem` ne le retirera qu'au tick suivant, en
+                        // reaction a ce meme Fait.
+                        $ctx->read(Contract::class)->get($entityId)?->clubId,
+                    ),
+                    entityId: $entityId,
+                );
             }
         }
     }
