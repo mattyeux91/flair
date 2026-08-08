@@ -34,7 +34,8 @@ Connexion par `FLAIR_DB_*` dans `.env` — mêmes noms que le CLI du Host, même
 |---|---|
 | `/` | les mondes |
 | `/worlds/{world}` | le monde : tick, classement, clubs, masse monétaire |
-| `/worlds/{world}/clubs/{club}` | **la fiche d'un club** — l'écran de ce lot |
+| `/worlds/{world}/clubs/{club}` | la fiche d'un club |
+| `/worlds/{world}/clubs/{club}/history` | **dix ans d'histoire**, en blocs par saison |
 
 Et les mêmes DTO en JSON sous `/api/…`. Ce ne sont pas des routes de confort : voir « le test qui compte » plus bas.
 
@@ -72,6 +73,44 @@ Mesuré sur le monde `dix-ans` (500 joueurs / 18 clubs / tick 3650), serveur de 
 
 Les 14 ms de décodage sont donc la moitié du coût ; le reste est l'amorçage de Laravel et le rendu. HTML et JSON coûtent la même chose — le rendu Blade n'est pas le sujet. L'index reste à 17 ms précisément parce qu'il ne décode rien : c'est l'usage pour lequel le `tick` de commodité de la table `worlds` existe.
 
+## L'histoire d'un club : six noms pour la même chose
+
+Un club **n'a pas de clé unique** dans les payloads de l'event log. Il apparaît sous six noms selon le type de Fait, et `SeasonConcluded` l'encode carrément par sa **position** dans un tableau :
+
+| clé | Faits |
+|---|---|
+| `clubId` | `contract_expired`, `contract_signed`, `youth_player_promoted`, `club_invested_in_facilities` |
+| `previousClubId` | `contract_signed` — un transfert entre dans l'histoire des **deux** clubs |
+| `homeClubId` / `awayClubId` | `match_played` |
+| `buyerClubId` / `sellerClubId` | `transfer_agreed`, `transfer_negotiation_opened`, `transfer_negotiation_broken` |
+| `finalRanking[]` | `season_concluded` — le rang **est** la position |
+
+« L'histoire du club X » n'est donc pas une requête, c'est une union de cas. Elle est déclarée **une seule fois**, dans `Read\History\ClubMentions`, sur des objets réhydratés par `Host\Store\EventStore::between()` — un `match` sur classe avec accès typé, que PHPStan vérifie. Un `$payload['homeClubId'] ?? null` compilerait aussi bien avec une faute de frappe.
+
+`Tests\Architecture\EveryFactIsPlacedOrExcludedTest` balaie `FootballTypes::registry()->events` et exige que **chaque** type soit traité ou inscrit dans `NOT_ABOUT_A_CLUB` **avec sa raison**. Sans lui, le prochain Fait ajouté au noyau disparaîtrait en silence de l'histoire de tous les clubs.
+
+### Le rang est un Fait, les points sont un calcul
+
+`$rank` vient de `SeasonConcluded.finalRanking` : le monde l'a dit, il fait autorité. `$points` est **recalculé** depuis les `MatchPlayed` et les barèmes du `Ruleset` du monde, parce que **l'event log ne porte pas les points finaux**. Le risque de divergence est réel, et il est tenu par un test : les points recalculés de la saison en cours doivent égaler ceux du `Standings` du snapshot, pour les quatre clubs.
+
+C'est au passage le second consommateur de `Host\Rules\RulesetForWorld` — un monde épinglé à des règles que ce Host ne sait pas reconstruire **lève** ici, plutôt que d'afficher des points calculés avec les mauvais barèmes.
+
+### ⚠️ Trois surprises mesurées
+
+**Une prolongation n'est ni une arrivée ni un départ.** Sur le monde de référence à dix ans, **753 des 819 `ContractSigned` ont le même club avant et après** — contre 25 vrais transferts et 41 signatures de joueurs sans club. La première version de ce lecteur les comptait comme des arrivées, et la page annonçait « 7 arrivées » pour un club qui n'avait recruté personne. Vu en ouvrant la vraie page, pas par un test.
+
+**Le seau 0 n'est pas la première saison de compétition.** Le découpage est `intdiv($tick, 365)`, et une saison est générée quand `tick % 365 === 0`, donc **au tick 365, qui tombe dans le seau 1**. Le seau 0 couvre la première année du monde : mercato et intake, mais aucun match. Le découpage est juste — tout ce qui concerne une saison (génération, journées, clôture, mercato, transferts) tombe dans un seul seau — mais il faut le savoir.
+
+**Deux Faits ne peuvent pas entrer dans l'histoire d'un club, et c'est une dette.** `PlayerRetired` ne porte que `playerId` et `ageYears` : les retraites d'un club sont invisibles. Les reconstruire depuis les `ContractSigned` serait **silencieusement faux**, les contrats du genesis n'étant pas dans l'event log. `TransferCounterDemanded` ne porte que la négociation. C'est le contrôle qualité des seuils d'émission que `docs/14-` §9 promettait, arrivé plus tôt que prévu.
+
+### Coût, et le seuil à surveiller
+
+Sur `dix-ans` (club 11, tick 3650, 4 610 Faits dans le monde dont **402 le concernent**) : page **57,1 ms**, JSON **54,1 ms**.
+
+On charge l'intervalle complet et on filtre en PHP. Le filtre SQL serait ~8× plus rapide (2,17 ms en `Seq Scan` avec des `payload @>`), mais **dupliquerait la correspondance club ↔ clé** en deux endroits, l'un en PHP typé et l'autre en chaînes SQL — exactement la divergence que `ClubMentions` existe pour empêcher.
+
+L'échappatoire, si un monde vieillit assez : **dériver les prédicats SQL de la même déclaration**. Une source, la vitesse du SQL. Le déclencheur est mesurable — `ClubHistoryView::$factsRead`, autour de 23 000 Faits, soit une cinquantaine d'années.
+
 ## La vérité cachée, et qui a le droit de la voir
 
 Ces pages montrent la **vérité** du monde : la note au meilleur poste calculée sur les compétences réelles. C'est légitime parce que la seule surface qui existe aujourd'hui est celle d'**exploitation** — un exploitant voit son monde, sinon il ne peut pas l'inspecter, et la Phase 4 lui demande d'« explorer et éditer » (`docs/15-` §4).
@@ -93,6 +132,8 @@ Et ce n'est pas un espoir : `estimate()` rend un `int` sur la **même échelle 1
 - **`Read\LoadedWorld`** — le monde décodé, son tick (qui vient de l'**enveloppe** du snapshot, pas du `WorldState` — le noyau n'y stocke pas le tick), et de quoi en déduire saison et jour de l'année.
 - **`Read\ClubSheetReader`** — la fiche. Porte `qualityOf()`, le point de bascule ci-dessus.
 - **`Read\WorldSummaryReader`**, **`Read\StandingsReader`**, **`Read\WorldListReader`**.
+- **`Read\History\ClubMentions`/`ClubMention`/`ClubRole`** — quels clubs un Fait concerne, et à quel titre. Le seul endroit du projet qui le sait.
+- **`Read\History\ClubHistoryReader`** — les blocs par saison.
 - **`Read\View\*`** — les DTO. Plats, `readonly`, sérialisables tels quels : c'est le contrat que HTML et JSON partagent.
 - **`Format\Money`** — centimes → euros. Le noyau ne connaît que des **centimes entiers**, ce qui rend l'invariant monétaire exact ; la conversion n'appartient qu'à l'affichage, jamais à un DTO (un DTO porteur de chaînes formatées ne serait plus exploitable par un client qui veut recalculer).
 - **`App\Providers\AppServiceProvider`** — le seul endroit où Laravel et `host` se touchent.
@@ -160,4 +201,4 @@ Les vues Blade ne sont pas analysées (elles compilent en PHP dans `storage/`). 
 
 Aucune écriture du monde — **lecture seule**. Éditer un monde persisté signifierait écrire un snapshot hors de `Host\AdvanceWorld`, donc percer l'atomicité mono-writer qui fait tenir le critère de sortie de la Phase 3 ; c'est une décision à part.
 
-Restent pour la Phase 4 : l'histoire d'un club sur dix ans (lot 2), le digest de retour d'absence (lot 3), et SSE (lot 4, hors critère de sortie — à un tick par heure il ne vaut pas mieux qu'un rafraîchissement).
+Restent pour la Phase 4 : le digest de retour d'absence (lot 3), et SSE (lot 4, hors critère de sortie — à un tick par heure il ne vaut pas mieux qu'un rafraîchissement).

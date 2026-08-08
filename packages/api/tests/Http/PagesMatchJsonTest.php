@@ -99,6 +99,57 @@ final class PagesMatchJsonTest extends TestCase
         }
     }
 
+    public function testTheHistoryPageCarriesTheSameFiguresAsItsJsonRoute(): void
+    {
+        $worldId = $this->world->create('pages');
+        // Assez pour une saison de competition conclue (generee au 365,
+        // journees du 379 au 414, cloture au 415) : sans elle il n'y aurait ni
+        // rang ni bilan a comparer.
+        $this->world->advance($worldId, 430);
+
+        $clubId = $this->firstClubIdFromJson($worldId);
+
+        $json = $this->getJson("/api/worlds/{$worldId}/clubs/{$clubId}/history");
+        $json->assertOk();
+
+        /** @var array<string, mixed> $history */
+        $history = $json->json();
+
+        $html = $this->get("/worlds/{$worldId}/clubs/{$clubId}/history");
+        $html->assertOk();
+
+        $html->assertSee(self::text($history, 'clubName'), escape: false);
+
+        /** @var array<int, mixed> $seasons */
+        $seasons = self::array($history, 'seasons');
+        self::assertNotSame([], $seasons, 'Un club doit avoir au moins une saison apres 430 ticks.');
+
+        $ranked = 0;
+        foreach ($seasons as $season) {
+            self::assertIsArray($season);
+            /** @var array<string, mixed> $season */
+
+            // Une saison sans match n'affiche ni points ni bilan : seules les
+            // saisons jouees ont des chiffres a comparer.
+            if (self::int($season, 'played') > 0) {
+                $html->assertSee((string) self::int($season, 'points'), escape: false);
+                $html->assertSee(sprintf(
+                    '%d&nbsp;/&nbsp;%d&nbsp;/&nbsp;%d',
+                    self::int($season, 'won'),
+                    self::int($season, 'drawn'),
+                    self::int($season, 'lost'),
+                ), escape: false);
+            }
+
+            if (($season['rank'] ?? null) !== null) {
+                $html->assertSee((string) self::int($season, 'rank'), escape: false);
+                $ranked++;
+            }
+        }
+
+        self::assertGreaterThan(0, $ranked, 'La saison conclue doit porter un rang, sur la page comme dans le JSON.');
+    }
+
     public function testTheIndexListsTheWorldWithoutDecodingIt(): void
     {
         $worldId = $this->world->create('pages');

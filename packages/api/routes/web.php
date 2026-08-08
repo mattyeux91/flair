@@ -22,3 +22,6 @@ Route::get('/worlds/{world}', [WorldController::class, 'show'])->name('worlds.sh
 Route::get('/worlds/{world}/clubs/{club}', [ClubController::class, 'show'])
     ->whereNumber('club')
     ->name('clubs.show');
+Route::get('/worlds/{world}/clubs/{club}/history', [ClubController::class, 'history'])
+    ->whereNumber('club')
+    ->name('clubs.history');

@@ -19,3 +19,4 @@ use Illuminate\Support\Facades\Route;
 Route::get('/worlds', [WorldController::class, 'indexJson']);
 Route::get('/worlds/{world}', [WorldController::class, 'showJson']);
 Route::get('/worlds/{world}/clubs/{club}', [ClubController::class, 'showJson'])->whereNumber('club');
+Route::get('/worlds/{world}/clubs/{club}/history', [ClubController::class, 'historyJson'])->whereNumber('club');

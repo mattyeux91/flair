@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use Flair\Api\Read\ClubSheetReader;
+use Flair\Api\Read\History\ClubHistoryReader;
+use Flair\Api\Read\LoadedWorld;
+use Flair\Api\Read\View\ClubHistoryView;
 use Flair\Api\Read\View\ClubSheetView;
 use Flair\Api\Read\WorldReader;
 use Illuminate\Contracts\View\View;
@@ -29,6 +32,7 @@ final class ClubController extends Controller
     public function __construct(
         private readonly WorldReader $reader,
         private readonly ClubSheetReader $sheets,
+        private readonly ClubHistoryReader $histories,
     ) {
     }
 
@@ -42,14 +46,30 @@ final class ClubController extends Controller
         return response()->json($this->sheet($world, $club));
     }
 
-    private function sheet(string $worldId, int $clubId): ClubSheetView
+    public function history(string $world, int $club): View
     {
-        $world = $this->reader->load($worldId);
+        return view('clubs.history', ['history' => $this->historyOf($world, $club)]);
+    }
 
-        if ($world === null) {
-            abort(404, "Monde \"{$worldId}\" inconnu, ou sans snapshot pour le reconstituer.");
+    public function historyJson(string $world, int $club): JsonResponse
+    {
+        return response()->json($this->historyOf($world, $club));
+    }
+
+    private function historyOf(string $worldId, int $clubId): ClubHistoryView
+    {
+        $history = $this->histories->read($this->world($worldId), $clubId);
+
+        if ($history === null) {
+            abort(404, "Aucun club {$clubId} dans le monde \"{$worldId}\".");
         }
 
+        return $history;
+    }
+
+    private function sheet(string $worldId, int $clubId): ClubSheetView
+    {
+        $world = $this->world($worldId);
         $sheet = $this->sheets->read($world, $clubId);
 
         if ($sheet === null) {
@@ -57,5 +77,16 @@ final class ClubController extends Controller
         }
 
         return $sheet;
+    }
+
+    private function world(string $worldId): LoadedWorld
+    {
+        $world = $this->reader->load($worldId);
+
+        if ($world === null) {
+            abort(404, "Monde \"{$worldId}\" inconnu, ou sans snapshot pour le reconstituer.");
+        }
+
+        return $world;
     }
 }

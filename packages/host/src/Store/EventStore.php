@@ -68,6 +68,71 @@ final class EventStore
     }
 
     /**
+     * Les Faits d'un monde dans un intervalle de ticks, **rehydrates** en
+     * objets, dans l'ordre de l'histoire.
+     *
+     * ## Le miroir exact de `append()`
+     *
+     * L'ecriture traduit une classe en cle stable par `TypeRegistry::keyFor()` ;
+     * la lecture fait le chemin inverse par `classFor()` puis `ValueCodec` -
+     * les memes deux outils, dans l'autre sens. C'est pour ca que cette methode
+     * vit ici et non cote lecteur : personne d'autre n'a a savoir que
+     * `events.type` porte une cle de registre plutot qu'un FQCN.
+     *
+     * ## Ce que ce package n'apprend **pas** au passage
+     *
+     * Rien sur le football. On rend les Faits d'un intervalle, un point c'est
+     * tout : savoir que `MatchPlayed::$homeClubId` designe un club est une
+     * connaissance de **lecture**, elle appartient a `flair/api`. Une methode
+     * `forClub()` ici ferait entrer le domaine dans la couche de persistance,
+     * et il faudrait la retoucher a chaque Fait ajoute au noyau.
+     *
+     * Bornes incluses. `tail()` reste ce qu'il est - une lecture de debug pour
+     * le CLI, bornee par une limite, qui rend des chaines.
+     *
+     * @return list<RecordedEvent>
+     */
+    public function between(string $worldId, int $fromTick, int $toTick): array
+    {
+        $rows = $this->database->connection()->table('events')
+            ->where('world_id', $worldId)
+            ->where('tick', '>=', $fromTick)
+            ->where('tick', '<=', $toTick)
+            ->orderBy('tick')
+            ->orderBy('seq')
+            ->get();
+
+        $codec = new ValueCodec();
+        $recorded = [];
+
+        foreach ($rows as $row) {
+            $payload = json_decode(Row::string($row, 'payload'), associative: true);
+
+            $recorded[] = new RecordedEvent(
+                tick: Row::int($row, 'tick'),
+                seq: Row::int($row, 'seq'),
+                event: $this->rehydrate($codec, Row::string($row, 'type'), $payload),
+            );
+        }
+
+        return $recorded;
+    }
+
+    private function rehydrate(ValueCodec $codec, string $type, mixed $payload): DomainEvent
+    {
+        $event = $codec->decode($this->types->classFor($type), $payload);
+
+        // Le registre pourrait rendre la classe d'un composant si une cle
+        // d'evenement etait un jour reutilisee ailleurs. `TypeRegistry`
+        // l'interdit deja (cles uniques toutes familles confondues), mais un
+        // event log est de l'etat de monde : on verifie plutot que de rendre
+        // un objet dont l'appelant a promis le type.
+        return $event instanceof DomainEvent
+            ? $event
+            : throw new UnexpectedEventType($type, $event::class);
+    }
+
+    /**
      * Les derniers Faits d'un monde, du plus recent au plus ancien - de quoi
      * regarder ce qui vient de se passer depuis la CLI. Les projections et le
      * digest de retour d'absence (docs/14- §9) sont Phase 4 ; ceci n'est pas
