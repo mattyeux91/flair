@@ -62,7 +62,7 @@ Chaque phase a un **critère de sortie mesurable**. On ne passe pas à la suivan
 
 C'est la phase la plus importante du projet. Si elle échoue, rien d'autre n'a d'intérêt.
 
-> **Mesuré empiriquement le 2026-08-02** (`packages/harness/bin/aggregate.php`, seeds 42 et 7, 500 joueurs / 18 clubs) : le critère "20 saisons" tel qu'écrit est trop court pour une population initiale de 500 joueurs répartie sur tout l'éventail d'âges (`Harness\Population\PopulationFactory`) — elle n'est pas encore à l'équilibre d'âge à l'année 20 (effectif encore en décroissance transitoire de 459 à ~320). Deux options pour rendre le critère opérationnel : (a) partir d'une population déjà à l'équilibre d'âge (nécessiterait un mode de génération dédié, hors périmètre actuel), ou (b) mesurer sur une fenêtre de 30-40 saisons avec une population initiale large. On retient (b). Résultat sur 40 saisons : effectif stationnaire ~313-329 joueurs dès l'année ~13 (confirmé sur deux graines indépendantes), répartition domicile/nul/extérieur 41.8%/29.6%/28.6% (proche du réel), scores les plus fréquents 1-1/0-0/1-0/2-1 dans un ordre réaliste. Sur 19 saisons (seed 42) : 11 champions différents sur 18 clubs (deux clubs à 4 titres chacun, aucun quasi-monopole). **Phase 0 est close sur cette base.**
+> **Mesuré empiriquement le 2026-08-02** (`packages/harness/bin/aggregate.php`, seeds 42 et 7, 500 joueurs / 18 clubs) : le critère "20 saisons" tel qu'écrit est trop court pour une population initiale de 500 joueurs répartie sur tout l'éventail d'âges (`Worldgen\WorldFactory`, alors `Harness\Population\PopulationFactory`) — elle n'est pas encore à l'équilibre d'âge à l'année 20 (effectif encore en décroissance transitoire de 459 à ~320). Deux options pour rendre le critère opérationnel : (a) partir d'une population déjà à l'équilibre d'âge (nécessiterait un mode de génération dédié, hors périmètre actuel), ou (b) mesurer sur une fenêtre de 30-40 saisons avec une population initiale large. On retient (b). Résultat sur 40 saisons : effectif stationnaire ~313-329 joueurs dès l'année ~13 (confirmé sur deux graines indépendantes), répartition domicile/nul/extérieur 41.8%/29.6%/28.6% (proche du réel), scores les plus fréquents 1-1/0-0/1-0/2-1 dans un ordre réaliste. Sur 19 saisons (seed 42) : 11 champions différents sur 18 clubs (deux clubs à 4 titres chacun, aucun quasi-monopole). **Phase 0 est close sur cette base.**
 
 ### Phase 1 — Le harness d'équilibrage *(≈ 2 semaines)*
 
@@ -210,7 +210,15 @@ Event store, snapshots, boucle du Host, cadence temps réel, verrou mono-writer,
 >
 > **Non-régression vérifiée dans un même build**, jamais contre des nombres notés dans un document (`13-` §4.1) : empreinte complète d'un run 500 joueurs / 18 clubs / 12 saisons, arbre pré-lot contre arbre courant, via un autoloader dédié pointant tour à tour sur les deux arbres — **état et séquence d'événements identiques au chiffre près** (5 697 événements). Attendu : le lot n'ajoute aucune entité au genesis et ne touche aucun flux RNG.
 >
-> Restent dans la phase : event store Postgres, projections, verrou advisory mono-writer, `AdvanceWorldCommand` et son déclenchement par cron, SSE. Laravel n'a été nécessaire à aucune ligne de ce lot.
+> **Lot 2 — `packages/worldgen` : fait le 2026-08-08.** Un déblocage, pas une fonctionnalité. `host` doit pouvoir **créer** un monde, et le graphe de `11-` §7 lui interdit d'importer `harness` : un outil de mesure ne peut pas devenir la source des mondes de production. La genèse a donc quitté `harness/src/Population/` pour son propre package — `WorldFactory` (ex-`PopulationFactory`), `ClubFactory`, `CompetitionFactory`, `StaffFactory`, plus un `WorldSpec` neuf.
+>
+> **La spec s'est scindée là où elle mélangeait deux choses.** `PopulationSpec` portait la forme du monde *et* une durée de run (`years`) qui n'a rien à faire dans un générateur de monde. `Worldgen\WorldSpec` ne garde que le monde ; `Harness\Population\PopulationSpec` survit avec `years` et **sa signature à plat inchangée**, en gagnant un `world()` — les ~20 sites de construction en arguments nommés n'ont pas bougé d'une ligne, seuls les 11 appels à `populate()` ont changé.
+>
+> **Le seul critère de réussite d'un lot pareil est l'exactitude bit-à-bit**, et les suites de tests ne peuvent pas la prouver : elles comparent des runs entre eux dans un même build, jamais contre le build précédent. Vérifié comme au lot 1 — `git worktree` sur la révision d'avant, un script d'empreinte à autoloader maison, deux exécutions : **état, séquence d'événements, compteur d'entités et liste des `EntityId` joueurs identiques** sur 500 joueurs / 18 clubs / 12 saisons (5 697 événements).
+>
+> Deux dettes soldées au passage, puisqu'on touchait aux README : `packages/harness/README.md` décrivait encore un `src/Simulation/PipelineFactory` supprimé depuis que l'ordre du pipeline est dérivé par `SystemGraph`, et une description de `WorldHasher` périmée depuis le lot snapshot.
+>
+> Restent dans la phase : event store Postgres, projections, verrou advisory mono-writer, `AdvanceWorldCommand` et son déclenchement par cron, SSE. Laravel n'a été nécessaire à aucune ligne de ces deux lots.
 
 ### Phase 4 — API + admin *(≈ 4 semaines)*
 
@@ -243,7 +251,7 @@ Moteur L1 Markov, narration émergente, multi-pays, coupes continentales, média
 > - Pour que ça tienne, l'offre doit **excéder la demande** : les académies produisent nettement plus de joueurs que les effectifs n'en absorbent.
 > - Les joueurs en trop restent **sans club** et partent à la retraite selon leur **personnalité**, ce qui donne enfin un rôle décisionnel aux attributs mentaux aujourd'hui dormants (`leadership`, `discipline`).
 >
-> Ça remplace deux bricolages du lot des postes : le pilotage par le besoin ci-dessus, et la distribution imposée des archétypes au genesis (`Harness\Population\PopulationFactory::archetypeDeal()`). Ça suppose aussi que le marché des transferts existe, sans quoi un joueur sans club n'a aucun chemin de retour.
+> Ça remplace deux bricolages du lot des postes : le pilotage par le besoin ci-dessus, et la distribution imposée des archétypes au genesis (`Worldgen\WorldFactory::archetypeDeal()`). Ça suppose aussi que le marché des transferts existe, sans quoi un joueur sans club n'a aucun chemin de retour.
 
 ---
 

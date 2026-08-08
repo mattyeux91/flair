@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace Flair\Harness\Tests\Determinism;
 
-use Flair\Harness\Population\PopulationFactory;
 use Flair\Harness\Population\PopulationSpec;
 use Flair\Harness\Simulation\StepRunner;
 use Flair\Harness\Support\WorldHasher;
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Ruleset\Ruleset;
+use Flair\Worldgen\WorldFactory;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -40,7 +40,7 @@ final class DeterministicRunTest extends TestCase
         $ruleset = new Ruleset('determinism-test');
 
         $world = new WorldState();
-        (new PopulationFactory())->populate($world, $spec);
+        (new WorldFactory())->populate($world, $spec->world());
 
         $runner = new StepRunner($world, $ruleset, $seed);
         $events = $runner->advance($spec->years * 365);

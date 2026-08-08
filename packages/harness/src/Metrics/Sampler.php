@@ -41,7 +41,7 @@ use Flair\Kernel\Football\Events\YouthPlayerPromoted;
  * **La population echantillonnee n'est pas figee.** `$playerIds` n'est que
  * le point de depart : `YouthIntakeSystem` cree de nouveaux joueurs en
  * cours de run (si le monde contient des clubs - cf.
- * Population\ClubFactory/PopulationFactory, qui les cree desormais), et ce
+ * Worldgen\ClubFactory/WorldFactory, qui les cree desormais), et ce
  * Sampler les suit des leur promotion via `YouthPlayerPromoted`, symetrique
  * du suivi deja en place pour `PlayerRetired`. Sans ce suivi, les joueurs
  * promus en cours de route seraient invisibles des courbes - mesurer une
@@ -67,7 +67,7 @@ use Flair\Kernel\Football\Events\YouthPlayerPromoted;
  * d'allocation d'ids.
  *
  * Ces trois systemes n'ont d'ailleurs rien a faire si
- * `Population\PopulationFactory` n'a pas cree de `Competition`
+ * `Worldgen\WorldFactory` n'a pas cree de `Competition`
  * (clubCount = 0) : `CalendarSystem` ne trouve alors aucune competition a
  * planifier, et aucune entite n'est creee en plus des joueurs - dans ce cas
  * precis (le seul couvert par `testNoMatchesAreSimulatedWithoutClubs`),

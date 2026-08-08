@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Flair\Harness\Tests\Regression;
 
-use Flair\Harness\Population\PopulationFactory;
 use Flair\Harness\Population\PopulationSpec;
 use Flair\Harness\Simulation\StepRunner;
 use Flair\Harness\Support\WorldHasher;
@@ -16,6 +15,7 @@ use Flair\Kernel\Core\Snapshot\SnapshotCodec;
 use Flair\Kernel\Core\Snapshot\WorldSnapshot;
 use Flair\Kernel\Football\Components\Negotiation;
 use Flair\Kernel\Football\FootballTypes;
+use Flair\Worldgen\WorldFactory;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -160,7 +160,7 @@ final class SnapshotContinuityTest extends TestCase
     private function genesis(): WorldState
     {
         $world = new WorldState();
-        (new PopulationFactory())->populate($world, self::spec());
+        (new WorldFactory())->populate($world, self::spec()->world());
 
         return $world;
     }

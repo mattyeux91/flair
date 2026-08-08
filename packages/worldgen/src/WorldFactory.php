@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Flair\Harness\Population;
+namespace Flair\Worldgen;
 
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Ruleset\ContractBalance;
@@ -23,18 +23,28 @@ use Flair\Kernel\Football\Support\PositionModel;
 use Flair\Kernel\Football\Support\WageModel;
 
 /**
- * Construit la population initiale du harness : des clubs synthetiques
- * (Population\ClubFactory), une competition synthetique qui les regroupe
- * (Population\CompetitionFactory - sans elle, `Football\CalendarSystem` n'a
- * aucun calendrier a generer meme si des clubs existent) et des joueurs deja
- * en cours de carriere (17-34 ans), la ou `YouthIntakeSystem` ne produit que
- * des recrues de 17 ans. Chaque joueur recoit un `SquadMembership`
- * (repartition round-robin sur les clubs crees) - sans ca,
- * `Football\TrainingSystem` et `Football\YouthIntakeSystem` n'ont rien a
- * lire ni ou promouvoir (cf. docblock ClubFactory).
+ * La genese d'un monde : des clubs (`ClubFactory`), une competition qui les
+ * regroupe (`CompetitionFactory` - sans elle, `Football\CalendarSystem` n'a
+ * aucun calendrier a generer meme si des clubs existent), un recruteur par
+ * club (`StaffFactory`) et des joueurs deja en cours de carriere (17-34 ans),
+ * la ou `YouthIntakeSystem` ne produit que des recrues de 17 ans. Chaque
+ * joueur recoit un `SquadMembership` (repartition round-robin sur les clubs
+ * crees) - sans ca, `Football\TrainingSystem` et `Football\YouthIntakeSystem`
+ * n'ont rien a lire ni ou promouvoir (cf. docblock ClubFactory).
+ *
+ * ## L'ordre des tirages est une donnee d'architecture
+ *
+ * Cette methode consomme un flux RNG partage et alloue des `EntityId` dans un
+ * ordre precis. **Reordonner quoi que ce soit ici change le monde entier**, et
+ * rend incomparables toutes les mesures deja enregistrees (docs/15- §4) :
+ * decaler l'allocateur d'entites decale les flux RNG de tout ce qui sera cree
+ * ensuite a l'execution. Les trois commentaires qui portent cette contrainte -
+ * le staff apres les joueurs, `disperseBoardPatience()` apres le staff,
+ * `signedOn` derive plutot que tire - ne sont pas des precautions
+ * decoratives : chacun a ete ecrit apres avoir constate le decalage.
  *
  * La competition n'est creee que si `$spec->clubCount > 0` - meme condition
- * que les clubs eux-memes, pas un nouveau flag sur `PopulationSpec` : une
+ * que les clubs eux-memes, pas un nouveau champ sur `WorldSpec` : une
  * competition sans le moindre club n'a aucun sens et `CalendarSystem`
  * degenererait de toute facon en zero fixture.
  *
@@ -58,7 +68,7 @@ use Flair\Kernel\Football\Support\WageModel;
  * mais le rejouer ici reviendrait a en dupliquer la logique et a coupler
  * cette classe a des parametres non calibres (Phase 1).
  */
-final class PopulationFactory
+final class WorldFactory
 {
     private const YOUNGEST_START_AGE = 17.0;
     private const OLDEST_START_AGE = 34.0;
@@ -79,7 +89,7 @@ final class PopulationFactory
     }
 
     /** @return list<int> identifiants des entites joueur creees */
-    public function populate(WorldState $world, PopulationSpec $spec, int $atTick = 1, ?YouthIntakeBalance $talent = null, ?ContractBalance $contracts = null, ?PositionBalance $positions = null): array
+    public function populate(WorldState $world, WorldSpec $spec, int $atTick = 1, ?YouthIntakeBalance $talent = null, ?ContractBalance $contracts = null, ?PositionBalance $positions = null): array
     {
         $rng = new Rng($spec->seed);
         $talent ??= new YouthIntakeBalance();

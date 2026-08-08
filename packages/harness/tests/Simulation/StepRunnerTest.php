@@ -5,13 +5,13 @@ declare(strict_types=1);
 namespace Flair\Harness\Tests\Simulation;
 
 use Flair\Harness\Metrics\Sampler;
-use Flair\Harness\Population\PopulationFactory;
 use Flair\Harness\Population\PopulationSpec;
 use Flair\Harness\Simulation\StepRunner;
 use Flair\Harness\Support\WorldInspector;
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Ruleset\Ruleset;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
+use Flair\Worldgen\WorldFactory;
 use PHPUnit\Framework\TestCase;
 
 final class StepRunnerTest extends TestCase
@@ -30,11 +30,11 @@ final class StepRunnerTest extends TestCase
         $spec = new PopulationSpec(playerCount: 100, years: $years, seed: 123, clubCount: 6);
 
         $worldA = new WorldState();
-        $playerIdsA = (new PopulationFactory())->populate($worldA, $spec);
+        $playerIdsA = (new WorldFactory())->populate($worldA, $spec->world());
         (new Sampler())->run($worldA, $playerIdsA, $years, $spec->seed, $ruleset);
 
         $worldB = new WorldState();
-        (new PopulationFactory())->populate($worldB, $spec);
+        (new WorldFactory())->populate($worldB, $spec->world());
         $runner = new StepRunner($worldB, $ruleset, $spec->seed);
         $runner->advance($years * 365);
 
@@ -51,12 +51,12 @@ final class StepRunnerTest extends TestCase
         $spec = new PopulationSpec(playerCount: 60, years: 2, seed: 7, clubCount: 4);
 
         $worldA = new WorldState();
-        (new PopulationFactory())->populate($worldA, $spec);
+        (new WorldFactory())->populate($worldA, $spec->world());
         $runnerA = new StepRunner($worldA, $ruleset, $spec->seed);
         $runnerA->advance(730);
 
         $worldB = new WorldState();
-        (new PopulationFactory())->populate($worldB, $spec);
+        (new WorldFactory())->populate($worldB, $spec->world());
         $runnerB = new StepRunner($worldB, $ruleset, $spec->seed);
         for ($i = 0; $i < 730; $i++) {
             $runnerB->advance(1);

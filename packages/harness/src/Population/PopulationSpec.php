@@ -4,33 +4,34 @@ declare(strict_types=1);
 
 namespace Flair\Harness\Population;
 
+use Flair\Worldgen\WorldSpec;
+
 /**
- * Parametres d'un run de harness, regroupes pour eviter que la liste de
- * parametres positionnels ne grossisse a chaque nouveau levier sur les
- * trois points d'appel qui en ont besoin (public/index.php,
- * bin/aggregate.php, Comparison\PairedSeedComparison).
+ * Parametres d'un run de harness : **un monde a engendrer, et pendant combien
+ * d'annees le faire tourner**. Regroupes pour eviter que la liste de
+ * parametres positionnels ne grossisse a chaque nouveau levier sur les points
+ * d'appel qui en ont besoin (public/index.php, bin/aggregate.php,
+ * bin/sandbox.php, Comparison\PairedSeedComparison).
  *
- * `clubCount`/`facilitiesQuality` pilotent uniquement la generation de
- * clubs synthetiques (Population\ClubFactory) - une qualite d'installations
- * uniforme sur tous les clubs, premier jet volontairement simple (pas de
- * variance entre clubs dans ce lot, cf. docblock ClubFactory).
- * `startingBalanceCents` suit le meme principe (Phase 2) : un solde initial
- * uniforme, seede par ClubFactory, pas un levier de Ruleset - c'est un
- * parametre de generation du monde, pas un levier d'equilibrage du jeu.
+ * ## Pourquoi cette classe survit a l'extraction de `worldgen`
  *
- * `scoutJudgementMean`/`scoutJudgementSpread` sont ici pour la meme raison, et
- * elle a une consequence pratique a connaitre : le `Ruleset` dit **de combien un
- * jugement donne se trompe** (`PerceptionBalance`), le monde dit **qui sont les
- * scouts**. Comme `Comparison\PairedSeedComparison` ne rejoue jamais la
- * generation - c'est le principe des graines appariees, meme population des deux
- * cotes - un levier de generation loge dans le `Ruleset` serait silencieusement
- * inoperant sous `--set`. Faire varier la dispersion du staff demande donc deux
- * runs, pas une comparaison appariee.
+ * Tous les champs sauf `years` decrivent la **forme du monde**, et vivent
+ * desormais dans `Worldgen\WorldSpec` - un generateur de monde n'a que faire
+ * d'une duree de simulation. Mais `years` n'a nulle part ailleurs ou aller :
+ * c'est une question d'appelant, pas une propriete du monde.
  *
- * `boardPatienceMean`/`boardPatienceSpread` suivent exactement la meme regle,
- * pour la meme raison (docs/17-marche-transferts.md point 2 reouvert) :
- * `Ruleset\TransferBalance` dit comment la patience module la probabilite de
- * rupture, le monde dit quelle patience chaque club a.
+ * Cette classe reste donc l'assemblage des deux, et **conserve deliberement sa
+ * signature a plat** plutot que d'exiger un `WorldSpec` construit a la main :
+ * une vingtaine de sites de construction ecrivent
+ * `new PopulationSpec(playerCount: …, years: …, seed: …)`, et les faire tous
+ * basculer vers un objet imbrique aurait ete du bruit pur pour zero gain de
+ * lisibilite. `world()` fait la conversion au moment ou `Worldgen\WorldFactory`
+ * en a besoin.
+ *
+ * Le detail de la frontiere Ruleset / forme du monde - et pourquoi un levier
+ * de generation loge dans le `Ruleset` serait silencieusement inoperant sous
+ * `--set` - est documente sur `Worldgen\WorldSpec`, seul endroit ou il doit
+ * l'etre.
  */
 final readonly class PopulationSpec
 {
@@ -46,5 +47,20 @@ final readonly class PopulationSpec
         public int $boardPatienceMean = 50,
         public int $boardPatienceSpread = 25,
     ) {
+    }
+
+    public function world(): WorldSpec
+    {
+        return new WorldSpec(
+            playerCount: $this->playerCount,
+            seed: $this->seed,
+            clubCount: $this->clubCount,
+            facilitiesQuality: $this->facilitiesQuality,
+            startingBalanceCents: $this->startingBalanceCents,
+            scoutJudgementMean: $this->scoutJudgementMean,
+            scoutJudgementSpread: $this->scoutJudgementSpread,
+            boardPatienceMean: $this->boardPatienceMean,
+            boardPatienceSpread: $this->boardPatienceSpread,
+        );
     }
 }

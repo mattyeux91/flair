@@ -6,10 +6,10 @@ namespace Flair\Harness\Comparison;
 
 use Flair\Harness\Metrics\AggregateResult;
 use Flair\Harness\Metrics\Sampler;
-use Flair\Harness\Population\PopulationFactory;
 use Flair\Harness\Population\PopulationSpec;
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Ruleset\Ruleset;
+use Flair\Worldgen\WorldFactory;
 
 /**
  * Rejoue le meme jeu de graines de population (meme seed -> memes joueurs,
@@ -21,7 +21,7 @@ use Flair\Kernel\Core\Ruleset\Ruleset;
 final class PairedSeedComparison
 {
     public function __construct(
-        private readonly PopulationFactory $populationFactory = new PopulationFactory(),
+        private readonly WorldFactory $populationFactory = new WorldFactory(),
         private readonly Sampler $sampler = new Sampler(),
     ) {
     }
@@ -38,7 +38,7 @@ final class PairedSeedComparison
     private function runOnce(PopulationSpec $spec, Ruleset $ruleset): AggregateResult
     {
         $world = new WorldState();
-        $playerIds = $this->populationFactory->populate($world, $spec);
+        $playerIds = $this->populationFactory->populate($world, $spec->world());
 
         return $this->sampler->run($world, $playerIds, $spec->years, $spec->seed, $ruleset);
     }
