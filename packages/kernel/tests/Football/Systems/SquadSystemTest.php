@@ -98,7 +98,7 @@ final class SquadSystemTest extends TestCase
     private function employ(WorldState $world, int $clubId): int
     {
         $player = $world->createEntity();
-        $world->components(Contract::class)->set($player, new Contract($clubId, 50_000, new SimDate(900)));
+        $world->components(Contract::class)->set($player, new Contract($clubId, 50_000, new SimDate(900), new SimDate(1)));
         $world->components(SquadMembership::class)->set($player, new SquadMembership($clubId));
 
         return $player;

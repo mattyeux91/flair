@@ -7,8 +7,10 @@ namespace Flair\Harness\Metrics;
 /**
  * Sortie de CompetitiveBalance::analyze() - reponse operationnelle au "test
  * qui compte" de docs/14-algorithmes.md §7. Trois de ses quatre metriques
- * sont couvertes ; l'inflation reste hors de portee tant qu'aucun prix
- * n'existe dans le monde (ni valorisation de joueur, ni marche).
+ * sont couvertes ; la quatrieme, l'inflation, n'a pas sa place ici - elle est
+ * **decidee** et non observee dans ce monde (docs/17- point 5), donc elle se
+ * lit dans `Football\Singletons\MarketInflation` et se verifie dans
+ * `Harness\Tests\Regression\InflationRegressionTest`.
  */
 final readonly class CompetitiveBalanceResult
 {

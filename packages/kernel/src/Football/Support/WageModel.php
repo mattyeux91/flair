@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flair\Kernel\Football\Support;
 
 use Flair\Kernel\Core\Ruleset\ContractBalance;
+use Flair\Kernel\Core\Support\Rng;
 use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
@@ -103,11 +104,27 @@ final class WageModel
      * `Ruleset` mal rempli faire exploser le noyau au milieu d'un run de
      * 1 000 saisons - meme choix defensif que le clamp de `meritShare` dans
      * `Football\FinanceSystem`.
+     *
+     * ## L'indice d'inflation (docs/17- point 5)
+     *
+     * `$inflationIndex` est le niveau de prix courant du monde
+     * (`Football\Singletons\MarketInflation::$index`), `1.0` a sa creation. Il
+     * multiplie le resultat **en dernier**, hors du clamp, exactement comme
+     * dans `MarketValueModel` : docs/14- §5 en fait « un changement d'unite
+     * monetaire [qui] s'applique uniformement a tout le marche », pas un
+     * modificateur de situation. Un salaire est un prix - l'exempter creerait
+     * une distorsion du prix relatif salaire/indemnite, l'inverse de ce que le
+     * doc demande.
+     *
+     * **Requis, sans valeur par defaut.** Un defaut a `1.0` ferait passer un
+     * appelant qui a oublie l'indice pour un appelant correct, et l'erreur ne
+     * se verrait que des dizaines de saisons plus tard, en termes reels. Le
+     * genesis du harness passe `1.0` explicitement : un monde demarre au pair.
      */
-    public static function perWeekCents(int $quality, ContractBalance $contract): int
+    public static function perWeekCents(int $quality, ContractBalance $contract, float $inflationIndex): int
     {
         if ($contract->referenceQuality <= 0) {
-            return $contract->baseWagePerWeekCents;
+            return max(0, (int) round($contract->baseWagePerWeekCents * $inflationIndex));
         }
 
         $multiplier = max(
@@ -115,6 +132,33 @@ final class WageModel
             min($contract->wageMultiplierMax, $quality / $contract->referenceQuality),
         );
 
-        return max(0, (int) round($contract->baseWagePerWeekCents * $multiplier));
+        return max(0, (int) round($contract->baseWagePerWeekCents * $multiplier * $inflationIndex));
+    }
+
+    /**
+     * La duree, en annees entieres, du contrat signe aujourd'hui. Tiree par
+     * joueur pour **etaler les echeances** : a duree fixe, une cohorte signee
+     * la meme annee reviendrait sur le marche en bloc et l'effectif d'un club
+     * oscillerait au lieu de tourner (cf. `ContractBalance::$minDurationYears`).
+     *
+     * Ici plutot que dans un systeme parce que deux consommateurs reels
+     * existent - `Football\ContractSystem` au renouvellement annuel et
+     * `Football\TransferSystem` a la conclusion d'un transfert - et jamais
+     * avant qu'ils existent. Ici plutot que dans une classe a une fonction
+     * parce que `ContractBalance` dit lui-meme que le contrat decide
+     * « combien coute un joueur **et combien de temps** » : c'est le meme
+     * sujet.
+     *
+     * L'appelant fournit le flux, comme `PerceptionModel` recoit son entier de
+     * bruit : la fonction reste pure et testable a la main. Un seul tirage,
+     * pour que deux appelants qui derivent le meme flux obtiennent le meme
+     * resultat.
+     */
+    public static function contractDurationYears(Rng $rng, ContractBalance $contract): int
+    {
+        $shortest = max(1, $contract->minDurationYears);
+        $longest = max($shortest, $contract->maxDurationYears);
+
+        return $shortest + (int) ($rng->nextUint32() % ($longest - $shortest + 1));
     }
 }

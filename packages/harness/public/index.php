@@ -157,6 +157,13 @@ $fieldMeta = [
 
     ['field' => 'pointsForWin', 'group' => 'Classement', 'label' => 'Points pour une victoire', 'step' => '1', 'default' => $baseline->balance->competition->pointsForWin],
     ['field' => 'pointsForDraw', 'group' => 'Classement', 'label' => 'Points pour un match nul', 'step' => '1', 'default' => $baseline->balance->competition->pointsForDraw],
+
+    // Perception : `baseErrorPoints` a 0 rend tout observateur exact, donc
+    // reproduit le monde d'avant ce lot - c'est l'interrupteur de mesure, et le
+    // seul champ de ce groupe qu'on veut vraiment manipuler depuis l'UI.
+    ['field' => 'baseErrorPoints', 'group' => 'Perception', 'label' => "Erreur d'estimation d'un staff median (points, 0 = omniscience)", 'step' => '0.5', 'default' => $baseline->balance->perception->baseErrorPoints],
+    ['field' => 'judgementReference', 'group' => 'Perception', 'label' => 'Jugement de reference', 'step' => '1', 'default' => $baseline->balance->perception->judgementReference],
+    ['field' => 'unstaffedJudgement', 'group' => 'Perception', 'label' => 'Jugement impute a un club sans recruteur', 'step' => '1', 'default' => $baseline->balance->perception->unstaffedJudgement],
 ];
 
 $groupedFields = [];

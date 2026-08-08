@@ -12,12 +12,14 @@ use Flair\Kernel\Core\Simulation\Simulation;
 use Flair\Kernel\Core\Simulation\TickContext;
 use Flair\Kernel\Core\Support\SimDate;
 use Flair\Kernel\Football\Components\Contract;
+use Flair\Kernel\Football\Components\Employment;
 use Flair\Kernel\Football\Components\Facilities;
 use Flair\Kernel\Football\Components\Fixture;
 use Flair\Kernel\Football\Components\Person;
 use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
+use Flair\Kernel\Football\Components\Scout;
 use Flair\Kernel\Football\Components\SeasonIncome;
 use Flair\Kernel\Football\Events\ContractSigned;
 use Flair\Kernel\Football\Events\MatchPlayed;
@@ -223,7 +225,45 @@ final class Sampler
             $this->facilitiesSnapshot($world, $clubNames),
             $marketByYear,
             $this->wageBillSnapshot($world, $clubNames),
+            $this->scoutJudgementSnapshot($world, $clubNames),
         );
+    }
+
+    /**
+     * Le jugement du recruteur de chaque club. Seme au genesis et jamais ecrit
+     * par un systeme, donc constant sur tout le run : un instantane final dit
+     * tout, et c'est la seule grandeur du rapport qui soit une **cause** plutot
+     * qu'un resultat.
+     *
+     * Rendu a cote du classement final, ou il se lit contre lui a l'oeil nu : le
+     * club au mauvais recruteur doit finir plus bas. Aucune correlation n'est
+     * calculee ici - la mesurer proprement (correlation de rang) appartient au
+     * lot du marche des transferts, ou "payer cher achete-t-il de la
+     * performance" sera la question centrale.
+     *
+     * @param array<int, string> $clubNames
+     * @return array<string, int>
+     */
+    private function scoutJudgementSnapshot(WorldState $world, array $clubNames): array
+    {
+        $scouts = $world->components(Scout::class);
+        $byClub = [];
+
+        foreach ($scouts->entities() as $personId) {
+            $employment = $world->components(Employment::class)->get($personId);
+            $judgement = $scouts->get($personId)?->judgement;
+
+            if ($employment === null || $judgement === null) {
+                continue;
+            }
+
+            $name = $clubNames[$employment->clubId] ?? "Club #{$employment->clubId}";
+            $byClub[$name] = max($byClub[$name] ?? 0, $judgement);
+        }
+
+        ksort($byClub);
+
+        return $byClub;
     }
 
     /**

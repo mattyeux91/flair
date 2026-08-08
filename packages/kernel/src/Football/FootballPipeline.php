@@ -7,6 +7,7 @@ namespace Flair\Kernel\Football;
 use Flair\Kernel\Core\Pipeline\Pipeline;
 use Flair\Kernel\Core\Pipeline\System;
 use Flair\Kernel\Core\Pipeline\SystemGraph;
+use Flair\Kernel\Football\Intents\NpcBuyerIntentSource;
 use Flair\Kernel\Football\Systems\CalendarSystem;
 use Flair\Kernel\Football\Systems\CompetitionSystem;
 use Flair\Kernel\Football\Systems\ContractSystem;
@@ -17,6 +18,7 @@ use Flair\Kernel\Football\Systems\PlayerDevelopmentSystem;
 use Flair\Kernel\Football\Systems\RetirementSystem;
 use Flair\Kernel\Football\Systems\SquadSystem;
 use Flair\Kernel\Football\Systems\TrainingSystem;
+use Flair\Kernel\Football\Systems\TransferSystem;
 use Flair\Kernel\Football\Systems\YouthIntakeSystem;
 
 /**
@@ -102,6 +104,7 @@ final class FootballPipeline
             new MatchSystem(),
             new CompetitionSystem(),
             new ContractSystem(),
+            new TransferSystem(new NpcBuyerIntentSource()),
         ];
     }
 

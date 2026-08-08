@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flair\Kernel\Tests\Football\Support;
 
 use Flair\Kernel\Core\Ruleset\ContractBalance;
+use Flair\Kernel\Core\Support\Rng;
 use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
@@ -68,9 +69,9 @@ final class WageModelTest extends TestCase
     {
         $contract = new ContractBalance(baseWagePerWeekCents: 50_000, referenceQuality: 50);
 
-        self::assertSame(50_000, WageModel::perWeekCents(50, $contract));
-        self::assertSame(100_000, WageModel::perWeekCents(100, $contract));
-        self::assertSame(25_000, WageModel::perWeekCents(25, $contract));
+        self::assertSame(50_000, WageModel::perWeekCents(50, $contract, 1.0));
+        self::assertSame(100_000, WageModel::perWeekCents(100, $contract, 1.0));
+        self::assertSame(25_000, WageModel::perWeekCents(25, $contract, 1.0));
     }
 
     /**
@@ -87,8 +88,8 @@ final class WageModelTest extends TestCase
             wageMultiplierMax: 2.5,
         );
 
-        self::assertSame(20_000, WageModel::perWeekCents(1, $contract));
-        self::assertSame(125_000, WageModel::perWeekCents(100_000, $contract));
+        self::assertSame(20_000, WageModel::perWeekCents(1, $contract, 1.0));
+        self::assertSame(125_000, WageModel::perWeekCents(100_000, $contract, 1.0));
     }
 
     /**
@@ -100,6 +101,41 @@ final class WageModelTest extends TestCase
     {
         $contract = new ContractBalance(baseWagePerWeekCents: 42_000, referenceQuality: 0);
 
-        self::assertSame(42_000, WageModel::perWeekCents(90, $contract));
+        self::assertSame(42_000, WageModel::perWeekCents(90, $contract, 1.0));
+    }
+
+    /**
+     * La duree reste dans les bornes du `Ruleset`, et les couvre toutes : sans
+     * la seconde assertion, un tirage constant passerait la premiere.
+     */
+    public function testTheContractDurationStaysWithinTheRulesetBoundsAndCoversThemAll(): void
+    {
+        $contract = new ContractBalance(minDurationYears: 2, maxDurationYears: 4);
+        $seen = [];
+
+        for ($stream = 0; $stream < 60; $stream++) {
+            $years = WageModel::contractDurationYears(new Rng($stream), $contract);
+
+            self::assertGreaterThanOrEqual(2, $years);
+            self::assertLessThanOrEqual(4, $years);
+            $seen[$years] = true;
+        }
+
+        ksort($seen);
+        self::assertSame([2, 3, 4], array_keys($seen));
+    }
+
+    /** Bornes inversees ou nulles : une duree valide plutot qu'un modulo par zero. */
+    public function testDegenerateDurationBoundsStillProduceAValidDuration(): void
+    {
+        self::assertSame(1, WageModel::contractDurationYears(
+            new Rng(1),
+            new ContractBalance(minDurationYears: 0, maxDurationYears: 0),
+        ));
+
+        self::assertSame(5, WageModel::contractDurationYears(
+            new Rng(1),
+            new ContractBalance(minDurationYears: 5, maxDurationYears: 2),
+        ));
     }
 }

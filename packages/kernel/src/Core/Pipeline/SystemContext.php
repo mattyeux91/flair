@@ -11,6 +11,7 @@ use Flair\Kernel\Core\Messaging\Intent;
 use Flair\Kernel\Core\Messaging\OutQueue;
 use Flair\Kernel\Core\Messaging\Scheduler;
 use Flair\Kernel\Core\Ruleset\Ruleset;
+use Flair\Kernel\Core\Support\Hash;
 use Flair\Kernel\Core\Support\Rng;
 
 /**
@@ -158,6 +159,27 @@ final readonly class SystemContext
     public function rng(int $entityId): Rng
     {
         return Rng::forStream($this->worldSeed, $this->tick, $this->access->systemId, $entityId);
+    }
+
+    /**
+     * Derivation deterministe **invariante par tick**, pour les grandeurs qui
+     * doivent rester stables d'une annee sur l'autre : l'erreur d'un
+     * observateur sur un joueur est un biais, pas un bruit blanc re-tire a
+     * chaque lecture (docs/12- §4).
+     *
+     * Ce n'est pas un flux RNG : aucune sequence, aucun etat, une valeur par
+     * jeu d'arguments. `rng()` reste le seul chemin vers de l'aleatoire
+     * sequentiel, et `$worldSeed` reste prive - un systeme ne peut pas se
+     * fabriquer un PRNG global a partir d'ici.
+     *
+     * Volontairement **sans `systemId`**, contrairement a `rng()` : deux
+     * systemes doivent obtenir la meme valeur pour les memes arguments, sans
+     * quoi la valorisation d'un joueur par le marche percevrait ce joueur
+     * autrement que le systeme de contrats, le meme jour, dans le meme monde.
+     */
+    public function stableHash(int ...$values): int
+    {
+        return Hash::mixAll($this->worldSeed, ...$values);
     }
 
     public function ruleset(): Ruleset

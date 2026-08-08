@@ -12,6 +12,7 @@ use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Ruleset\Ruleset;
 use Flair\Kernel\Football\Components\Finances;
 use Flair\Kernel\Football\Components\SeasonIncome;
+use Flair\Kernel\Football\Events\TransferAgreed;
 use Flair\Kernel\Football\Singletons\MonetaryMass;
 use PHPUnit\Framework\TestCase;
 
@@ -36,6 +37,16 @@ use PHPUnit\Framework\TestCase;
  * repartition au merite decoupe l'enveloppe en parts inegales par divisions
  * entieres successives, et c'est exactement le genre de calcul qui perd ou
  * invente des centimes. Le cas plat, lui, ne peut pratiquement pas echouer.
+ *
+ * ## Ce test n'est plus trivial depuis le point 4 de docs/17-
+ *
+ * Il l'etait jusque-la, et docs/15- §4 le notait : aucun argent ne passait
+ * d'un club a l'autre, donc l'invariant ne pouvait pas casser sur le chemin
+ * que docs/14- §6 designe precisement comme celui qui doit conserver. Les
+ * indemnites de transfert empruntent ce chemin - un mouvement qui n'est ni
+ * injection ni puits, ou oublier le credit du vendeur ou compter l'indemnite
+ * comme un puits casse l'egalite. D'ou le garde-fou qui exige qu'il en ait
+ * reellement circule.
  */
 final class MonetaryConservationTest extends TestCase
 {
@@ -74,7 +85,7 @@ final class MonetaryConservationTest extends TestCase
         $initialTotal = $this->sumFinances($world);
 
         $runner = new StepRunner($world, $ruleset, $spec->seed);
-        $runner->advance($spec->years * 365);
+        $events = $runner->advance($spec->years * 365);
 
         $finalTotal = $this->sumFinances($world);
         $mass = $world->singleton(MonetaryMass::class) ?? new MonetaryMass();
@@ -82,6 +93,26 @@ final class MonetaryConservationTest extends TestCase
         self::assertSame(
             $finalTotal - $initialTotal,
             $mass->totalInjectionsCents - $mass->totalSinksCents,
+        );
+
+        // Garde-fou, meme esprit que celui du cas `meritShare = 0.6` : sans
+        // indemnite reellement versee, l'egalite ci-dessus reste vraie
+        // **trivialement** - c'etait exactement son etat avant le point 4 de
+        // docs/17-, quand aucun argent ne passait d'un club a l'autre. Le
+        // chemin que docs/14- §6 designe comme celui qui doit conserver doit
+        // avoir ete emprunte pour que le test prouve quelque chose.
+        $feesPaid = 0;
+
+        foreach ($events as $event) {
+            if ($event instanceof TransferAgreed) {
+                $feesPaid += $event->agreedPriceCents;
+            }
+        }
+
+        self::assertGreaterThan(
+            0,
+            $feesPaid,
+            'aucune indemnite versee sur 20 saisons : la conservation resterait vraie sans rien prouver',
         );
 
         return $world;

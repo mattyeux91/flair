@@ -39,7 +39,29 @@ final class ClubInvestedInFacilities implements DomainEvent
 {
     public function __construct(
         public int $clubId,
+        /**
+         * Ce qui a reellement quitte la caisse du club, a l'unite monetaire du
+         * jour. C'est ce que `Football\FinanceSystem` compte comme puits, et
+         * ce qu'un journal d'evenements doit enregistrer : un Fait ne ment pas
+         * sur l'argent depense.
+         */
         public int $cents,
+        /**
+         * Le meme montant ramene a l'unite de **reference**, c'est-a-dire
+         * divise par `Football\Singletons\MarketInflation::$index`. Seul
+         * `Football\FacilitiesSystem` s'en sert, pour convertir en qualite :
+         * un club ne doit pas batir plus vite parce que la monnaie a change
+         * d'unite (docs/17- point 5).
+         *
+         * Deux champs plutot qu'un converti a la lecture parce que
+         * `FacilitiesSystem` **ne peut pas** lire l'indice : il ecrit
+         * `Facilities`, que `FinanceSystem` lit, donc l'arete existe deja dans
+         * ce sens et l'inverse ferait un cycle que
+         * `Core\Pipeline\SystemGraph` leverait au montage. Le meme mur
+         * structurel que celui qui a impose ce Fait en premier lieu, un cran
+         * plus loin.
+         */
+        public int $referenceCents,
     ) {
     }
 }

@@ -5,11 +5,30 @@ declare(strict_types=1);
 namespace Flair\Harness\Tests\Comparison;
 
 use Flair\Harness\Comparison\RulesetOverride;
+use Flair\Kernel\Core\Ruleset\Balance;
+use Flair\Kernel\Core\Ruleset\InflationBalance;
+use Flair\Kernel\Core\Ruleset\MarketValueBalance;
 use Flair\Kernel\Core\Ruleset\Ruleset;
 use PHPUnit\Framework\TestCase;
 
 final class RulesetOverrideTest extends TestCase
 {
+    /**
+     * Reproduit le test qui aurait attrape le bug `PositionBalance` documente
+     * dans CLAUDE.md : `withFields()` reconstruit `Balance` en entier, donc un
+     * groupe non-surchargeable mais omis de ce `new Balance(...)` repart
+     * silencieusement a ses defauts. `market` est reconduit explicitement -
+     * ce test garde cette ligne honnete.
+     */
+    public function testANonDefaultMarketValueBalanceSurvivesAnUnrelatedOverride(): void
+    {
+        $base = new Ruleset('test', new Balance(market: new MarketValueBalance(baseValueCents: 999_999)));
+
+        $modified = RulesetOverride::withFields($base, ['developmentRate' => 1.5]);
+
+        self::assertSame(999_999, $modified->balance->market->baseValueCents);
+    }
+
     public function testAppliesOverridesAcrossAllFourGroupsInOnePass(): void
     {
         $base = new Ruleset('test');
@@ -129,6 +148,56 @@ final class RulesetOverrideTest extends TestCase
         self::assertSame(21, $modified->balance->calendar->firstMatchdayOffsetDays);
         self::assertSame(8, $modified->balance->match->maxSimulatedGoals);
         self::assertSame(1, $modified->balance->competition->pointsForDraw);
+    }
+
+    /**
+     * Contrairement a `market` (encore un passe-plat), `transfer` est
+     * reellement surchargeable des sa creation : la verification du point 2
+     * (docs/17-marche-transferts.md) est une campagne a graines appariees qui
+     * balaie ces coefficients. Meme piege `int`/`float` que `YouthIntakeBalance`.
+     */
+    public function testAppliesOverridesToTransferBalance(): void
+    {
+        $base = new Ruleset('test');
+
+        $modified = RulesetOverride::withFields($base, [
+            'negotiationOpeningDayOfYear' => 210.0,
+            'maxRounds' => 8.0,
+            'openingOfferShare' => 0.6,
+            'patienceReference' => 60.0,
+            'responseGraceTicks' => 3.0,
+        ]);
+
+        self::assertSame(210, $modified->balance->transfer->negotiationOpeningDayOfYear);
+        self::assertSame(8, $modified->balance->transfer->maxRounds);
+        self::assertSame(0.6, $modified->balance->transfer->openingOfferShare);
+        self::assertSame(60, $modified->balance->transfer->patienceReference);
+        self::assertSame(3, $modified->balance->transfer->responseGraceTicks);
+
+        // Champs non touches : la valeur par defaut du Ruleset de base, pas 0/null.
+        self::assertSame($base->balance->transfer->buyerFlexMargin, $modified->balance->transfer->buyerFlexMargin);
+        self::assertSame($base->balance->transfer->financialDistressScaleCents, $modified->balance->transfer->financialDistressScaleCents);
+    }
+
+    public function testAppliesOverridesToInflationBalance(): void
+    {
+        $base = new Ruleset('test');
+
+        // `marketInflationTarget` par `--set` est la campagne meme du point 5
+        // (docs/17-) : le defaut vaut 0, donc la baseline est le monde d'avant.
+        $modified = RulesetOverride::withFields($base, ['marketInflationTarget' => 0.03]);
+
+        self::assertSame(0.03, $modified->balance->inflation->marketInflationTarget);
+        self::assertSame($base->balance->inflation->toleranceBand, $modified->balance->inflation->toleranceBand);
+    }
+
+    public function testANonDefaultInflationBalanceSurvivesAnUnrelatedOverride(): void
+    {
+        $base = new Ruleset('test', new Balance(inflation: new InflationBalance(marketInflationTarget: 0.07)));
+
+        $modified = RulesetOverride::withFields($base, ['developmentRate' => 1.5]);
+
+        self::assertSame(0.07, $modified->balance->inflation->marketInflationTarget);
     }
 
     public function testAllFieldsGroupsCoverAllDeclaredFields(): void

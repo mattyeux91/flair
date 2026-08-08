@@ -65,6 +65,27 @@ final class HashTest extends TestCase
         }
     }
 
+    public function testMixAllOnFourValuesIsExactlyMix32(): void
+    {
+        self::assertSame(Hash::mix32(1, 2, 3, 4), Hash::mixAll(1, 2, 3, 4));
+        self::assertSame(
+            Hash::mix32(777, 10, crc32('sysA'), 1),
+            Hash::mixAll(777, 10, crc32('sysA'), 1),
+        );
+    }
+
+    public function testMixAllAcceptsAnyArityAndStaysWithinUnsigned32BitRange(): void
+    {
+        foreach ([Hash::mixAll(), Hash::mixAll(1), Hash::mixAll(1, 2, 3), Hash::mixAll(1, 2, 3, 4, 5)] as $value) {
+            self::assertGreaterThanOrEqual(0, $value);
+            self::assertLessThanOrEqual(0xFFFFFFFF, $value);
+        }
+
+        // Une valeur de plus n'est pas la meme derivation : sinon un argument
+        // ajoute a une signature d'appel serait silencieusement sans effet.
+        self::assertNotSame(Hash::mixAll(1, 2, 3), Hash::mixAll(1, 2, 3, 4));
+    }
+
     /**
      * Vecteur de regression : contrairement au vecteur de Rng, celui-ci n'est
      * pas cross-verifie contre une implementation externe - Hash::mix32 n'est

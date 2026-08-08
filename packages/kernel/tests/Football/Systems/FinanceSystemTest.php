@@ -25,6 +25,9 @@ use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
 use Flair\Kernel\Football\Components\SeasonIncome;
 use Flair\Kernel\Football\Events\ClubInvestedInFacilities;
 use Flair\Kernel\Football\Events\SeasonConcluded;
+use Flair\Kernel\Football\Events\TransferAgreed;
+use Flair\Kernel\Core\Ruleset\InflationBalance;
+use Flair\Kernel\Football\Singletons\MarketInflation;
 use Flair\Kernel\Football\Singletons\MonetaryMass;
 use Flair\Kernel\Football\Systems\FinanceSystem;
 use Flair\Kernel\Football\Systems\RetirementSystem;
@@ -257,6 +260,144 @@ final class FinanceSystemTest extends TestCase
     }
 
     /**
+     * Le coeur du point 4 (docs/17-) : une indemnite est un **mouvement
+     * interne**, ni injection ni puits. La somme des soldes ne bouge pas, et
+     * `MonetaryMass` non plus - c'est cette double assertion que casserait un
+     * bookkeeping ajoute « pour la symetrie ».
+     */
+    public function testATransferMovesTheFeeBetweenClubsWithoutChangingTheMonetaryMass(): void
+    {
+        $world = new WorldState();
+        $buyer = $this->createClub($world, 10_000_000);
+        $seller = $this->createClub($world, 3_000_000);
+        $world->setSingleton(new MonetaryMass(777, 333));
+
+        $this->agreeTransfer($world, $buyer, $seller, feeCents: 4_000_000, atTick: 10);
+        $this->runFinanceTick($world, tick: 10, finance: new FinanceBalance());
+
+        self::assertSame(6_000_000, $this->balanceOf($world, $buyer));
+        self::assertSame(7_000_000, $this->balanceOf($world, $seller));
+
+        $mass = $world->singleton(MonetaryMass::class);
+        self::assertNotNull($mass);
+        self::assertSame(777, $mass->totalInjectionsCents, 'une indemnite n\'est pas une injection');
+        self::assertSame(333, $mass->totalSinksCents, 'une indemnite n\'est pas un puits');
+    }
+
+    /**
+     * Atomique ou nul : debiter sans pouvoir crediter detruirait de la monnaie
+     * et casserait l'invariant de conservation.
+     */
+    public function testATransferWhoseSellerHasNoFinancesMovesNothingAtAll(): void
+    {
+        $world = new WorldState();
+        $buyer = $this->createClub($world, 10_000_000);
+        $vanished = $world->createEntity();
+
+        $this->agreeTransfer($world, $buyer, $vanished, feeCents: 4_000_000, atTick: 10);
+        $this->runFinanceTick($world, tick: 10, finance: new FinanceBalance());
+
+        self::assertSame(10_000_000, $this->balanceOf($world, $buyer));
+    }
+
+    public function testSeveralTransfersInTheSameTickAreAllSettled(): void
+    {
+        $world = new WorldState();
+        $first = $this->createClub($world, 10_000_000);
+        $second = $this->createClub($world, 10_000_000);
+        $third = $this->createClub($world, 10_000_000);
+
+        $this->agreeTransfer($world, $first, $second, feeCents: 1_000_000, atTick: 10);
+        $this->agreeTransfer($world, $second, $third, feeCents: 2_500_000, atTick: 10);
+        $this->runFinanceTick($world, tick: 10, finance: new FinanceBalance());
+
+        self::assertSame(9_000_000, $this->balanceOf($world, $first));
+        self::assertSame(8_500_000, $this->balanceOf($world, $second), '+1 000 000 recu, -2 500 000 paye');
+        self::assertSame(12_500_000, $this->balanceOf($world, $third));
+    }
+
+    /**
+     * A cible zero - le defaut - toute la machinerie d'inflation est un no-op :
+     * l'indice reste a 1, l'enveloppe vaut exactement ce qu'elle valait avant
+     * le point 5, et le terme d'anticipation est nul.
+     */
+    public function testInflationIsAStrictNoOpAtTheDefaultTarget(): void
+    {
+        $world = new WorldState();
+        $club = $this->createClub($world, balanceCents: 0);
+
+        $this->concludeSeason($world, ranking: [$club], atTick: 5);
+        $this->runFinanceTick($world, tick: 5, finance: new FinanceBalance(clubIncomePerSeasonCents: 70_000_000));
+
+        self::assertSame(70_000_000, $this->balanceOf($world, $club));
+
+        $inflation = $world->singleton(MarketInflation::class);
+        self::assertNotNull($inflation);
+        self::assertSame(1.0, $inflation->index);
+        self::assertSame(0.0, $inflation->annualRate);
+    }
+
+    /**
+     * L'indice avance de la cible a chaque saison achevee, et **tout** ce qui
+     * est nominal le suit - l'enveloppe comme l'entretien. C'est ce qui en fait
+     * un changement d'unite monetaire (docs/14- §5) et non une distorsion de
+     * prix relatifs.
+     */
+    public function testTheIndexAdvancesByTheTargetAndCarriesEveryNominalAmount(): void
+    {
+        $world = new WorldState();
+        $club = $this->createClub($world, balanceCents: 0);
+        $world->components(Facilities::class)->set($club, new Facilities(1.0));
+
+        $ruleset = new Balance(
+            finance: new FinanceBalance(
+                clubIncomePerSeasonCents: 70_000_000,
+                facilityUpkeepPerQualityPointCents: 10_000_000,
+                facilityInvestmentReserveCents: PHP_INT_MAX,
+            ),
+            inflation: new InflationBalance(marketInflationTarget: 0.10),
+        );
+
+        // Saison 1 : indice encore a 1, donc les montants nominaux.
+        $this->concludeSeason($world, ranking: [$club], atTick: 5);
+        (new Pipeline([new FinanceSystem()]))->tick($world, tick: 5, worldSeed: 1, ruleset: new Ruleset('test', $ruleset), intents: []);
+
+        self::assertSame(70_000_000 - 10_000_000, $this->balanceOf($world, $club));
+        self::assertSame(1.10, $world->singleton(MarketInflation::class)?->index);
+
+        // Saison 2 : tout est porte a 1,10 - l'enveloppe et l'entretien.
+        $this->concludeSeason($world, ranking: [$club], atTick: 12);
+        (new Pipeline([new FinanceSystem()]))->tick($world, tick: 12, worldSeed: 1, ruleset: new Ruleset('test', $ruleset), intents: []);
+
+        // 60 000 000 + 77 000 000 - 11 000 000, plus l'anticipation
+        // (10 % de la masse de 60 000 000 relevee a la saison precedente).
+        self::assertSame(60_000_000 + 77_000_000 + 6_000_000 - 11_000_000, $this->balanceOf($world, $club));
+    }
+
+    private function balanceOf(WorldState $world, int $clubId): int
+    {
+        return $world->components(Finances::class)->get($clubId)->balanceCents ?? 0;
+    }
+
+    private function agreeTransfer(WorldState $world, int $buyerClubId, int $sellerClubId, int $feeCents, int $atTick): void
+    {
+        $world->scheduler()->schedule(
+            new TransferAgreed(
+                negotiationId: 900 + $buyerClubId,
+                buyerClubId: $buyerClubId,
+                sellerClubId: $sellerClubId,
+                playerId: 500,
+                round: 2,
+                agreedPriceCents: $feeCents,
+            ),
+            atTick: $atTick,
+            systemIndex: 0,
+            entityId: 900 + $buyerClubId,
+            seq: 0,
+        );
+    }
+
+    /**
      * Place un `SeasonConcluded` dans le Scheduler pour qu'il soit draine au
      * tick voulu - le Pipeline calcule son lot d'evenements entrants avant
      * qu'aucun systeme ne tourne, donc emettre depuis le test ne suffirait
@@ -435,7 +576,7 @@ final class FinanceSystemTest extends TestCase
     {
         $player = $world->createEntity();
         $world->components(Person::class)->set($player, new Person('Joueur Test', new SimDate(0)));
-        $world->components(Contract::class)->set($player, new Contract($clubId, $wagePerWeekCents, new SimDate(self::NEVER_EXPIRES)));
+        $world->components(Contract::class)->set($player, new Contract($clubId, $wagePerWeekCents, new SimDate(self::NEVER_EXPIRES), new SimDate(1)));
 
         return $player;
     }
@@ -459,7 +600,7 @@ final class FinanceSystemTest extends TestCase
             growthRate: 0.3,
             fragility: 0.8,
         ));
-        $world->components(Contract::class)->set($player, new Contract($clubId, $wagePerWeekCents, new SimDate(self::NEVER_EXPIRES)));
+        $world->components(Contract::class)->set($player, new Contract($clubId, $wagePerWeekCents, new SimDate(self::NEVER_EXPIRES), new SimDate(1)));
 
         return $player;
     }

@@ -41,6 +41,7 @@ final class TextReport
         $output .= $this->renderRecentMatches($lastSeason['matches'] ?? [], "Matchs de la {$seasonLabel}");
 
         $output .= $this->renderCompetitiveBalance(CompetitiveBalance::analyze($result->seasonHistory, $result->cumulativeIncomeByClub));
+        $output .= $this->renderScouting($result->scoutJudgementByClub, $lastSeason['standings'] ?? []);
         $output .= $this->renderFacilities($result->finalFacilitiesByClub);
         $output .= $this->renderMarket($result->marketByYear, $result->finalWageBillByClub);
 
@@ -79,10 +80,12 @@ final class TextReport
 
         $output .= "-- Equilibre competitif, baseline --\n";
         $output .= $this->renderCompetitiveBalance(CompetitiveBalance::analyze($baseline->seasonHistory, $baseline->cumulativeIncomeByClub));
+        $output .= $this->renderScouting($baseline->scoutJudgementByClub, $baselineSeason['standings'] ?? [], 'Recrutement, baseline');
         $output .= $this->renderFacilities($baseline->finalFacilitiesByClub, 'Installations, baseline');
         $output .= $this->renderMarket($baseline->marketByYear, $baseline->finalWageBillByClub, 'Marche, baseline');
         $output .= "-- Equilibre competitif, modifie --\n";
         $output .= $this->renderCompetitiveBalance(CompetitiveBalance::analyze($modified->seasonHistory, $modified->cumulativeIncomeByClub));
+        $output .= $this->renderScouting($modified->scoutJudgementByClub, $modifiedSeason['standings'] ?? [], 'Recrutement, modifie');
         $output .= $this->renderFacilities($modified->finalFacilitiesByClub, 'Installations, modifie');
         $output .= $this->renderMarket($modified->marketByYear, $modified->finalWageBillByClub, 'Marche, modifie');
 
@@ -375,6 +378,50 @@ final class TextReport
             $qualities[\count($qualities) - 1],
             $qualities[\count($qualities) - 1] - $qualities[0],
         );
+    }
+
+    /**
+     * Le jugement du recruteur de chaque club, en regard de son classement
+     * final - la seule grandeur du rapport qui soit une **cause** semee au
+     * genesis plutot qu'un resultat de la simulation.
+     *
+     * Tries par jugement decroissant, pour que la relation cherchee se lise a
+     * l'oeil : si la perception compte, la colonne des classements doit monter
+     * en descendant le tableau. Aucune correlation n'est calculee - la mesurer
+     * proprement appartient au lot du marche des transferts (voir
+     * `Metrics\Sampler::scoutJudgementSnapshot()`).
+     *
+     * @param array<string, int> $byClub nom de club -> jugement de son recruteur
+     * @param list<array{clubId: int, clubName: string, played: int, won: int, drawn: int, lost: int, goalsFor: int, goalsAgainst: int, points: int}> $standings deja trie
+     */
+    private function renderScouting(array $byClub, array $standings, string $title = 'Recrutement'): string
+    {
+        if ($byClub === []) {
+            return "{$title} : aucun recruteur dans ce monde.\n\n";
+        }
+
+        $rankByClub = [];
+        foreach ($standings as $rank => $row) {
+            $rankByClub[$row['clubName']] = $rank + 1;
+        }
+
+        arsort($byClub);
+        $judgements = array_values($byClub);
+
+        $output = sprintf(
+            "-- %s (%d recruteur(s), jugement min=%d max=%d) --\n",
+            $title,
+            \count($judgements),
+            min($judgements),
+            max($judgements),
+        );
+        $output .= sprintf("%-24s  %9s  %5s\n", 'club', 'jugement', 'place');
+
+        foreach ($byClub as $clubName => $judgement) {
+            $output .= sprintf("%-24s  %9d  %5s\n", $clubName, $judgement, $rankByClub[$clubName] ?? '-');
+        }
+
+        return $output . "\n";
     }
 
     /**

@@ -241,6 +241,10 @@ function rngFor(int $worldSeed, int $tick, string $systemId, int $entityId): Rng
 
 **Pourquoi c'est essentiel** : avec un PRNG global, ajouter un système décale le flux aléatoire de tous les suivants. Deux runs d'équilibrage ne sont plus comparables, et une correction de bug ailleurs change tout l'historique. Avec des flux dérivés par hachage, chaque système et chaque entité a sa propre séquence, isolée et stable.
 
+> **Le cas voisin, ajouté le 2026-08-05 : une dérivation qui ne doit pas dépendre du tick.** Le tick fait partie de la clé ci-dessus, donc rien de ce qui en sort n'est stable d'une année sur l'autre — c'est la propriété voulue pour un tirage. Mais certaines grandeurs sont des **biais** et non des tirages : l'erreur d'estimation d'un scout sur un joueur (`12-` §4) doit rester la même tant que rien n'a changé dans ce que le scout sait, sinon le rapport de scouting change à chaque lecture. D'où `Core\SystemContext::stableHash(...$values)` : `worldSeed` + les valeurs fournies, une valeur par jeu d'arguments, aucune séquence, aucun état — et jamais un point d'entrée vers `worldSeed`, qui reste privé. Elle est aussi volontairement **indépendante du système appelant**, contrairement à `rng()` : deux systèmes qui dérivent la même grandeur doivent obtenir la même valeur, sans quoi le marché des transferts percevrait un joueur autrement que le système de contrats, le même jour, dans le même monde.
+>
+> **Ce que ni l'un ni l'autre ne protège** : l'**allocateur d'identifiants**. Ajouter une entité au genesis décale les identifiants de toutes les entités créées ensuite à l'exécution, donc leurs flux — mesuré au lot de perception, où 18 scouts semés au genesis suffisent à faire diverger un monde par ailleurs identique. Corollaire de méthode : **une comparaison à graines appariées se fait toujours à l'intérieur d'un même build**, jamais contre des nombres notés dans un document.
+
 ### 4.2 Itération triée
 
 Toute boucle sur des entités itère par `EntityId` croissant. Jamais l'ordre d'une `Map` ou d'un `Set`.

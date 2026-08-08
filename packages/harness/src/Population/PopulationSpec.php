@@ -17,6 +17,20 @@ namespace Flair\Harness\Population;
  * `startingBalanceCents` suit le meme principe (Phase 2) : un solde initial
  * uniforme, seede par ClubFactory, pas un levier de Ruleset - c'est un
  * parametre de generation du monde, pas un levier d'equilibrage du jeu.
+ *
+ * `scoutJudgementMean`/`scoutJudgementSpread` sont ici pour la meme raison, et
+ * elle a une consequence pratique a connaitre : le `Ruleset` dit **de combien un
+ * jugement donne se trompe** (`PerceptionBalance`), le monde dit **qui sont les
+ * scouts**. Comme `Comparison\PairedSeedComparison` ne rejoue jamais la
+ * generation - c'est le principe des graines appariees, meme population des deux
+ * cotes - un levier de generation loge dans le `Ruleset` serait silencieusement
+ * inoperant sous `--set`. Faire varier la dispersion du staff demande donc deux
+ * runs, pas une comparaison appariee.
+ *
+ * `boardPatienceMean`/`boardPatienceSpread` suivent exactement la meme regle,
+ * pour la meme raison (docs/17-marche-transferts.md point 2 reouvert) :
+ * `Ruleset\TransferBalance` dit comment la patience module la probabilite de
+ * rupture, le monde dit quelle patience chaque club a.
  */
 final readonly class PopulationSpec
 {
@@ -27,6 +41,10 @@ final readonly class PopulationSpec
         public int $clubCount = 18,
         public float $facilitiesQuality = 1.0,
         public int $startingBalanceCents = 10_000_000,
+        public int $scoutJudgementMean = 50,
+        public int $scoutJudgementSpread = 25,
+        public int $boardPatienceMean = 50,
+        public int $boardPatienceSpread = 25,
     ) {
     }
 }

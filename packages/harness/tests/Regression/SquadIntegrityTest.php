@@ -10,7 +10,9 @@ use Flair\Harness\Simulation\StepRunner;
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Ruleset\Ruleset;
 use Flair\Kernel\Football\Components\Contract;
+use Flair\Kernel\Football\Components\Employment;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
+use Flair\Kernel\Football\Components\Scout;
 use Flair\Kernel\Football\Components\SquadMembership;
 use PHPUnit\Framework\TestCase;
 
@@ -35,6 +37,12 @@ use PHPUnit\Framework\TestCase;
  * 3. Un retraite n'a garde ni l'un ni l'autre - la limite que le lot des
  *    contrats a corrigee en donnant la propriete des deux composants a un
  *    seul systeme.
+ * 4. **Le staff n'est jamais un membre d'effectif.** `Employment` (une personne
+ *    employee par un club) et `SquadMembership` (un joueur dans un effectif)
+ *    sont deux relations distinctes exactement pour que le scout d'un club
+ *    n'apparaisse dans aucun parcours d'effectif (docs/12- §4, question 2) : ni
+ *    entraine, ni aligne, ni paye comme un joueur. Deux composants distincts
+ *    rendent la separation structurelle, ce test la rend verifiee.
  *
  * Vingt saisons, meme fenetre que `MonetaryConservationTest` : assez pour que
  * des milliers de renouvellements, de departs et de retraites se soient
@@ -83,5 +91,20 @@ final class SquadIntegrityTest extends TestCase
         // Garde-fou : sans lui, un monde ou plus personne n'est employe
         // passerait ce test sans rien prouver.
         self::assertGreaterThan(100, $contracted, 'le monde devrait encore employer des joueurs apres vingt saisons');
+
+        $staff = $world->components(Employment::class);
+        $scouts = $world->components(Scout::class);
+        $employed = 0;
+
+        foreach ($staff->entities() as $personId) {
+            $employed++;
+
+            self::assertNull($memberships->get($personId), "le membre du staff {$personId} figure dans un effectif");
+            self::assertNull($contracts->get($personId), "le membre du staff {$personId} porte un contrat de joueur");
+            self::assertNull($skills->get($personId), "le membre du staff {$personId} porte des competences de joueur");
+            self::assertNotNull($scouts->get($personId), 'un employe sans role ne serait lu par personne');
+        }
+
+        self::assertSame($spec->clubCount, $employed, 'chaque club doit employer exactement un recruteur');
     }
 }

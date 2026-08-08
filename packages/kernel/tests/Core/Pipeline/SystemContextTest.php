@@ -117,6 +117,27 @@ final class SystemContextTest extends TestCase
         );
     }
 
+    public function testStableHashDoesNotDependOnTheTickNorOnTheSystem(): void
+    {
+        $atTickTen = $this->makeContext(tick: 10, systemId: 'contract', worldSeed: 777);
+        $atTickOneThousand = $this->makeContext(tick: 1000, systemId: 'contract', worldSeed: 777);
+        $anotherSystem = $this->makeContext(tick: 10, systemId: 'market', worldSeed: 777);
+
+        self::assertSame($atTickTen->stableHash(3, 42, 0), $atTickOneThousand->stableHash(3, 42, 0));
+        self::assertSame($atTickTen->stableHash(3, 42, 0), $anotherSystem->stableHash(3, 42, 0));
+    }
+
+    public function testStableHashDependsOnTheWorldSeedAndOnEachArgument(): void
+    {
+        $world777 = $this->makeContext(worldSeed: 777);
+        $world778 = $this->makeContext(worldSeed: 778);
+
+        self::assertNotSame($world777->stableHash(3, 42, 0), $world778->stableHash(3, 42, 0));
+        self::assertNotSame($world777->stableHash(3, 42, 0), $world777->stableHash(4, 42, 0));
+        self::assertNotSame($world777->stableHash(3, 42, 0), $world777->stableHash(3, 43, 0));
+        self::assertNotSame($world777->stableHash(3, 42, 0), $world777->stableHash(3, 42, 1));
+    }
+
     public function testRulesetRoundTripsThroughTheConstructedValue(): void
     {
         $ruleset = new Ruleset('2026.1.0');

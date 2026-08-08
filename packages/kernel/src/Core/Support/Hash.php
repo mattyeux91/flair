@@ -24,11 +24,28 @@ final class Hash
 
     public static function mix32(int $worldSeed, int $tick, int $systemIdHash, int $entityId): int
     {
+        return self::mixAll($worldSeed, $tick, $systemIdHash, $entityId);
+    }
+
+    /**
+     * Le meme repliement, sur un nombre quelconque de valeurs - pour les
+     * derivations qui ne sont pas un flux RNG et n'ont donc pas la forme
+     * (monde, tick, systeme, entite) : la perception d'un joueur par un scout
+     * se derive de (monde, observateur, sujet, nb d'observations), sans tick
+     * (docs/12- §4 : l'erreur d'un observateur est un biais stable, pas un
+     * bruit re-tire a chaque lecture).
+     *
+     * `mix32()` en est le cas a quatre valeurs, exactement : l'etat part de 0
+     * et absorbe les valeurs en sequence, donc la forme variadique ne change
+     * aucune valeur deja produite.
+     */
+    public static function mixAll(int ...$values): int
+    {
         $state = 0;
-        $state = self::combine($state, $worldSeed);
-        $state = self::combine($state, $tick);
-        $state = self::combine($state, $systemIdHash);
-        $state = self::combine($state, $entityId);
+
+        foreach ($values as $value) {
+            $state = self::combine($state, $value);
+        }
 
         return $state;
     }

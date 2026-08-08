@@ -29,6 +29,23 @@ namespace Flair\Kernel\Core\Ruleset;
  * pour combien de temps. La regle "un systeme ne depend jamais des leviers
  * d'un autre" est precisement ce qui impose cette coupure plutot qu'un groupe
  * unique.
+ *
+ * `perception` suit la meme coupure : il ne dit ni ce qu'un joueur vaut
+ * (`contract`) ni qui l'observe (le monde, docs/12- §4), seulement **de combien
+ * un observateur se trompe** - un levier qu'aucun autre groupe ne partage, et
+ * que plusieurs systemes finiront par lire (les contrats aujourd'hui, la
+ * valorisation du marche ensuite).
+ *
+ * `market` rejoint cette liste avec le lot marche des transferts
+ * (docs/15- §4 Phase 2, docs/17-marche-transferts.md) : il ne dit ni qui
+ * observe (`perception`) ni combien coute un salaire (`contract`), seulement
+ * ce qu'un joueur vaut en monnaie a la revente - lu par
+ * `Football\Support\MarketValueModel`. `transfer`, ajoute au meme point,
+ * ne dit pas ce qu'un joueur vaut (`market`) mais comment une negociation
+ * progresse tour apres tour - lu par `Football\TransferSystem`. `inflation`,
+ * dernier du meme chantier, ne dit ni l'un ni l'autre : il dit a quel rythme
+ * l'**unite monetaire** elle-meme se deplace, et comment le regulateur y
+ * ramene le monde.
  */
 final readonly class Balance
 {
@@ -47,6 +64,10 @@ final readonly class Balance
         public FacilitiesBalance $facilities = new FacilitiesBalance(),
         public ContractBalance $contract = new ContractBalance(),
         public PositionBalance $position = new PositionBalance(),
+        public PerceptionBalance $perception = new PerceptionBalance(),
+        public MarketValueBalance $market = new MarketValueBalance(),
+        public TransferBalance $transfer = new TransferBalance(),
+        public InflationBalance $inflation = new InflationBalance(),
     ) {
     }
 }
