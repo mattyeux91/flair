@@ -183,6 +183,7 @@ final readonly class CalibrationFields
             new self('positionScarcityMax', 'Marché des transferts', 'Facteur de rareté de poste max', '0.1', $transfer->positionScarcityMax),
             new self('buyerWealthMin', 'Marché des transferts', "Facteur de richesse de l'acheteur min", '0.1', $transfer->buyerWealthMin),
             new self('buyerWealthMax', 'Marché des transferts', "Facteur de richesse de l'acheteur max", '0.1', $transfer->buyerWealthMax),
+            new self('needWeightSpan', 'Marché des transferts', "Poids de l'urgence d'un poste (0 = bonne affaire seule)", '0.25', $transfer->needWeightSpan),
             new self('patienceReference', 'Marché des transferts', 'Patience de référence du conseil', '1', $transfer->patienceReference),
             new self('patienceFactorMin', 'Marché des transferts', 'Facteur de patience min', '0.1', $transfer->patienceFactorMin),
             new self('patienceFactorMax', 'Marché des transferts', 'Facteur de patience max', '0.1', $transfer->patienceFactorMax),

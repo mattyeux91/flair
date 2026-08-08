@@ -50,13 +50,23 @@ Détail : `17-marche-transferts.md` point 5.
 
 Aucun des deux n'est arrivé, et le construire avant serait de l'anticipation — le critère du projet est « deux consommateurs réels ». `Host\Rules\RulesetForWorld` est le **site unique** à rebrancher le jour venu : tant qu'une seule version est acceptée, genèse et avancement lisent forcément les mêmes règles, et la classe de désaccord est inatteignable.
 
-### D5 — Les club-années sans gardien n'ont pas été re-mesurées depuis que le marché existe
+### D6 — Un club vise 22 joueurs, en a 16,5, et n'en veut que 20
 
-**Déclencheur : maintenant — c'est une mesure, pas un développement.**
+**Déclencheur : le prochain travail sur la démographie ou sur `ContractBalance::$targetSquadSize`** — et obligatoirement avant de conclure quoi que ce soit d'une mesure de « déficit d'effectif ».
 
-Le lot des postes a fait tomber les club-années sans gardien de 7,87 % à 1,39 %, et a laissé le reste au marché des transferts, qui n'existait pas encore. Il existe depuis. **Personne n'a vérifié qu'il a refermé l'écart**, et il y a une raison sérieuse d'en douter : le PNJ maximise `qualité perçue / prix`, ce qui le pousse vers les fins de contrat bradées — pas nécessairement vers le poste qui manque.
+Trois nombres qui ne s'accordent pas :
 
-Une campagne à graines appariées répond en une exécution du harness. Tant qu'elle n'est pas faite, « le marché fermera l'écart » est une hypothèse, pas un résultat.
+| Grandeur | Valeur |
+|---|---|
+| `ContractBalance::$targetSquadSize` | 20 |
+| Somme de `SquadComposition::targets()` (4-4-2 mis à l'échelle) | **22** |
+| Effectif réel moyen d'un club | **~16,5** |
+
+`targets()` arrondit chaque poste vers le haut, ce qui est assumé et documenté (« une cible **par poste**, pas une répartition d'un total »). La conséquence ne l'est pas : **un club est en déficit à chaque poste, en permanence**, donc « ce poste est en déficit » ne distingue rien du tout. C'est ce qui a rendu le classement lexicographique de l'acheteur PNJ silencieusement catastrophique jusqu'au 2026-08-08 (0,5 % de transferts d'attaquants) — corrigé en classant par **ampleur relative** du déficit, ce qui reste informatif même quand tout est déficitaire.
+
+Le déficit permanent, lui, n'est pas corrigé. Il n'est pas forcément à corriger — un monde où les effectifs sont maigres est un monde qui a un marché — mais tant qu'il tient, toute décision fondée sur un booléen « il me manque quelqu'un ici » est une décision fondée sur `true`.
+
+Découvert en creusant la distorsion des postes, pas cherché.
 
 ---
 
@@ -83,6 +93,7 @@ Le club 17 gagne 7 des 9 saisons du monde `dix-ans`, quand le harness sur le **m
 | Piège | Ce qu'un test devrait exiger |
 |---|---|
 | `RulesetOverride::withFields()` reconstruit `Balance` **en entier** : tout groupe omis repart silencieusement à ses défauts — `PositionBalance` l'a été jusqu'au 2026-08-05 | qu'une reconstruction sans override rende un `Balance` **égal** au `Balance` de départ, groupe par groupe |
+| Une métrique qui n'existe que comme **plafond muet** dans une assertion (`FieldableSquadTest` : « ≤ 5 % de club-années sans gardien ») laisse circuler pendant des jours un chiffre que plus personne ne recalcule | rien à tester — la réponse n'est pas une assertion de plus mais **l'impression de la valeur** : `Metrics\Sampler` la compte et `Report\TextReport` l'affiche depuis le 2026-08-08, donc chaque campagne la remet à jour |
 | Un lot qui ajoute une entité au genesis **ne peut pas** être une réduction bit-à-bit d'un monde antérieur : les `EntityId` consommés décalent l'allocateur, donc les flux RNG | rien à tester — c'est une règle de **méthode** de comparaison, documentée dans `packages/worldgen/README.md` |
 
 ---
@@ -93,6 +104,7 @@ Gardé court, et uniquement pour ce qui a appris quelque chose.
 
 | Date | Dette | Ce qu'elle a appris |
 |---|---|---|
+| 2026-08-08 | D5 — les club-années sans gardien jamais re-mesurées depuis que le marché existe | **Trois choses, et la dette avait tort sur les trois.** (1) Le marché n'a pas fermé l'écart : 2,41 % sur 6 graines, mais l'écart est **transitoire** — aucun club ne reste sans gardien deux années consécutives, ce que ni la dette ni le docblock ne disaient. (2) Le 1,39 % de référence était une lecture **mono-graine**, et c'était le bas d'une fourchette 1,39-3,61 % ; le même piège que les deux Gini avant lui, sur une métrique de plus. (3) Le doute inscrit dans la dette (« le PNJ chasse les fins de contrat, pas le poste qui manque ») était **faux** : les gardiens étaient 2,5× sur-représentés dans les transferts. Ce que la mesure a réellement trouvé était ailleurs et plus gros — **zéro attaquant transféré sur 261**, sur six graines et 120 saisons |
 | 2026-08-08 | D1 — la CI ne couvrait ni `worldgen`, ni `host`, ni `api` | **Une suite qui se skippe proprement devient, en CI, un job vert qui n'a rien exécuté.** Le mécanisme de confort local (base injoignable ⇒ skip) et le mécanisme de garantie sont opposés, et il faut nommer le second : `--fail-on-skipped`, mesuré par sabotage (base arrêtée, `exit=0` sans le drapeau, `exit=1` avec). Deux silences trouvés au passage, de la même famille : le déclencheur `push` pointait sur `main` quand la branche est `master`, donc **il n'avait jamais tourné**, et quatre `phpunit.xml` validaient contre un schéma déprécié |
 | 2026-08-08 | `PlayerRetired` et `TransferCounterDemanded` inattribuables à un club ; `SeasonConcluded` sans ses points | **Un Fait porte de quoi l'attribuer à ses sujets** — `16-` §2. L'état courant ne rattrape jamais ce qu'un Fait a omis, et le format des payloads n'a pas de version : la correction est gratuite tant qu'aucun monde ne compte, migration ensuite |
 | 2026-08-08 | `harness/public/index.php` cassé depuis le lot worldgen, 43 champs décrits sur 82 | Un fichier **ni analysé ni exécuté** pourrit sans bruit. Réparer sans mécaniser remet le compteur à zéro : la liste est sortie du script pour qu'un test la confronte à sa source |

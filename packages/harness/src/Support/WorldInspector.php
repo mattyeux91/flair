@@ -16,8 +16,10 @@ use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
 use Flair\Kernel\Football\Components\PlayerPotentials;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
+use Flair\Kernel\Football\Components\Position;
 use Flair\Kernel\Football\Components\Standings;
 use Flair\Kernel\Football\Components\SquadMembership;
+use Flair\Kernel\Football\Support\PositionModel;
 
 /**
  * Lecture a la demande d'un WorldState - vue vraie, pas percue (12- §4 ne
@@ -39,6 +41,68 @@ final class WorldInspector
         }
 
         return $names;
+    }
+
+    /**
+     * L'effectif de chaque club, total et ventile par poste **derive**
+     * (`PositionModel::bestPosition()`, jamais un poste stocke - docs/12- §4).
+     * Un club sans le moindre joueur figure avec des compteurs a zero, sinon un
+     * club vide echapperait silencieusement a qui compte sur ce tableau.
+     *
+     * Deux consommateurs reels : `Metrics\Sampler`, qui en tire les club-annees
+     * sans gardien annee par annee, et `Tests\Regression\FieldableSquadTest`,
+     * qui portait ce calcul en propre avant que la mesure ait besoin d'exister
+     * ailleurs que dans une assertion.
+     *
+     * @return array<int, array<string, int>> clubId -> ['total' => n, 'GK' => n, 'DEF' => n, ...]
+     */
+    public static function squadsByPosition(WorldState $world): array
+    {
+        $empty = ['total' => 0];
+
+        foreach (Position::cases() as $position) {
+            $empty[$position->value] = 0;
+        }
+
+        $squads = [];
+
+        foreach ($world->components(Club::class)->entities() as $clubId) {
+            $squads[$clubId] = $empty;
+        }
+
+        foreach ($world->components(SquadMembership::class)->entities() as $playerId) {
+            $membership = $world->components(SquadMembership::class)->get($playerId);
+
+            if ($membership === null || !isset($squads[$membership->clubId])) {
+                continue;
+            }
+
+            $squads[$membership->clubId]['total']++;
+            $position = self::positionOf($world, $playerId);
+
+            if ($position !== null) {
+                $squads[$membership->clubId][$position->value]++;
+            }
+        }
+
+        return $squads;
+    }
+
+    /**
+     * Le poste ou ce joueur note le mieux, ou `null` s'il n'a pas de
+     * competences (donc n'est pas un joueur, ou est deja retraite).
+     */
+    public static function positionOf(WorldState $world, int $playerId): ?Position
+    {
+        $physical = $world->components(PlayerPhysicalSkills::class)->get($playerId);
+        $technical = $world->components(PlayerTechnicalSkills::class)->get($playerId);
+        $mental = $world->components(PlayerMentalSkills::class)->get($playerId);
+
+        if ($physical === null || $technical === null || $mental === null) {
+            return null;
+        }
+
+        return PositionModel::bestPosition($physical, $technical, $mental);
     }
 
     /**

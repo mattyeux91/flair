@@ -61,6 +61,25 @@ final readonly class TransferBalance
         public float $buyerWealthMin = 0.5,
         public float $buyerWealthMax = 2.0,
         /**
+         * Combien l'urgence d'un poste pese face a la bonne affaire, dans le
+         * classement des cibles d'un acheteur PNJ
+         * (`Football\Intents\NpcBuyerIntentSource`) :
+         *
+         *     score = (qualite percue / prix estime) x (1 + span x deficit/cible)
+         *
+         * `deficit/cible` vit dans `(0, 1]` - 1.0 pour un club qui n'a
+         * personne au poste - donc le modificateur vit dans `[1, 1 + span]` et
+         * n'a besoin d'aucune borne supplementaire, contrairement a ses
+         * voisins ci-dessus.
+         *
+         * `0.0` : le club ignore l'urgence et ne chasse que la bonne affaire.
+         * `1.0` : un poste ou il n'a personne compte double. Au-dela, le
+         * besoin prime sur le prix. Les deux regimes sont atteignables au
+         * `--set` du harness, ce qui est tout l'interet d'un span plutot que
+         * d'un couple min/max.
+         */
+        public float $needWeightSpan = 1.0,
+        /**
          * Le niveau de patience (`Football\Components\BoardPatience`) pour
          * lequel le facteur de patience vaut exactement 1.0 - meme ancrage
          * que `ContractBalance::$referenceQuality`. Aussi la valeur lue pour

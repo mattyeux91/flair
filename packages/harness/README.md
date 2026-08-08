@@ -95,6 +95,12 @@ Un champ inconnu ou une valeur hors bornes (`talentSkew`, `baseIntakePerClub` �
 5. Classement et matchs de la dernière saison jouée.
 6. Équilibre compétitif — Gini des titres (0 = égalité parfaite, 1 = monopole) et rotation du top 5 sur tout le run.
 6 bis. Recrutement — le jugement du recruteur de chaque club, trié par jugement décroissant, en regard de son classement final. C'est la seule grandeur du rapport qui soit une **cause** semée au genesis plutôt qu'un résultat. Aucune corrélation n'est calculée : sur une seule saison finale la relation est trop bruitée pour conclure, et la mesurer proprement (corrélation de rang sur tout le run) attend le lot du marché des transferts, où « payer cher achète-t-il de la performance » sera la question centrale.
+6 ter. Marché — mobilité, chômage et masse salariale des cinq dernières années, puis deux lignes qui portent sur **tout** le run parce qu'elles comptent des événements rares (~1,6 transfert payant par saison) : les **transferts payants ventilés par poste**, et les **club-années sans gardien**.
+
+  > ⚠️ Deux colonnes de transferts qu'il ne faut pas confondre. Celle du tableau compte les `ContractSigned` changeant de club, donc **aussi** les signatures de joueurs sans club ; la ventilation par poste compte les `TransferAgreed`, donc les transferts **payants** seuls.
+  >
+  > Ces deux lignes existent parce qu'elles ont déjà attrapé quelque chose. Mesure du 2026-08-08 : l'acheteur PNJ ne visait que le premier poste sous-effectif dans l'ordre de l'enum, ce qui donnait 64 % de défenseurs et **un seul attaquant transféré sur 197**, invisible faute d'être affiché. Les club-années sans gardien, elles, n'existaient que comme **plafond muet** dans `FieldableSquadTest` (« ≤ 5 % ») — assez pour attraper une aggravation, pas pour empêcher un chiffre lu sur une seule graine de circuler quatre jours dans trois documents. Une métrique qui compte doit s'imprimer, pas seulement s'asserter.
+
 7. Graphe d'événements (seulement avec `--event-graph`) — volume par type d'événement sur tout le run, puis backlog annuel du `Scheduler` (une croissance qui ne redescend jamais est le signe d'une cascade non amortie).
 
 **Workflow type de calibration** :

@@ -71,7 +71,7 @@ final readonly class AggregateResult
      * @param list<array{season: int, standings: list<array{clubId: int, clubName: string, played: int, won: int, drawn: int, lost: int, goalsFor: int, goalsAgainst: int, points: int}>, matches: list<array{matchday: int, homeClub: string, awayClub: string, homeGoals: int, awayGoals: int}>}> $seasonHistory une entree par saison achevee, dans l'ordre chronologique (jamais la toute derniere saison d'un run, qui ne joue structurellement aucun match - cf. docblock de Sampler)
      * @param array<string, int> $cumulativeIncomeByClub nom de club -> total des revenus de saison percus sur le run
      * @param array<string, float> $finalFacilitiesByClub nom de club -> qualite d'installations en fin de run
-     * @param array<int, array{transfers: int, unattached: int, wageBillCents: int}> $marketByYear annee simulee -> activite du mercato de cette annee et etat de l'emploi en fin d'annee
+     * @param array<int, array{transfers: int, paidByPosition: array<string, int>, keeperlessClubs: int, clubs: int, unattached: int, wageBillCents: int}> $marketByYear annee simulee -> activite du mercato de cette annee et etat de l'emploi en fin d'annee. `transfers` compte tout changement de club, `paidByPosition` les seuls transferts payants, ventiles par poste derive
      * @param array<string, int> $finalWageBillByClub nom de club -> masse salariale annuelle engagee en fin de run
      * @param array<string, int> $scoutJudgementByClub nom de club -> jugement de son recruteur (constant sur le run, seme au genesis)
      */
@@ -103,7 +103,7 @@ final readonly class AggregateResult
      * @param list<array{season: int, standings: list<array{clubId: int, clubName: string, played: int, won: int, drawn: int, lost: int, goalsFor: int, goalsAgainst: int, points: int}>, matches: list<array{matchday: int, homeClub: string, awayClub: string, homeGoals: int, awayGoals: int}>}> $seasonHistory
      * @param array<string, int> $cumulativeIncomeByClub
      * @param array<string, float> $finalFacilitiesByClub
-     * @param array<int, array{transfers: int, unattached: int, wageBillCents: int}> $marketByYear
+     * @param array<int, array{transfers: int, paidByPosition: array<string, int>, keeperlessClubs: int, clubs: int, unattached: int, wageBillCents: int}> $marketByYear
      * @param array<string, int> $finalWageBillByClub
      * @param array<string, int> $scoutJudgementByClub
      */

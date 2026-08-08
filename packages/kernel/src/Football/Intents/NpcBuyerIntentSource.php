@@ -24,34 +24,61 @@ use Flair\Kernel\Football\Support\PositionModel;
  *
  * ## Ce qui est desormais de la politique, pas de la regle
  *
- * Trois comportements ne sont plus imposes par le noyau mais choisis ici, et
+ * Quatre comportements ne sont plus imposes par le noyau mais choisis ici, et
  * une autre source a le droit d'en decider autrement :
  *
- * - n'acheter qu'au **premier poste sous-effectif** (un humain peut acheter un
- *   attaquant alors qu'il lui manque un gardien) ;
+ * - considerer **tous** les postes en deficit a la fois, en ponderant l'urgence
+ *   de chacun (un humain peut acheter un attaquant alors qu'il lui manque un
+ *   gardien - ici le club le peut aussi, si l'attaquant est une assez bonne
+ *   affaire) ;
  * - viser le meilleur rapport `qualite percue / prix estime` ;
  * - renoncer des que la contre-demande depasse le plafond fixe a l'ouverture ;
  * - ne jamais s'engager au-dela de ce qu'il a en caisse.
+ *
+ * ## Pourquoi le premier point a change (2026-08-08)
+ *
+ * Cette source ne visait auparavant que le **premier** poste sous-effectif
+ * dans l'ordre de declaration de `Position`, gardien d'abord. Mesure a 6
+ * graines x 20 ans : **0,5 % des transferts concernaient un attaquant** (1 sur
+ * 197), contre 64 % de defenseurs, alors que les attaquants sont 20 % de la
+ * population sous contrat.
+ *
+ * La cause n'etait pas l'ordre en lui-meme mais ce qu'il devient quand tout le
+ * monde est en deficit partout : `SquadComposition::targets()` somme a 22 pour
+ * un `targetSquadSize` de 20, et l'effectif reel tourne autour de 16,5. Un
+ * club est donc court a **chaque** poste en permanence, « le premier poste en
+ * deficit » n'est plus une priorite mais une constante - et comme un club
+ * n'ouvre qu'une negociation par an (`TransferSystem::openNegotiations()`),
+ * cette constante etait tout son marche.
+ *
+ * D'ou un classement par **ampleur relative** du deficit plutot que par ordre
+ * de declaration. C'est aussi le motif deja tenu par la decision sœur,
+ * `Football\ContractSystem::pick()`, qui filtre ses candidats sur « ce poste
+ * est en deficit » sans jamais imposer d'ordre entre postes.
  */
 final class NpcBuyerIntentSource implements BuyerIntentSource
 {
     /** @param array<int, true> $targetedPlayers */
     public function openingBid(TransferMarketView $view, int $buyerClubId, array $targetedPlayers): ?BidForPlayer
     {
-        $needed = $this->neededPosition($view->squadByPosition[$buyerClubId] ?? [], $view->targets);
+        $transfer = $view->ctx->ruleset()->balance->transfer;
+        $needs = $this->needWeights(
+            $view->squadByPosition[$buyerClubId] ?? [],
+            $view->targets,
+            $transfer->needWeightSpan,
+        );
 
-        if ($needed === null) {
+        if ($needs === []) {
             return null;
         }
 
-        $target = $this->selectTarget($view, $buyerClubId, $needed, $targetedPlayers);
+        $target = $this->selectTarget($view, $buyerClubId, $needs, $targetedPlayers);
 
         if ($target === null) {
             return null;
         }
 
         [$playerId, $valuationCents] = $target;
-        $transfer = $view->ctx->ruleset()->balance->transfer;
 
         $opening = (int) round($valuationCents * $transfer->openingOfferShare);
         $ceiling = $this->affordableCeiling($view, $buyerClubId, (int) round($valuationCents * $transfer->buyerFlexMargin));
@@ -107,42 +134,66 @@ final class NpcBuyerIntentSource implements BuyerIntentSource
     }
 
     /**
-     * Le premier poste sous-effectif de ce club, ordre de declaration de
-     * `Position` (gardien d'abord) - meme regle que
-     * `YouthIntakeSystem::neededArchetype()`. `null` si l'effectif comble deja
-     * chaque cible : le club ne participe pas cette annee.
+     * Le poids d'urgence de chaque poste sous-effectif de ce club :
+     * `1 + span x deficit/cible`, donc `1.0` a la marge et `1 + span` pour un
+     * poste ou le club n'a personne. Les postes combles n'y figurent pas - un
+     * tableau vide signifie que le club ne participe pas cette annee.
+     *
+     * Le deficit est rapporte a **la cible du poste** et non a un total : il
+     * est plus grave de perdre un gardien sur deux qu'un defenseur sur huit,
+     * et c'est precisement ce que l'ordre de declaration ne savait pas dire.
      *
      * @param array<string, int> $held
      * @param array<string, int> $targets
+     * @return array<string, float> valeur de poste -> poids, postes combles exclus
      */
-    private function neededPosition(array $held, array $targets): ?Position
+    private function needWeights(array $held, array $targets, float $span): array
     {
+        $weights = [];
+
         foreach (Position::cases() as $position) {
-            if (($held[$position->value] ?? 0) < ($targets[$position->value] ?? 0)) {
-                return $position;
+            $target = $targets[$position->value] ?? 0;
+            $deficit = $target - ($held[$position->value] ?? 0);
+
+            if ($target <= 0 || $deficit <= 0) {
+                continue;
             }
+
+            $weights[$position->value] = 1.0 + $span * ($deficit / $target);
         }
 
-        return null;
+        return $weights;
     }
 
     /**
-     * Le meilleur joueur, au sens `qualite percue / prix estime`, parmi ceux
-     * sous contrat ailleurs a ce poste et non deja cibles - ou `null`.
+     * La meilleure cible, tous postes en deficit confondus, au sens
+     *
+     *     score = (qualite percue / prix estime) x poids d'urgence du poste
+     *
+     * parmi les joueurs sous contrat ailleurs et non deja cibles - ou `null`.
+     * Forme de docs/14- §3 : une base qui porte le phenomene, **un seul**
+     * modificateur, borne par construction dans `[1, 1 + span]`.
+     *
+     * Les deux facteurs tirent volontairement en sens opposes : un poste rare
+     * est **plus cher** (`rarete_poste` dans `MarketValueModel`, via
+     * `TransferSystem::scarcityByPosition()`), donc son ratio est moins bon, et
+     * le poids d'urgence est ce qui contrebalance.
+     *
      * L'iteration suit `Contract::entities()` (EntityId croissant), donc a
      * egalite stricte le premier rencontre l'emporte sans depart supplementaire.
      *
+     * @param array<string, float> $needs
      * @param array<int, true> $targetedPlayers
      * @return array{0: int, 1: int}|null [playerId, valorisation de l'acheteur]
      */
     private function selectTarget(
         TransferMarketView $view,
         int $buyerClubId,
-        Position $needed,
+        array $needs,
         array $targetedPlayers,
     ): ?array {
         $best = null;
-        $bestRatio = -1.0;
+        $bestScore = -1.0;
 
         foreach ($view->ctx->read(Contract::class)->entities() as $playerId) {
             $contract = $view->ctx->read(Contract::class)->get($playerId);
@@ -151,21 +202,23 @@ final class NpcBuyerIntentSource implements BuyerIntentSource
                 continue;
             }
 
-            if ($this->positionOf($view, $playerId) !== $needed) {
+            $position = $this->positionOf($view, $playerId);
+
+            if ($position === null || !isset($needs[$position->value])) {
                 continue;
             }
 
             $quality = $view->perceivedQuality($buyerClubId, $playerId);
-            $value = $view->valuation($buyerClubId, $playerId, $needed, $buyerClubId);
+            $value = $view->valuation($buyerClubId, $playerId, $position, $buyerClubId);
 
             if ($quality === null || $value === null) {
                 continue;
             }
 
-            $ratio = $quality / max(1, $value);
+            $score = ($quality / max(1, $value)) * $needs[$position->value];
 
-            if ($ratio > $bestRatio) {
-                $bestRatio = $ratio;
+            if ($score > $bestScore) {
+                $bestScore = $score;
                 $best = [$playerId, $value];
             }
         }

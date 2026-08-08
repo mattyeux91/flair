@@ -19,12 +19,14 @@ use Flair\Kernel\Football\Components\Person;
 use Flair\Kernel\Football\Components\PlayerMentalSkills;
 use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
+use Flair\Kernel\Football\Components\Position;
 use Flair\Kernel\Football\Components\Scout;
 use Flair\Kernel\Football\Components\SeasonIncome;
 use Flair\Kernel\Football\Events\ContractSigned;
 use Flair\Kernel\Football\Events\MatchPlayed;
 use Flair\Kernel\Football\Events\PlayerRetired;
 use Flair\Kernel\Football\Events\SeasonStarted;
+use Flair\Kernel\Football\Events\TransferAgreed;
 use Flair\Kernel\Football\Events\YouthPlayerPromoted;
 
 /**
@@ -138,7 +140,9 @@ final class Sampler
         $cumulativeIncomeByClub = [];
         /** @var array<int, int> $transfersByYear annee -> nombre de joueurs ayant change de club */
         $transfersByYear = [];
-        /** @var array<int, array{transfers: int, unattached: int, wageBillCents: int}> $marketByYear */
+        /** @var array<int, array<string, int>> $paidByYear annee -> [valeur de poste -> transferts payants] */
+        $paidByYear = [];
+        /** @var array<int, array{transfers: int, paidByPosition: array<string, int>, keeperlessClubs: int, clubs: int, unattached: int, wageBillCents: int}> $marketByYear */
         $marketByYear = [];
 
         for ($year = 1; $year <= $years; $year++) {
@@ -165,6 +169,19 @@ final class Sampler
 
                     if ($event instanceof ContractSigned && $event->previousClubId !== $event->clubId) {
                         $transfersByYear[$year] = ($transfersByYear[$year] ?? 0) + 1;
+                    }
+
+                    // A distinguer soigneusement de la ligne ci-dessus :
+                    // `ContractSigned` compte tout changement de club, donc
+                    // **aussi** les signatures de joueurs sans club, la ou
+                    // `TransferAgreed` ne compte que les transferts **payants**
+                    // (docs/17- point 4). Les deux ont leur colonne.
+                    if ($event instanceof TransferAgreed) {
+                        $position = WorldInspector::positionOf($world, $event->playerId);
+
+                        if ($position !== null) {
+                            $paidByYear[$year][$position->value] = ($paidByYear[$year][$position->value] ?? 0) + 1;
+                        }
                     }
 
                     if ($event instanceof SeasonStarted) {
@@ -204,7 +221,7 @@ final class Sampler
             $populationByYear[$year] = \count($activePlayerIds);
             $eventGraph?->recordQueueDepth($year, $world);
             $cumulativeIncomeByClub = $this->accumulateSeasonIncome($world, $clubNames, $cumulativeIncomeByClub);
-            $marketByYear[$year] = $this->marketSnapshot($world, $transfersByYear[$year] ?? 0);
+            $marketByYear[$year] = $this->marketSnapshot($world, $transfersByYear[$year] ?? 0, $paidByYear[$year] ?? []);
 
             $ages = $this->sampleYearEnd($world, $activePlayerIds, $year, $samples);
             if ($year === $years) {
@@ -284,9 +301,16 @@ final class Sampler
      * grandeur qui se compare a `SeasonIncome` et donc au budget de
      * `ContractBalance::$wageBudgetShare`.
      *
-     * @return array{transfers: int, unattached: int, wageBillCents: int}
+     * Les club-annees sans gardien sont comptees ici et pas seulement dans
+     * `Tests\Regression\FieldableSquadTest` : la mesure n'y existait que comme
+     * **plafond muet** (« <= 5 % »), ce qui a laisse un chiffre lu sur une
+     * seule graine circuler dans trois documents. Une metrique qui compte doit
+     * s'imprimer, pas seulement s'asserter.
+     *
+     * @param array<string, int> $paidByPosition
+     * @return array{transfers: int, paidByPosition: array<string, int>, keeperlessClubs: int, clubs: int, unattached: int, wageBillCents: int}
      */
-    private function marketSnapshot(WorldState $world, int $transfers): array
+    private function marketSnapshot(WorldState $world, int $transfers, array $paidByPosition): array
     {
         $contracts = $world->components(Contract::class);
         $contracted = 0;
@@ -308,8 +332,20 @@ final class Sampler
         // n'est jamais compte comme chomeur.
         $active = \count($world->components(PlayerPhysicalSkills::class)->entities());
 
+        $squads = WorldInspector::squadsByPosition($world);
+        $keeperless = 0;
+
+        foreach ($squads as $squad) {
+            if (($squad[Position::Goalkeeper->value] ?? 0) === 0) {
+                $keeperless++;
+            }
+        }
+
         return [
             'transfers' => $transfers,
+            'paidByPosition' => $paidByPosition,
+            'keeperlessClubs' => $keeperless,
+            'clubs' => \count($squads),
             'unattached' => max(0, $active - $contracted),
             'wageBillCents' => $wageBillCents,
         ];

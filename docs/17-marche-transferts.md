@@ -10,7 +10,7 @@ Ce document est le suivi du dernier lot de la Phase 2 (`15-roadmap.md` §4 Phase
 - Ce document et `15-roadmap.md` §Phase 2 sont mis à jour au fil de l'eau, avec la même honnêteté que les lots précédents : ce qui a marché, ce qui a été mesuré nuisible et retiré, les écarts au plan.
 - Rien de ce chantier ne sort du périmètre Phase 2 (pas de gouvernance de club, pas de mécanique d'observation humaine — Phase 5).
 
-Statut global : **5/5**
+Statut global : **5/5** — plus une correction après coup, en fin de document.
 
 ---
 
@@ -217,3 +217,104 @@ valeur = base × modif × indice_inflation_global
 > 2. **Stationnarité en termes réels à 3 %** — la solvabilité, grandeur sans dimension donc insensible au changement d'unité, ne s'emballe pas ; les salaires suivent l'unité au lieu de rester nominaux.
 >
 > Voir `15-roadmap.md` §4 pour l'énoncé réécrit.
+
+---
+
+## Après le chantier — le marché n'échangeait que deux postes sur quatre (2026-08-08)
+
+Le chantier était clos à 5/5 quand la mesure de la dette D5 (`18-dettes.md`) a sorti un chiffre que personne ne cherchait.
+
+### Ce qui a été mesuré
+
+Six graines × 20 ans, transferts payants (`TransferAgreed`) ventilés par poste dérivé :
+
+| Poste | Part des transferts | Part de la population sous contrat |
+|---|---|---|
+| GK | 26,9 % (53) | 10,6 % |
+| DEF | 64,5 % (127) | 33,5 % |
+| MID | 8,1 % (16) | 35,7 % |
+| ATT | **0,5 % (1)** | 20,3 % |
+
+**Un attaquant transféré sur 197, sur 120 saisons cumulées** — et en réalité **zéro**, la re-mesure sous instrumentation correcte le montrera plus bas.
+
+### La cause : un ordre de déclaration devenu une constante
+
+Trois faits qui, pris séparément, ne disent rien :
+
+1. `NpcBuyerIntentSource::neededPosition()` renvoyait le **premier** poste sous-effectif dans l'ordre de déclaration de `Position` — gardien d'abord. C'était documenté et assumé (« le poste le plus rare est aussi celui dont l'absence coûte le plus cher »).
+2. `SquadComposition::targets()` somme à **22** pour un `targetSquadSize` de **20**, l'arrondi par poste étant délibéré.
+3. L'effectif réel d'un club tourne autour de **16,5**.
+
+Composés, ils font qu'un club est en déficit **à chaque poste, en permanence**. « Le premier poste en déficit » cesse alors d'être une priorité pour devenir *une constante* : GK si le club en a moins de deux, DEF sinon — et jamais rien d'autre. Comme `TransferSystem::openNegotiations()` n'ouvre **qu'une négociation par club et par an**, cette constante était tout le marché du club.
+
+Le raisonnement prédit GK ~27 % et DEF ~64 % : ce sont exactement les chiffres mesurés. C'est ce qui a permis de conclure sans chercher plus loin.
+
+> **La leçon dépasse ce cas.** Un ordre total sur une énumération est obligatoire (`12-` §2) et parfaitement légitime comme **départage**. Il devient un défaut silencieux dès qu'il sert de **critère** sur une population où le prédicat est vrai partout. Le symptôme n'est visible que si quelqu'un affiche la distribution — et rien ne l'affichait.
+
+### La correction
+
+Le classement passe de « premier poste en déficit » à « tous les postes en déficit, pondérés par l'ampleur relative du manque » :
+
+```
+score = (qualité perçue / prix estimé) × (1 + needWeightSpan × déficit/cible)
+```
+
+Forme de `14-` §3 : une base qui porte le phénomène, **un seul** modificateur, borné par construction dans `[1, 1 + span]` puisque `déficit/cible ∈ (0, 1]`. Rapporter le déficit à la cible **du poste** est ce qui reste informatif quand tout est déficitaire : il est plus grave de perdre un gardien sur deux qu'un défenseur sur huit.
+
+Les deux facteurs tirent volontairement en sens opposés — `rareté_poste` rend un poste rare **plus cher** (donc son ratio moins bon), le poids d'urgence contrebalance.
+
+C'est aussi le motif déjà tenu par la décision sœur, `ContractSystem::pick()`, qui filtre ses candidats sur « ce poste est en déficit » sans jamais imposer d'ordre entre postes. Le marché adopte le comportement du mercato des sans-club, il n'en invente pas un.
+
+**Un seul champ ajouté au `Ruleset`** : `TransferBalance::$needWeightSpan = 1.0`. Un *span* plutôt qu'un couple `min`/`max` comme ses voisins, parce que les bornes seraient redondantes ici et qu'un span rend les deux régimes atteignables au `--set` — `0.0` étant « le club ignore l'urgence et ne chasse que la bonne affaire ».
+
+### Résultat, à graines appariées dans un même build
+
+Six graines × 20 ans, mesurées par `Metrics\Sampler` de part et d'autre du seul changement de `NpcBuyerIntentSource` (l'ancien fichier remis en place le temps de la passe, empreinte vérifiée dans les deux sens) :
+
+| Poste | Avant | Après | Population |
+|---|---|---|---|
+| GK | 28,4 % (74) | 18,1 % (50) | 10,4 % |
+| DEF | 62,5 % (163) | **37,0 %** (102) | 33,6 % |
+| MID | 9,2 % (24) | **23,6 %** (65) | 36,5 % |
+| ATT | **0,0 % (0)** | **21,4 %** (59) | 19,4 % |
+| total | 261 | 276 | — |
+
+**Zéro attaquant sur 261 transferts**, sur les six graines sans exception — la première mesure, faite avec une instrumentation moins fine, en avait trouvé un seul sur 197. Ce n'était donc pas une sous-représentation, c'était une **absence**.
+
+Volume total quasi inchangé (261 → 276), ce qui est attendu : le plafond structurel d'une négociation par club et par an n'a pas bougé. La distribution suit désormais la population, avec deux écarts qui ont un sens — les gardiens restent sur-représentés (leur manque est le déficit le plus sévère), les milieux sous-représentés (ce sont les plus abondants, donc ceux dont on manque le moins).
+
+**Club-années sans gardien : 2,41 % → 2,50 %** (52 → 54 sur 2 160), et la disette maximale reste **1 an** sur les six graines. C'était le risque principal du lot, et la prédiction écrite avant l'implémentation (« ça monte, mais reste sous 4 % ») tient largement.
+
+**Équilibre compétitif : aucun effet détectable**, comme aux lots des postes et de la perception.
+
+| | Gini des titres | Rotation du top 5 | Champions distincts |
+|---|---|---|---|
+| test du signe (après vs avant) | 4 hausses / 2 baisses | 4 hausses / 2 baisses | 2 hausses / 4 baisses |
+
+> ⚠️ **Ne pas sur-lire ce 4/2.** La prédiction écrite avant l'implémentation annonçait 3/3 ; le résultat n'est pas ce partage exact, mais il n'est pas non plus un signal : sous une pièce équilibrée, obtenir au moins 4 résultats sur 6 dans un sens arrive une fois sur trois. Et le fait que Gini **et** rotation montent ensemble, alors qu'ils vont d'ordinaire en sens inverse, est un indice de plus qu'on lit du bruit. Ce qu'on peut affirmer : rien dans cette campagne ne permet de conclure à un effet sur l'équilibre.
+
+### Ce que le paramètre change, et ce qu'il ne change pas
+
+Campagne appariée par le `Ruleset` seul, `needWeightSpan=0` contre le défaut `1.0`, six graines :
+
+| | défaut (1.0) | `span=0` |
+|---|---|---|
+| GK | 18,1 % (50) | **12,5 %** (35) |
+| DEF | 37,0 % (102) | 41,8 % (117) |
+| MID | 23,6 % (65) | 26,1 % (73) |
+| ATT | 21,4 % (59) | 19,6 % (55) |
+| club-années sans gardien | 2,50 % | 2,18 % |
+
+Le paramètre a donc une **autorité réelle et lisible sur qui est acheté** — 43 % de gardiens achetés en plus quand l'urgence compte — mais c'est bien la **mise en commun des postes** qui a corrigé la distorsion, pas la pondération. Le span est un réglage fin ; à `0` la distribution reste saine.
+
+> À noter, et non expliqué : `span=0` achète moins de gardiens **et** laisse légèrement moins de club-années sans gardien (47 contre 54 sur 2 160). L'écart est au niveau du bruit, mais il rappelle que « acheter des gardiens » et « avoir un gardien » ne sont pas la même grandeur — le vivier des sans-club et le centre de formation en fournissent aussi.
+
+### Ce que le lot ne corrige pas
+
+Le déficit permanent lui-même — cibles à 22, effectif souhaité à 20, effectif réel à 16,5. Inscrit en **D6** dans `18-dettes.md` avec son déclencheur. Il n'est pas forcément à corriger (un monde aux effectifs maigres est un monde qui a un marché), mais tant qu'il tient, **toute décision fondée sur un booléen « il me manque quelqu'un ici » est une décision fondée sur `true`**.
+
+### La mesure est devenue permanente
+
+C'est la moitié du lot qui n'est pas dans le noyau. `Metrics\Sampler` compte les `TransferAgreed` par poste et les club-années sans gardien, `Report\TextReport` les affiche, donc toute campagne les remet à jour. Avant ça, la ventilation n'existait nulle part et les gardiens n'existaient que comme plafond muet dans un test.
+
+> **Piège de méthode rencontré en instrumentant.** Le script jetable qui a servi à la première mesure dérivait le poste du joueur **en fin d'année** et perdait ceux partis à la retraite entre-temps : 38 transferts comptés contre 51 réels sur une graine. Les comparaisons avant/après restent valides (même méthode des deux côtés), mais c'est précisément l'argument pour sortir une mesure d'un script : `Sampler` dérive le poste **au tick du Fait**.
