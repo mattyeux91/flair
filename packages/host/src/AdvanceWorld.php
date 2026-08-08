@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace Flair\Host;
 
 use Flair\Host\Database\Database;
+use Flair\Host\Rules\RulesetForWorld;
 use Flair\Host\Store\EventStore;
 use Flair\Host\Store\SnapshotStore;
 use Flair\Host\Store\WorldRepository;
-use Flair\Kernel\Core\Ruleset\Ruleset;
 use Flair\Kernel\Core\Simulation\Simulation;
 use Flair\Kernel\Core\Simulation\TickContext;
 use Flair\Kernel\Core\Snapshot\SnapshotCodec;
@@ -53,11 +53,15 @@ use Flair\Kernel\Football\FootballTypes;
  * - **Aucune diffusion SSE** : Phase 4 egalement, et elle se fera **hors**
  *   transaction - publier avant le commit annoncerait un tick qui pourrait
  *   encore etre annule.
- * - **Le `Ruleset` est reconstruit par defaut** a partir de sa seule version :
- *   `packages/ruleset` n'existe pas encore, donc un monde epingle a une
- *   version autre que celle des defauts du kernel serait relu avec les
- *   mauvaises regles. Sans consequence tant qu'un seul `Ruleset` existe, mais
- *   c'est la premiere chose que le package `ruleset` devra corriger.
+ *
+ * ## Le `Ruleset` d'un monde ne se devine plus
+ *
+ * Ce systeme faisait `new Ruleset($world->rulesetVersion)`, ce qui rendait les
+ * defauts du noyau **quelle que soit** la version epinglee : un monde epingle
+ * a d'autres regles aurait tourne selon celles-la sans que rien ne le dise.
+ * `Rules\RulesetForWorld` leve maintenant pour toute version qu'il ne sait pas
+ * reconstruire - le monde refuse d'avancer au lieu d'avancer faux. Le package
+ * `ruleset` (docs/12- §6) n'aura qu'un seul site a rebrancher.
  */
 final class AdvanceWorld
 {
@@ -102,7 +106,7 @@ final class AdvanceWorld
                 tick: $tick,
                 seed: $world->seed,
                 intents: [],
-                ruleset: new Ruleset($world->rulesetVersion),
+                ruleset: RulesetForWorld::for($world->rulesetVersion),
             ));
             $simulationSeconds = microtime(true) - $startedSimulation;
 

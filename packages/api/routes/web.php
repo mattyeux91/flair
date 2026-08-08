@@ -1,0 +1,24 @@
+<?php
+
+declare(strict_types=1);
+
+use App\Http\Controllers\ClubController;
+use App\Http\Controllers\WorldController;
+use Illuminate\Support\Facades\Route;
+
+/*
+ * La surface d'administration : explorer un monde depuis un navigateur.
+ *
+ * Trois routes, et une seule est un vrai ecran - la fiche d'un club. Les deux
+ * autres sont le minimum pour y arriver.
+ *
+ * `{world}` est un identifiant de monde (`worlds.id`), pas un entier : un monde
+ * s'appelle `dix-ans`, `alpha`, `bench`. `{club}` est un `EntityId`, donc
+ * borne aux chiffres pour qu'une URL malformee rende 404 au routage plutot
+ * qu'un `(int)` silencieux dans le controleur.
+ */
+Route::get('/', [WorldController::class, 'index'])->name('worlds.index');
+Route::get('/worlds/{world}', [WorldController::class, 'show'])->name('worlds.show');
+Route::get('/worlds/{world}/clubs/{club}', [ClubController::class, 'show'])
+    ->whereNumber('club')
+    ->name('clubs.show');
