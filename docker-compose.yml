@@ -1,0 +1,23 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: flair-db
+    environment:
+      POSTGRES_DB: flair
+      POSTGRES_USER: flair
+      POSTGRES_PASSWORD: flair
+    ports:
+      # 54329 et non 5432 : cette machine a un service postgresql local
+      # installe (inactif aujourd'hui). Un port dedie evite le conflit le jour
+      # ou il demarre, au prix d'un `-p 54329` dans les commandes psql.
+      - "54329:5432"
+    volumes:
+      - flair-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flair -d flair"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  flair-db:

@@ -194,6 +194,8 @@ Event store, snapshots, boucle du Host, cadence temps réel, verrou mono-writer,
 
 > **Critère de sortie :** tuer le processus au hasard, le relancer, et le monde reprend sans incohérence.
 
+> ✅ **Atteint le 2026-08-08** (lot 3 ci-dessous), et vérifié au sens littéral : un vrai sous-processus, un vrai SIGKILL, trois fois de suite — `Host\Tests\CrashRecoveryTest`.
+
 > **Lot 1 — sérialisation du `WorldState` : fait le 2026-08-08.** Premier lot de la phase, et délibérément celui-ci : tant que l'état ne se sérialise pas, il n'y a rien à écrire en base et l'event store, le verrou et la boucle du Host ne sont que de la plomberie autour du vide. Il se conçoit et se vérifie **sans aucune infrastructure** — c'est le bénéfice du noyau pur, et ça met le critère de sortie de la phase sous test avant même que Postgres existe.
 >
 > Livré dans `Core\Snapshot\` (kernel, donc pur et sans I/O — le format appartient au noyau, le Host ne stockera que des octets) : `TypeRegistry` (clé stable ↔ classe, aucun FQCN dans le payload, et le même registre alimentera la colonne `events.type`), `SnapshotCodec`, `ValueCodec` (réflexif sur les propriétés promues), `SnapshotContract`, l'attribut `SnapshotArrayOf`, l'enveloppe `WorldSnapshot`, `JsonSnapshotFormat`, plus `Kernel::VERSION` et `Football\FootballTypes`. Détail classe par classe dans `packages/kernel/README.md`, format dans `13-` §5.
@@ -218,7 +220,19 @@ Event store, snapshots, boucle du Host, cadence temps réel, verrou mono-writer,
 >
 > Deux dettes soldées au passage, puisqu'on touchait aux README : `packages/harness/README.md` décrivait encore un `src/Simulation/PipelineFactory` supprimé depuis que l'ordre du pipeline est dérivé par `SystemGraph`, et une description de `WorldHasher` périmée depuis le lot snapshot.
 >
-> Restent dans la phase : event store Postgres, projections, verrou advisory mono-writer, `AdvanceWorldCommand` et son déclenchement par cron, SSE. Laravel n'a été nécessaire à aucune ligne de ces deux lots.
+> **Lot 3 — `packages/host` : fait le 2026-08-08. Le critère de sortie de la phase est atteint.** Trois tables (`worlds`, `events`, `snapshots`), `AdvanceWorld`, `CreateWorld`, verrou advisory mono-writer, et un CLI (`bin/host.php`). Stack : `illuminate/database` seul — **pas** de skeleton Laravel, parce que `api → host` fait de `host` une *dépendance* et que deux skeletons d'application ne se composent pas. La Phase 4 mettra Laravel complet dans `api`.
+>
+> **Tout tient dans une seule transaction** : verrou, lecture du snapshot, `step()`, écriture des Faits, écriture du snapshot, mise à jour du tick. C'est cette atomicité, et elle seule, qui rend le critère vrai — tuer le processus laisse la base avant ou après le tick, jamais au milieu.
+>
+> `Harness\Tests\Regression\SnapshotContinuityTest` mécanisait la propriété côté noyau ; `Host\Tests\CrashRecoveryTest` la vérifie **pour de vrai** : un sous-processus réel, un **SIGKILL** en plein vol, trois fois de suite, puis deux assertions distinctes — la base est cohérente (tick, snapshot et dernier Fait journalisé d'accord) et le monde repris est **identique** à un monde jamais interrompu. Éprouvé par sabotage : sans transaction du tout, détecté **4 fois sur 4** ; avec deux transactions successives, **2 fois sur 6** (la fenêtre vulnérable ne dure que quelques microsecondes). C'est un filet probabiliste, la garantie reste structurelle — dit tel quel dans le test.
+>
+> **Trois choses mesurées, dont deux imprévues.**
+>
+> 1. **Le coût d'écriture en base : 17,8 ms/tick contre 18,7 ms de simulation** (500 joueurs / 18 clubs). Première confirmation chiffrée de `13-` §7 — la base coûte autant que le noyau. À un tick par heure, les deux sont sans objet.
+> 2. **`jsonb` réordonne les clés d'objet.** Un snapshot relu depuis `jsonb` n'est donc plus identique octet pour octet à ce que le noyau a produit, alors que `SnapshotCodec` garantit cette stabilité. La relecture restait correcte, mais la propriété se perdait en silence à la frontière de la base. `snapshots.state` est passé en `json` (texte conservé tel quel) ; `events.payload` reste en `jsonb`, les projections de la Phase 4 devront l'interroger.
+> 3. **Le verrou advisory survit 0,7 à 3,4 ms au processus tué**, le temps que PostgreSQL constate la connexion perdue. Sans conséquence pour un cron horaire ; fatal pour un test qui enchaîne mise à mort et reprise immédiate — c'est ce qui rendait `CrashRecoveryTest` instable (4 échecs sur 8) avant qu'il n'attende la libération du verrou. 0 échec sur 10 depuis.
+>
+> Restent dans la phase, et ils appartiennent en réalité à la Phase 4 : projections, SSE. Le jour venu, **les projections devront rejoindre cette même transaction** (sinon un client voit un monde incohérent après un crash) et **la diffusion SSE devra rester dehors** (publier avant le commit annoncerait un tick qui peut encore être annulé).
 
 ### Phase 4 — API + admin *(≈ 4 semaines)*
 

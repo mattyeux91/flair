@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit
+    bootstrap="vendor/autoload.php"
+    colors="true"
+    testdox="true"
+    verbose="true"
+    defaultTestSuite="Application Test Suite"
+>
+    <testsuites>
+        <!--
+            Toute la suite de `host` a besoin d'une vraie base PostgreSQL :
+            l'objet du package est precisement ce que la base garantit
+            (transaction atomique, verrou advisory). Un double en memoire ne
+            testerait que le double.
+        -->
+        <testsuite name="Application Test Suite">
+            <directory>tests</directory>
+        </testsuite>
+    </testsuites>
+</phpunit>
