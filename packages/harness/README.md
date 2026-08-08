@@ -36,7 +36,7 @@ composer analyse                       # niveau max sur src/tests/bin (= phpstan
 
 `tests/Regression/CalibrationRegressionTest.php` est le garde-fou de non-régression du critère de sortie Phase 0 (`docs/15-roadmap.md` §4) : assertions numériques directes sur `Sampler::run()`, bornes larges (±8 points, 250-400 joueurs) pour attraper une vraie régression de calibrage sans réagir au bruit normal entre graines. `tests/Determinism/DeterministicRunTest.php` vérifie que même graine → même hash d'état et même hash de séquence d'événements sur le pipeline complet (via `WorldHasher`), critère de sortie Phase 1 distinct des vecteurs figés `Rng`/`Hash` déjà testés côté `kernel`.
 
-CI (`.github/workflows/ci.yml`) : deux jobs, `kernel` puis `harness` (phpunit + phpstan + suite `Regression`) — détail complet (déclenchement, comment reproduire localement, comment suivre un run) dans `.github/workflows/README.md`.
+CI (`.github/workflows/ci.yml`) : cinq jobs depuis le 2026-08-08 — `kernel`, puis `harness` (phpunit + phpstan + suite `Regression`), `worldgen`, `host` et `api` en parallèle, les deux derniers sur un vrai service Postgres. Détail complet (déclenchement, service de base, pourquoi `--fail-on-skipped`, comment reproduire localement, comment suivre un run) dans `.github/workflows/README.md`.
 
 ## Guide d'utilisation
 

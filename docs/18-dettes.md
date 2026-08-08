@@ -24,16 +24,6 @@ Reste ce document : ce qui est **réellement en retard**, avec un déclencheur, 
 
 ## Ouvertes
 
-### D1 — La CI ne couvre ni `host` ni `api`
-
-**Déclencheur : maintenant.** C'est la seule entrée sans aucun autre foyer.
-
-`.github/workflows/ci.yml` a deux jobs, `kernel` et `harness`. Les deux paquets qui touchent PostgreSQL n'y sont pas — donc **37 tests et 1 177 assertions ne tournent qu'en local**, dont `CrashRecoveryTest`, `PersistedWorldMatchesMemoryTest` et toute la couche de lecture. Un test qui ne tourne qu'à la main est un test dont on découvre l'échec au pire moment.
-
-Ce qu'il faut : un `services: postgres` dans le job, `bin/host.php install`, et les variables `FLAIR_DB_*` (défauts dans `docker-compose.yml`, port 54329). Coût réel : la moitié d'une soirée, l'essentiel étant de faire attendre le conteneur avant de lancer la suite.
-
-> ⚠️ **Et pendant qu'on y est** : le job `harness` doit appeler `composer analyse`, pas `vendor/bin/phpstan analyse` — depuis que `public/` est analysé, 128 Mo ne suffisent plus. Corrigé le 2026-08-08 ; à ne pas défaire.
-
 ### D2 — `MatchSystem` note la moyenne d'un effectif que le budget contraint en total
 
 **Déclencheur : avant que le prix d'un joueur soit un prix d'équilibre** (donc avant que D3 puisse être traitée), ou au moteur de match L1 de la Phase 6.
@@ -103,6 +93,7 @@ Gardé court, et uniquement pour ce qui a appris quelque chose.
 
 | Date | Dette | Ce qu'elle a appris |
 |---|---|---|
+| 2026-08-08 | D1 — la CI ne couvrait ni `worldgen`, ni `host`, ni `api` | **Une suite qui se skippe proprement devient, en CI, un job vert qui n'a rien exécuté.** Le mécanisme de confort local (base injoignable ⇒ skip) et le mécanisme de garantie sont opposés, et il faut nommer le second : `--fail-on-skipped`, mesuré par sabotage (base arrêtée, `exit=0` sans le drapeau, `exit=1` avec). Deux silences trouvés au passage, de la même famille : le déclencheur `push` pointait sur `main` quand la branche est `master`, donc **il n'avait jamais tourné**, et quatre `phpunit.xml` validaient contre un schéma déprécié |
 | 2026-08-08 | `PlayerRetired` et `TransferCounterDemanded` inattribuables à un club ; `SeasonConcluded` sans ses points | **Un Fait porte de quoi l'attribuer à ses sujets** — `16-` §2. L'état courant ne rattrape jamais ce qu'un Fait a omis, et le format des payloads n'a pas de version : la correction est gratuite tant qu'aucun monde ne compte, migration ensuite |
 | 2026-08-08 | `harness/public/index.php` cassé depuis le lot worldgen, 43 champs décrits sur 82 | Un fichier **ni analysé ni exécuté** pourrit sans bruit. Réparer sans mécaniser remet le compteur à zéro : la liste est sortie du script pour qu'un test la confronte à sa source |
 | 2026-08-08 | `AdvanceWorld` sous-estimait son coût de 29 % | L'écart avait un visage : charger le snapshot coûte ~6 ms, le verrou et le `COMMIT` 6,8. **Les trois cinquièmes d'un tick sont de la base**, pas seulement son écriture comme l'annonçait `13-` §7 |
