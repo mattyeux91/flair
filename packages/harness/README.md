@@ -16,7 +16,14 @@ Détail classe par classe des systèmes/composants simulés : `packages/kernel/R
 - **`src/Support/`** — `WorldInspector` (lecture à la demande d'un `WorldState`, vérité pas perception — un outil de debug interne, pas un client de jeu), `WorldHasher` (hash déterministe d'un `WorldState` football et d'une séquence d'événements — même machine/même PHP seulement, `docs/13-` §4.8, pas une forme canonique cross-machine ; **sa liste de types dérive de `Kernel\Football\FootballTypes`**, le registre de persistance, depuis le lot snapshot — elle était tenue à la main et il y manquait `BoardPatience`, `Negotiation` et `MarketInflation`).
 - **`bin/aggregate.php`** — CLI de calibrage, sans plafond de taille (contrairement à `public/index.php`). `--set champ=valeur` (répétable) bascule en comparaison à graines appariées. `--event-graph` ajoute la section graphe d'événements au rapport.
 - **`bin/sandbox.php`** — stepper interactif tick-par-tick sur `StepRunner`.
-- **`public/`** — mini-appli web (PHP intégré, bornes de taille de requête distinctes du CLI) consommant `JsonSerializer` via `app.js`. Hors périmètre PHPStan pour l'instant (superglobales HTTP incompatibles avec le niveau max sans bruit).
+- **`public/`** — mini-appli web (PHP intégré, bornes de taille de requête distinctes du CLI) consommant `JsonSerializer` via `app.js`. **Sous PHPStan niveau max depuis le 2026-08-08**, les superglobales passant par `src/Web/Input.php`.
+- **`src/Web/`** — `Input` (lecture vérifiée des entrées HTTP, même idiome que `Host\Store\Row`), `CalibrationFields` (les 82 champs du formulaire de calibration).
+
+  > ⚠️ **Pourquoi ces deux classes existent.** `public/index.php` est resté **cassé tout un lot** — il importait `Harness\Population\PopulationFactory`, partie dans `packages/worldgen`, et le cas nominal du POST (rapport baseline, sans override) était fatal. Rien ne pouvait le dire : ce fichier n'était ni analysé, ni exécuté par un test. Il décrivait au passage 43 champs sur 82, laissant **cinq groupes entiers rendre des `<details>` vides** (Finances, Installations, Contrats, Marché des transferts, Inflation), ajoutés lot après lot sans que personne ne branche l'interface.
+  >
+  > Réparer sans mécaniser aurait juste remis le compteur à zéro. `CalibrationFields` sort la liste du script pour qu'un test puisse la confronter à `RulesetOverride::ALL_FIELDS` **dans les deux sens**, et `Input` est ce qui rend le niveau max tenable sur du `mixed` de superglobale.
+  >
+  > ⚠️ **`composer analyse`, pas `vendor/bin/phpstan analyse`** : depuis que `public/` est analysé, les 128 Mo par défaut ne suffisent plus (OOM en plein worker). Le script porte `--memory-limit=1G`, et la CI l'appelle par le script.
 
 ## Tests et qualité
 
@@ -29,11 +36,11 @@ composer analyse                       # niveau max sur src/tests/bin (= phpstan
 
 `tests/Regression/CalibrationRegressionTest.php` est le garde-fou de non-régression du critère de sortie Phase 0 (`docs/15-roadmap.md` §4) : assertions numériques directes sur `Sampler::run()`, bornes larges (±8 points, 250-400 joueurs) pour attraper une vraie régression de calibrage sans réagir au bruit normal entre graines. `tests/Determinism/DeterministicRunTest.php` vérifie que même graine → même hash d'état et même hash de séquence d'événements sur le pipeline complet (via `WorldHasher`), critère de sortie Phase 1 distinct des vecteurs figés `Rng`/`Hash` déjà testés côté `kernel`.
 
-CI (`.github/workflows/ci.yml`) : deux jobs, `kernel` puis `harness` (phpunit + phpstan + suite `Regression`) — détail complet (déclenchement, comment reproduire localement, comment suivre un run) dans `.github/workflows/README.md`.
+CI (`.github/workflows/ci.yml`) : cinq jobs depuis le 2026-08-08 — `kernel`, puis `harness` (phpunit + phpstan + suite `Regression`), `worldgen`, `host` et `api` en parallèle, les deux derniers sur un vrai service Postgres. Détail complet (déclenchement, service de base, pourquoi `--fail-on-skipped`, comment reproduire localement, comment suivre un run) dans `.github/workflows/README.md`.
 
 ## Guide d'utilisation
 
-Deux exécutables, deux besoins différents : `bin/aggregate.php` répond à *"est-ce que le monde est plausible sur N saisons ?"* (rapport agrégé, aucune interaction), `bin/sandbox.php` répond à *"que se passe-t-il exactement à cet instant ?"* (REPL, avance manuelle). `public/` (`composer serve`, `localhost:8000`) propose la même chose que `bin/aggregate.php` sous forme d'UI web, pour qui préfère cliquer plutôt que taper des `--set` — pas détaillé ici, options identiques.
+Deux exécutables, deux besoins différents : `bin/aggregate.php` répond à *"est-ce que le monde est plausible sur N saisons ?"* (rapport agrégé, aucune interaction), `bin/sandbox.php` répond à *"que se passe-t-il exactement à cet instant ?"* (REPL, avance manuelle). `public/` (`composer serve`, `localhost:8000`) propose la même chose que `bin/aggregate.php` sous forme d'UI web, pour qui préfère cliquer plutôt que taper des `--set` — pas détaillé ici, options identiques, et les 82 champs calibrables y sont désormais tous.
 
 ### `bin/aggregate.php` — rapport agrégé sur un run complet
 
@@ -88,6 +95,12 @@ Un champ inconnu ou une valeur hors bornes (`talentSkew`, `baseIntakePerClub` �
 5. Classement et matchs de la dernière saison jouée.
 6. Équilibre compétitif — Gini des titres (0 = égalité parfaite, 1 = monopole) et rotation du top 5 sur tout le run.
 6 bis. Recrutement — le jugement du recruteur de chaque club, trié par jugement décroissant, en regard de son classement final. C'est la seule grandeur du rapport qui soit une **cause** semée au genesis plutôt qu'un résultat. Aucune corrélation n'est calculée : sur une seule saison finale la relation est trop bruitée pour conclure, et la mesurer proprement (corrélation de rang sur tout le run) attend le lot du marché des transferts, où « payer cher achète-t-il de la performance » sera la question centrale.
+6 ter. Marché — mobilité, chômage et masse salariale des cinq dernières années, puis deux lignes qui portent sur **tout** le run parce qu'elles comptent des événements rares (~1,6 transfert payant par saison) : les **transferts payants ventilés par poste**, et les **club-années sans gardien**.
+
+  > ⚠️ Deux colonnes de transferts qu'il ne faut pas confondre. Celle du tableau compte les `ContractSigned` changeant de club, donc **aussi** les signatures de joueurs sans club ; la ventilation par poste compte les `TransferAgreed`, donc les transferts **payants** seuls.
+  >
+  > Ces deux lignes existent parce qu'elles ont déjà attrapé quelque chose. Mesure du 2026-08-08 : l'acheteur PNJ ne visait que le premier poste sous-effectif dans l'ordre de l'enum, ce qui donnait 64 % de défenseurs et **un seul attaquant transféré sur 197**, invisible faute d'être affiché. Les club-années sans gardien, elles, n'existaient que comme **plafond muet** dans `FieldableSquadTest` (« ≤ 5 % ») — assez pour attraper une aggravation, pas pour empêcher un chiffre lu sur une seule graine de circuler quatre jours dans trois documents. Une métrique qui compte doit s'imprimer, pas seulement s'asserter.
+
 7. Graphe d'événements (seulement avec `--event-graph`) — volume par type d'événement sur tout le run, puis backlog annuel du `Scheduler` (une croissance qui ne redescend jamais est le signe d'une cascade non amortie).
 
 **Workflow type de calibration** :

@@ -49,6 +49,18 @@ final readonly class ClubNeedsRecruitment implements DecisionRequest
 
 L'échéance n'est pas un détail : c'est ce qui empêche les questions non traitées de s'accumuler indéfiniment dans un monde qui tourne sans personne.
 
+### Le premier `DecisionRequest` réel *(2026-08-09)* — et comment on l'a reconnu
+
+`Football\Requests\TransferCounterOffered` : le club vendeur contre-demande, l'acheteur doit trancher. Il est né **Fait** (`Events\TransferCounterDemanded`, lot 3 de la Phase 2) et le fut un an ; ce qui l'a démasqué n'est pas cette section mais le **volume** — le digest de retour d'absence l'a mesuré à 10,6 % des Faits d'une fenêtre de mercato, pour un contenu qu'aucun lecteur ne veut.
+
+Le tableau ci-dessus l'aurait pourtant classé du premier coup, et c'est la leçon à retenir : **les trois critères se lisent sur le message, pas sur son contenu.** Une contre-demande est *adressée* à quelqu'un de précis, elle *attend* une réponse, et elle *expire* — trois colonnes sur trois du milieu. Le signe le plus net était même déjà écrit ailleurs : le docblock de `TransferBalance::$responseGraceTicks` se décrivait lui-même comme « la version minimale de l'`expiresAtTick` que `16-` §1 attache aux `DecisionRequest` — l'échéance sans le canal ». Le message portait déjà son échéance ; il lui manquait sa famille.
+
+Trois conséquences pratiques, valables pour le prochain :
+
+- **Reclasser n'est pas supprimer.** Un `DecisionRequest` reste indispensable — c'est par lui qu'un agent humain apprendra la contre-demande. Ce qui disparaît est son écriture dans l'event log, pas le message.
+- **Ce qui survit à un crash n'est pas la question, c'est l'état qui la motive.** La contre-demande en attente vit dans le composant `Negotiation` ; le message n'est que la sonnette. C'est pour ça qu'une `RequestQueue` naît et meurt avec le tick quand l'OutQueue, elle, est sérialisée.
+- **Une question sort par `StepResult::$requests`, jamais par l'OutQueue.** Aucun système ne la lit : un système qui répondrait à la question d'un autre serait exactement l'appel direct que `13-` §2 interdit. Le destinataire est toujours hors du noyau.
+
 ---
 
 ## 2. Seuils d'émission : une mutation n'est pas un événement
@@ -87,6 +99,23 @@ Si la réponse est « non » aux trois, le système modifie le composant et se t
 ### Corollaire
 
 Les systèmes qui ont besoin d'un état continu (fatigue, forme, moral) **lisent le composant**, ils ne s'abonnent pas à ses variations. L'abonnement est réservé aux discontinuités.
+
+### La règle du contenu : un Fait porte de quoi l'attribuer à ses sujets
+
+Le test de pertinence dit **quand** émettre. Il ne dit rien sur **quoi mettre dedans**, et c'est l'autre moitié du problème — apprise en Phase 4, en payant.
+
+> **Un Fait porte les identités qu'il concerne, même si aucun système du noyau n'en a besoin aujourd'hui.**
+
+La tentation inverse est raisonnable et fausse : n'y mettre que ce que le consommateur du moment consomme, le reste étant « lisible dans l'état ». Elle ne tient pas, parce qu'**un Fait est la seule trace du passé** et que l'état, lui, ne cesse de changer :
+
+- `PlayerRetired` ne portait que `playerId` et `ageYears`. Son unique consommateur, `SquadSystem`, relisait `Contract` pour retrouver l'employeur — ce qui marche au tick suivant, et **jamais après**, le contrat étant retiré dans la foulée. Résultat : les retraites d'un club étaient invisibles dans son histoire, et les reconstruire depuis les `ContractSigned` aurait été **silencieusement faux** (les contrats du genesis ne sont pas dans l'event log, donc un joueur au même club depuis l'origine n'a aucune signature).
+- `SeasonConcluded` ne portait que l'ordre du classement, au motif que publier les points ferait doublon avec `Standings`. Mais `Standings` est remis à zéro à la saison suivante : pour une saison écoulée il n'y avait pas deux sources, il n'y en avait **aucune**. Le lecteur devait recalculer les points depuis les matchs — juste tant que les points ne viennent que de résultats de match, faux au premier retrait de points, et **faux sans recours**, l'information n'existant plus nulle part.
+
+Le critère pratique, avant d'émettre : *si l'état du monde était effacé et qu'il ne restait que ce journal, cette ligne se comprendrait-elle encore ?* Si la réponse dépend d'un composant qui vit encore, le Fait est incomplet.
+
+Ça ne rouvre pas la porte à tout publier. Ce qui entre, ce sont les **identités et les mesures que le Fait constate** ; ce qui reste dehors, ce sont les variables de décision privées des parties (le prix de réserve d'un vendeur, le plafond d'un acheteur — même logique que la vérité cachée, `12-` §4) et l'état continu que personne ne relira.
+
+⚠️ **Cette correction a une date de péremption.** `events.payload` n'a aucune colonne de version de format et `Core\Snapshot\ValueCodec` est strict dans les deux sens : ajouter un champ à un Fait rend illisible tout Fait déjà en base. Tant qu'aucun monde ne compte, la réponse est de refaire le monde ; après, c'est une migration de payload à écrire.
 
 ---
 
@@ -241,6 +270,7 @@ Le `correlationId` racine permet de remonter directement à l'événement décle
 | Journaliser les `DecisionRequest` | pollue l'histoire du monde avec des questions sans réponse | transitoire |
 | `EventBus` qui appelle ses abonnés dans l'ordre d'inscription | non déterministe dès qu'un conteneur DI est impliqué | ordre du pipeline (`13-` §4.6) |
 | Une file non triée à la fusion | non déterminisme silencieux | ordre total (`13-` §4.5) |
+| Un Fait qui laisse deviner son sujet depuis l'état courant | l'état change, le Fait reste : l'histoire devient illisible ou fausse | porter les identités concernées (§2) |
 
 ---
 
@@ -249,7 +279,7 @@ Le `correlationId` racine permet de remonter directement à l'événement décle
 Ce document a rempli son office si, devant n'importe quel événement du projet, tu peux répondre sans hésiter :
 
 1. **Est-ce un Fait, une DecisionRequest ou une Intent ?**
-2. **Passe-t-il le test de pertinence ?**
+2. **Passe-t-il le test de pertinence, et se comprendrait-il encore si l'état du monde était effacé ?**
 3. **Est-il journalisé, et dans quel journal ?**
 4. **Quand sera-t-il traité — tick suivant, ou à une échéance ?**
 5. **Qui décide, et que se passe-t-il si personne ne répond ?**

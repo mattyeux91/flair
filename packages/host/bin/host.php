@@ -16,6 +16,7 @@ declare(strict_types=1);
  *   php bin/host.php install                        cree les tables
  *   php bin/host.php create <monde> [--players=500] [--clubs=18] [--seed=42]
  *   php bin/host.php advance <monde> [--ticks=1]    avance, un tick par transaction
+ *   php bin/host.php destroy <monde> --force        efface un monde, sans retour
  *   php bin/host.php status [<monde>]               ou en sont les mondes
  *   php bin/host.php events <monde> [--limit=20]    les derniers Faits
  *
@@ -31,6 +32,7 @@ use Flair\Host\AdvanceWorld;
 use Flair\Host\CreateWorld;
 use Flair\Host\Database\Database;
 use Flair\Host\Database\Schema;
+use Flair\Host\DestroyWorld;
 use Flair\Host\Store\EventStore;
 use Flair\Host\Store\SnapshotStore;
 use Flair\Host\Store\WorldRepository;
@@ -47,10 +49,13 @@ $arguments = array_values(array_filter(
 $command = $arguments[1] ?? 'help';
 $target = isset($arguments[2]) && !str_starts_with($arguments[2], '--') ? $arguments[2] : null;
 
+// `--cle=valeur` et `--drapeau` nu, ce dernier valant '1' : `--force` n'a pas
+// de valeur a porter, et l'exiger sous la forme `--force=1` serait une
+// bizarrerie a retenir pour rien.
 $options = [];
 foreach (array_slice($arguments, 2) as $argument) {
-    if (preg_match('/^--([a-z-]+)=(.*)$/', $argument, $matches) === 1) {
-        $options[$matches[1]] = $matches[2];
+    if (preg_match('/^--([a-z-]+)(?:=(.*))?$/', $argument, $matches) === 1) {
+        $options[$matches[1]] = $matches[2] ?? '1';
     }
 }
 
@@ -120,12 +125,14 @@ function run(
             $ticks = max(1, (int) ($options['ticks'] ?? 1));
             $simulation = 0.0;
             $persistence = 0.0;
+            $total = 0.0;
             $written = 0;
             $last = $advance($target);
 
             for ($i = 1; $i < $ticks && $last->outcome === AdvanceOutcome::Advanced; $i++) {
                 $simulation += $last->simulationSeconds;
                 $persistence += $last->persistenceSeconds;
+                $total += $last->totalSeconds;
                 $written += $last->events;
                 $last = $advance($target);
             }
@@ -133,6 +140,7 @@ function run(
             if ($last->outcome === AdvanceOutcome::Advanced) {
                 $simulation += $last->simulationSeconds;
                 $persistence += $last->persistenceSeconds;
+                $total += $last->totalSeconds;
                 $written += $last->events;
             }
 
@@ -148,14 +156,62 @@ function run(
                 return 0;
             }
 
+            // Le total et l'ecart sont affiches, pas seulement les deux
+            // compteurs internes : ceux-la totalisaient 34,7 ms sur 48,5
+            // reelles, et un chiffre de perf qui manque 29 % de son sujet
+            // sert a decider de travers.
             printf(
-                "Monde \"%s\" au tick %d. %d tick(s), %d Fait(s). Simulation %.1f ms/tick, persistance %.1f ms/tick.%s",
+                "Monde \"%s\" au tick %d. %d tick(s), %d Fait(s).%s"
+                . "  %.1f ms/tick au total : simulation %.1f, persistance %.1f, verrou+commit %.1f.%s",
                 $target,
                 $last->tick,
                 $ticks,
                 $written,
+                PHP_EOL,
+                $total / $ticks * 1000,
                 $simulation / $ticks * 1000,
                 $persistence / $ticks * 1000,
+                max(0.0, $total - $simulation - $persistence) / $ticks * 1000,
+                PHP_EOL,
+            );
+
+            return 0;
+
+        case 'destroy':
+            if ($target === null) {
+                fwrite(STDERR, 'Usage : host.php destroy <monde> --force' . PHP_EOL);
+
+                return 1;
+            }
+
+            if (!$worlds->exists($target)) {
+                fwrite(STDERR, "Monde \"{$target}\" inconnu." . PHP_EOL);
+
+                return 1;
+            }
+
+            // `--force` obligatoire : c'est irreversible, et un script nu n'a
+            // pas de quoi poser une question a un humain sans se rendre
+            // inutilisable dans un pipe.
+            if (!isset($options['force'])) {
+                fwrite(STDERR, sprintf(
+                    "Refus : effacer \"%s\" detruit %d Fait(s) et tous ses snapshots, sans retour.%s"
+                    . 'Relancer avec --force si c\'est bien l\'intention.%s',
+                    $target,
+                    $events->countFor($target),
+                    PHP_EOL,
+                    PHP_EOL,
+                ));
+
+                return 1;
+            }
+
+            $deleted = new DestroyWorld($database)($target);
+            printf(
+                "Monde \"%s\" efface : %d Fait(s), %d snapshot(s).%s",
+                $target,
+                $deleted['events'],
+                $deleted['snapshots'],
                 PHP_EOL,
             );
 
@@ -208,6 +264,7 @@ function run(
               install                                       cree les tables
               create <monde> [--players=] [--clubs=] [--seed=]
               advance <monde> [--ticks=1]
+              destroy <monde> --force                       efface un monde, sans retour
               status [<monde>]
               events <monde> [--limit=20]
 

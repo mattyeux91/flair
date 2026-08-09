@@ -22,6 +22,7 @@ use Flair\Kernel\Football\Components\Position;
 use Flair\Kernel\Football\Components\SquadMembership;
 use Flair\Kernel\Football\Events\YouthPlayerPromoted;
 use Flair\Kernel\Football\Generation\PlayerFactory;
+use Flair\Kernel\Football\Support\NameBook;
 use Flair\Kernel\Football\Support\PositionModel;
 
 /**
@@ -337,7 +338,11 @@ final class YouthIntakeSystem implements System
         $playerId = $ctx->createEntity();
         $blueprint = $this->players->drawRookie(
             $rng,
-            "Joueur {$playerId}",
+            // Un nom derive de (graine, entite), sans consommer le flux RNG -
+            // cf. `Football\Support\NameBook`. `stableHash()` melange deja la
+            // graine du monde et ne depend pas du tick, donc un jeune promu
+            // garde son nom d'une relecture a l'autre.
+            NameBook::personName($ctx->stableHash($playerId)),
             $birthDate,
             $intake,
             $ctx->ruleset()->balance->position,

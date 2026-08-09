@@ -12,6 +12,7 @@ use Flair\Kernel\Core\Ruleset\FacilitiesBalance;
 use Flair\Kernel\Core\Ruleset\Ruleset;
 use Flair\Kernel\Football\Components\Club;
 use Flair\Kernel\Football\Components\Facilities;
+use Flair\Kernel\Football\Components\StandingsEntry;
 use Flair\Kernel\Football\Events\ClubInvestedInFacilities;
 use Flair\Kernel\Football\Events\SeasonConcluded;
 use Flair\Kernel\Football\Systems\FacilitiesSystem;
@@ -24,7 +25,7 @@ final class FacilitiesSystemTest extends TestCase
         $world = new WorldState();
         $club = $this->createClub($world, quality: 1.0);
 
-        $this->deliver($world, new SeasonConcluded(1, [$club]), atTick: 5);
+        $this->deliver($world, new SeasonConcluded(1, [new StandingsEntry($club)]), atTick: 5);
 
         self::assertEqualsWithDelta(0.95, $this->quality($world, $club), 0.0001);
     }
@@ -51,7 +52,7 @@ final class FacilitiesSystemTest extends TestCase
         $world = new WorldState();
         $club = $this->createClub($world, quality: 1.4);
 
-        $this->deliver($world, new SeasonConcluded(1, [$club]), atTick: 5);
+        $this->deliver($world, new SeasonConcluded(1, [new StandingsEntry($club)]), atTick: 5);
         $this->deliver($world, new ClubInvestedInFacilities($club, 10_000_000, 10_000_000), atTick: 6);
 
         self::assertEqualsWithDelta(1.4, $this->quality($world, $club), 0.0001);
@@ -73,7 +74,7 @@ final class FacilitiesSystemTest extends TestCase
         $club = $this->createClub($world, quality: Facilities::MIN_QUALITY);
 
         for ($tick = 5; $tick <= 10; $tick++) {
-            $this->deliver($world, new SeasonConcluded(1, [$club]), atTick: $tick);
+            $this->deliver($world, new SeasonConcluded(1, [new StandingsEntry($club)]), atTick: $tick);
         }
 
         self::assertSame(Facilities::MIN_QUALITY, $this->quality($world, $club));
@@ -90,7 +91,7 @@ final class FacilitiesSystemTest extends TestCase
         $club = $world->createEntity();
         $world->components(Club::class)->set($club, new Club('Sans installations'));
 
-        $this->deliver($world, new SeasonConcluded(1, [$club]), atTick: 5);
+        $this->deliver($world, new SeasonConcluded(1, [new StandingsEntry($club)]), atTick: 5);
         $this->deliver($world, new ClubInvestedInFacilities($club, 10_000_000, 10_000_000), atTick: 6);
 
         self::assertNull($world->components(Facilities::class)->get($club));

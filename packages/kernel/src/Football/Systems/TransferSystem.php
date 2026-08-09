@@ -26,12 +26,12 @@ use Flair\Kernel\Football\Components\Scout;
 use Flair\Kernel\Football\Components\SeasonIncome;
 use Flair\Kernel\Football\Events\ContractSigned;
 use Flair\Kernel\Football\Events\TransferAgreed;
-use Flair\Kernel\Football\Events\TransferCounterDemanded;
 use Flair\Kernel\Football\Events\TransferNegotiationBroken;
 use Flair\Kernel\Football\Events\TransferNegotiationOpened;
 use Flair\Kernel\Football\Intents\BidForPlayer;
 use Flair\Kernel\Football\Intents\BuyerIntentSource;
 use Flair\Kernel\Football\Intents\TransferMarketView;
+use Flair\Kernel\Football\Requests\TransferCounterOffered;
 use Flair\Kernel\Football\Singletons\MarketInflation;
 use Flair\Kernel\Football\Support\PositionModel;
 use Flair\Kernel\Football\Support\SquadComposition;
@@ -287,8 +287,19 @@ final class TransferSystem implements System
             + $transfer->sellerConcessionShare * ($negotiation->reservePriceCents - $negotiation->lastOfferCents),
         );
 
-        $ctx->emit(
-            new TransferCounterDemanded($negotiationId, $negotiation->playerId, $negotiation->round, $counterCents),
+        // `ask()`, pas `emit()` : une contre-demande attend une reponse, elle
+        // ne raconte rien (docs/16- §1). Voir le docblock de
+        // `Football\Requests\TransferCounterOffered` pour la bascule.
+        $ctx->ask(
+            new TransferCounterOffered(
+                $negotiationId,
+                $negotiation->playerId,
+                $negotiation->round,
+                $counterCents,
+                $negotiation->buyerClubId,
+                $negotiation->sellerClubId,
+                expiresAtTick: $ctx->tick + $transfer->responseGraceTicks,
+            ),
             entityId: $negotiationId,
         );
 

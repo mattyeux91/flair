@@ -23,6 +23,8 @@ Ce n'est pas une crainte théorique, c'est le fait de méthode le plus cher du p
 - `ClubFactory::disperseBoardPatience()` est une méthode séparée, appelée **après** le staff — la mettre dans `create()`, qui tourne avant la boucle des joueurs, décalerait toute la population ;
 - `WorldFactory::employ()` **dérive** `signedOn` de `expiresOn` au lieu de le tirer, pour ne pas consommer un `nextUint32()` de plus.
 
+**Le corollaire vaut aussi dans l'autre sens, et il a servi le 2026-08-09** : donner de vrais noms au monde (D8) aurait été le pire cas d'école — un changement purement cosmétique qui décale tout — s'il avait fallu tirer. `Football\Support\NameBook` dérive donc chaque nom de `(worldSeed, entityId)` par `Hash::mixAll()`, **sans consommer un seul tirage**, et le résultat se mesure : `EntityId`, compteur d'entités et séquence d'événements **identiques au chiffre près** avant et après. C'est la seule façon de renommer un monde sans le changer.
+
 Corollaire pratique : toute modification de ce package se vérifie par comparaison d'empreintes **dans un même build** (`git worktree` sur la révision précédente, un script d'autoload maison, deux runs), jamais contre des chiffres notés dans un document.
 
 ## Les classes
@@ -33,9 +35,9 @@ Corollaire pratique : toute modification de ce package se vérifie par comparais
 
 - **`WorldFactory`** — orchestre tout, et répartit les joueurs sur les clubs en round-robin via `SquadMembership`. Deux choix de génération valent d'être connus : le talent est tiré par `Kernel\Football\Generation\PlayerFactory`, **la même loi que l'intake annuel** (deux lois différentes rendraient la pyramide des âges non stationnaire, donc le critère de sortie de la Phase 0 ininterprétable) ; et le salaire initial passe par `WageModel`, pour que le monde démarre à l'échelle salariale vers laquelle il convergera.
 
-- **`ClubFactory`** — les clubs (`Club` + `Facilities` + `Finances`), qualité et trésorerie uniformes, plus la dispersion de `BoardPatience` en méthode séparée (cf. règle d'or).
+- **`ClubFactory`** — les clubs (`Club` + `Facilities` + `Finances`), qualité et trésorerie uniformes, plus la dispersion de `BoardPatience` en méthode séparée (cf. règle d'or). Son paramètre `$seed` ne sert **qu'aux noms** et n'entre dans aucun tirage : les `EntityId` ne dépendant pas de la graine, sans lui tous les mondes porteraient les mêmes noms de clubs.
 - **`CompetitionFactory`** — l'unique compétition, sans laquelle `CalendarSystem` n'a rien à planifier.
-- **`StaffFactory`** — un recruteur par club (`Person` + `Employment` + `Scout`). Le jugement est dispersé entre clubs, et c'est cette dispersion — pas le bruit lui-même — qui fait de l'asymétrie d'information une ressource (`docs/12-` §4).
+- **`StaffFactory`** — un recruteur par club (`Person` + `Employment` + `Scout`), nommé par le même `NameBook` que les joueurs — un recruteur est une personne. Le jugement est dispersé entre clubs, et c'est cette dispersion — pas le bruit lui-même — qui fait de l'asymétrie d'information une ressource (`docs/12-` §4).
 
 ## Commandes de dev
 

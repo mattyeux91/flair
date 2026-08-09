@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace Flair\Worldgen;
 
 use Flair\Kernel\Core\Ecs\WorldState;
+use Flair\Kernel\Core\Support\Hash;
 use Flair\Kernel\Core\Support\Rng;
 use Flair\Kernel\Core\Support\SimDate;
 use Flair\Kernel\Football\Components\Employment;
 use Flair\Kernel\Football\Components\Person;
 use Flair\Kernel\Football\Components\Scout;
+use Flair\Kernel\Football\Support\NameBook;
 
 /**
  * Un scout par club, seme au genesis (docs/12-modele-du-monde.md §4, question 1
@@ -48,7 +50,7 @@ final class StaffFactory
      * @param list<int> $clubIds
      * @return list<int> identifiants des entites scout creees
      */
-    public function create(WorldState $world, Rng $rng, array $clubIds, int $judgementMean, int $judgementSpread): array
+    public function create(WorldState $world, Rng $rng, array $clubIds, int $judgementMean, int $judgementSpread, int $seed): array
     {
         $scoutIds = [];
 
@@ -56,7 +58,10 @@ final class StaffFactory
             for ($i = 0; $i < self::SCOUTS_PER_CLUB; $i++) {
                 $entity = $world->createEntity();
                 $world->components(Person::class)->set($entity, new Person(
-                    "Recruteur du club {$clubId}",
+                    // Un recruteur est une personne, donc le meme livre de
+                    // noms que les joueurs (`Football\Support\NameBook`).
+                    // Derive de (graine, entite), sans consommer le flux RNG.
+                    NameBook::personName(Hash::mixAll($seed, $entity)),
                     // Aucun systeme ne lit l'age d'un scout : ni retraite, ni
                     // vieillissement, ni progression du staff. Une date de
                     // naissance nulle plutot qu'un tirage qui decalerait le flux

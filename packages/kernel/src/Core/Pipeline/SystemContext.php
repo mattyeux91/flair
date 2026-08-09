@@ -6,9 +6,11 @@ namespace Flair\Kernel\Core\Pipeline;
 
 use Flair\Kernel\Core\Ecs\ComponentReader;
 use Flair\Kernel\Core\Ecs\WorldState;
+use Flair\Kernel\Core\Messaging\DecisionRequest;
 use Flair\Kernel\Core\Messaging\DomainEvent;
 use Flair\Kernel\Core\Messaging\Intent;
 use Flair\Kernel\Core\Messaging\OutQueue;
+use Flair\Kernel\Core\Messaging\RequestQueue;
 use Flair\Kernel\Core\Messaging\Scheduler;
 use Flair\Kernel\Core\Ruleset\Ruleset;
 use Flair\Kernel\Core\Support\Hash;
@@ -56,6 +58,7 @@ final readonly class SystemContext
         private WorldState $world,
         private Scheduler $scheduler,
         private OutQueue $outQueue,
+        private RequestQueue $requests,
         private SeqCounter $seq,
         private CreatedEntities $created = new CreatedEntities(),
     ) {
@@ -148,6 +151,26 @@ final readonly class SystemContext
     public function emit(DomainEvent $event, int $entityId): void
     {
         $this->outQueue->emit($event, $this->systemIndex, $entityId, $this->seq->next());
+    }
+
+    /**
+     * Pose une question a un decideur **hors du noyau** (docs/16- §1) : elle
+     * sort par `Core\Simulation\StepResult::$requests`, n'entre ni dans
+     * l'OutQueue ni dans l'event log, et aucun systeme ne la lira.
+     *
+     * Le jumeau d'`emit()`, et la difference tient en une phrase : `emit()`
+     * dit ce qui **a eu lieu**, `ask()` demande ce qu'on **doit faire**.
+     * Confondre les deux est precisement ce que docs/16- §1 interdit, et c'est
+     * ce qui avait mis `Football\Requests\TransferCounterOffered` dans un
+     * journal permanent alors qu'il attend une reponse.
+     *
+     * Ce qui rend la question survivable a un crash n'est pas ce message mais
+     * l'**etat** qui la motive : voir le docblock de
+     * `Core\Messaging\RequestQueue`.
+     */
+    public function ask(DecisionRequest $request, int $entityId): void
+    {
+        $this->requests->ask($request, $this->systemIndex, $entityId, $this->seq->next());
     }
 
     /**

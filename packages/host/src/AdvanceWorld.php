@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace Flair\Host;
 
 use Flair\Host\Database\Database;
+use Flair\Host\Rules\RulesetForWorld;
 use Flair\Host\Store\EventStore;
 use Flair\Host\Store\SnapshotStore;
 use Flair\Host\Store\WorldRepository;
-use Flair\Kernel\Core\Ruleset\Ruleset;
 use Flair\Kernel\Core\Simulation\Simulation;
 use Flair\Kernel\Core\Simulation\TickContext;
 use Flair\Kernel\Core\Snapshot\SnapshotCodec;
@@ -47,17 +47,26 @@ use Flair\Kernel\Football\FootballTypes;
  * - **Aucune intention n'est consommee** : `TickContext::$intents` recoit un
  *   tableau vide. L'inbox d'intentions du Host (docs/13- §8) est Phase 5, et
  *   `Football\Intents\SubmittedBuyerIntentSource` l'attend deja.
+ * - **Aucune question n'est livree** : `StepResult::$requests` est lu et
+ *   ignore. C'est le miroir exact du point precedent - une question sort, une
+ *   intention entre - et les deux moities arrivent ensemble en Phase 5. Ce
+ *   qu'on gagne des maintenant est ailleurs : ces questions ne sont plus
+ *   **journalisees**, ce qu'elles etaient a tort.
  * - **Aucune projection** : docs/15- §4 les place en Phase 4. Le jour venu,
  *   elles s'appliqueront **dans cette meme transaction**, sinon un client
  *   verra un monde incoherent apres un crash.
  * - **Aucune diffusion SSE** : Phase 4 egalement, et elle se fera **hors**
  *   transaction - publier avant le commit annoncerait un tick qui pourrait
  *   encore etre annule.
- * - **Le `Ruleset` est reconstruit par defaut** a partir de sa seule version :
- *   `packages/ruleset` n'existe pas encore, donc un monde epingle a une
- *   version autre que celle des defauts du kernel serait relu avec les
- *   mauvaises regles. Sans consequence tant qu'un seul `Ruleset` existe, mais
- *   c'est la premiere chose que le package `ruleset` devra corriger.
+ *
+ * ## Le `Ruleset` d'un monde ne se devine plus
+ *
+ * Ce systeme faisait `new Ruleset($world->rulesetVersion)`, ce qui rendait les
+ * defauts du noyau **quelle que soit** la version epinglee : un monde epingle
+ * a d'autres regles aurait tourne selon celles-la sans que rien ne le dise.
+ * `Rules\RulesetForWorld` leve maintenant pour toute version qu'il ne sait pas
+ * reconstruire - le monde refuse d'avancer au lieu d'avancer faux. Le package
+ * `ruleset` (docs/12- §6) n'aura qu'un seul site a rebrancher.
  */
 final class AdvanceWorld
 {
@@ -78,14 +87,25 @@ final class AdvanceWorld
 
     public function __invoke(string $worldId): AdvanceResult
     {
-        /** @var AdvanceResult */
-        return $this->database->connection()->transaction(function () use ($worldId): AdvanceResult {
+        // **Autour** de la transaction, pas dedans : le `COMMIT` arrive apres
+        // le retour de la closure, donc aucun compteur pose a l'interieur ne
+        // peut le voir. C'est ce qui faisait qu'`advance` sous-estimait son
+        // propre cout de 29 % (cf. `AdvanceResult`).
+        $startedTotal = microtime(true);
+
+        /** @var AdvanceResult $result */
+        $result = $this->database->connection()->transaction(function () use ($worldId): AdvanceResult {
             // Le verrou d'abord : inutile de deserialiser un etat de plusieurs
             // centaines de kilo-octets pour decouvrir ensuite qu'un autre
             // processus tient deja ce monde.
             if (!$this->lock->tryAcquire($worldId)) {
                 return AdvanceResult::busy();
             }
+
+            // Le chronometre demarre **avant** le chargement du snapshot : le
+            // `SELECT` d'un JSON de plusieurs centaines de kilo-octets et sa
+            // deserialisation sont du cout de simulation, pas du neant.
+            $startedSimulation = microtime(true);
 
             $world = $this->worlds->find($worldId);
             $snapshot = $world === null ? null : $this->snapshots->latest($worldId);
@@ -96,17 +116,26 @@ final class AdvanceWorld
 
             $tick = $snapshot->tick + 1;
 
-            $startedSimulation = microtime(true);
             $state = $snapshot->restore($this->codec);
             $result = $this->simulation->step($state, new TickContext(
                 tick: $tick,
                 seed: $world->seed,
                 intents: [],
-                ruleset: new Ruleset($world->rulesetVersion),
+                ruleset: RulesetForWorld::for($world->rulesetVersion),
             ));
             $simulationSeconds = microtime(true) - $startedSimulation;
 
             $startedPersistence = microtime(true);
+
+            // `$result->events` seulement, **jamais** `$result->requests` : une
+            // question est transitoire par definition (docs/16- §1), et la
+            // journaliser reviendrait a garder pour toujours des questions
+            // dont la reponse est tombee le lendemain. C'est exactement ce que
+            // faisait le marche des transferts avant le 2026-08-09.
+            //
+            // Les questions ne sont donc **pas livrees non plus** : leur inbox
+            // est le miroir de l'inbox d'intentions de docs/13- §8, et les deux
+            // sont Phase 5. Les ignorer ici est un choix, pas un oubli.
             $written = $this->events->append($worldId, $tick, $result->events);
             $this->snapshots->save(WorldSnapshot::capture(
                 $this->codec,
@@ -128,5 +157,16 @@ final class AdvanceWorld
                 persistenceSeconds: $persistenceSeconds,
             );
         });
+
+        // Le total ne peut se poser qu'ici, une fois le `COMMIT` passe - d'ou
+        // ce reassemblage plutot qu'un compteur de plus dans la closure.
+        return new AdvanceResult(
+            outcome: $result->outcome,
+            tick: $result->tick,
+            events: $result->events,
+            simulationSeconds: $result->simulationSeconds,
+            persistenceSeconds: $result->persistenceSeconds,
+            totalSeconds: microtime(true) - $startedTotal,
+        );
     }
 }

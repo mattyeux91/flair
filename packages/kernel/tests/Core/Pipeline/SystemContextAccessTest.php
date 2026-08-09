@@ -6,6 +6,7 @@ namespace Flair\Kernel\Tests\Core\Pipeline;
 
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Messaging\OutQueue;
+use Flair\Kernel\Core\Messaging\RequestQueue;
 use Flair\Kernel\Core\Messaging\Scheduler;
 use Flair\Kernel\Core\Pipeline\SeqCounter;
 use Flair\Kernel\Core\Pipeline\SystemAccess;
@@ -232,6 +233,7 @@ final class SystemContextAccessTest extends TestCase
             world: $world ?? new WorldState(),
             scheduler: new Scheduler(),
             outQueue: new OutQueue(),
+            requests: new RequestQueue(),
             seq: new SeqCounter(),
         );
     }

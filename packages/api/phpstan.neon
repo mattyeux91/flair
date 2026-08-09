@@ -1,0 +1,26 @@
+parameters:
+    level: max
+    # La couche HTTP est **dans** l'analyse - controleurs, routes, tests.
+    #
+    # C'est la lecon de `packages/harness/public/`, casse depuis le lot worldgen
+    # sans que personne le voie parce qu'il en etait explicitement exclu
+    # (« superglobales HTTP incompatibles avec le niveau max »). C'est aussi la
+    # vraie raison d'avoir pris un framework ici : son objet `Request` fait
+    # disparaitre les superglobales, donc l'exclusion n'a plus de pretexte.
+    paths:
+        - app
+        - src
+        - routes
+        - tests
+        # Le seul fichier de configuration qu'on ecrit. Les autres sont ceux du
+        # squelette Laravel : ils font `(string) env(...)` sur du `mixed`, donc
+        # ne passent pas le niveau max, et les corriger serait modifier du code
+        # qui n'est pas le notre et qui derivera a la prochaine mise a jour.
+        - config/flair.php
+
+    # Blade compile les vues en PHP dans `storage/`, et ces fichiers generes
+    # n'ont rien a se faire analyser. Les vues sont couvertes autrement, et
+    # mieux : `Tests\Http\PagesMatchJsonTest` rend chaque page et exige d'y
+    # retrouver les chiffres de la route JSON correspondante.
+    excludePaths:
+        - storage

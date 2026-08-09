@@ -23,6 +23,7 @@ use Flair\Kernel\Football\Components\PlayerPotentials;
 use Flair\Kernel\Football\Components\Position;
 use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
 use Flair\Kernel\Football\Components\SeasonIncome;
+use Flair\Kernel\Football\Components\StandingsEntry;
 use Flair\Kernel\Football\Events\ClubInvestedInFacilities;
 use Flair\Kernel\Football\Events\SeasonConcluded;
 use Flair\Kernel\Football\Events\TransferAgreed;
@@ -403,12 +404,23 @@ final class FinanceSystemTest extends TestCase
      * qu'aucun systeme ne tourne, donc emettre depuis le test ne suffirait
      * pas.
      *
+     * Prend le classement sous sa forme la plus lisible - une liste de
+     * `clubId` - et le porte a la forme du Fait. Aucun test de ce fichier ne
+     * regarde les points d'une saison : `FinanceSystem` ne pondere que par le
+     * rang, et c'est precisement ce que `SeasonConcluded::ranking()` sert.
+     *
      * @param list<int> $ranking
      */
     private function concludeSeason(WorldState $world, array $ranking, int $atTick): void
     {
         $world->scheduler()->schedule(
-            new SeasonConcluded(competitionId: 1, finalRanking: $ranking),
+            new SeasonConcluded(
+                competitionId: 1,
+                finalTable: array_map(
+                    static fn (int $clubId): StandingsEntry => new StandingsEntry($clubId),
+                    $ranking,
+                ),
+            ),
             atTick: $atTick,
             systemIndex: 0,
             entityId: 1,

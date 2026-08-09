@@ -7,11 +7,13 @@ require __DIR__ . '/../vendor/autoload.php';
 use Flair\Harness\Comparison\PairedSeedComparison;
 use Flair\Harness\Comparison\RulesetOverride;
 use Flair\Harness\Metrics\Sampler;
-use Flair\Harness\Population\PopulationFactory;
 use Flair\Harness\Population\PopulationSpec;
 use Flair\Harness\Report\JsonSerializer;
+use Flair\Harness\Web\CalibrationFields;
+use Flair\Harness\Web\Input;
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Ruleset\Ruleset;
+use Flair\Worldgen\WorldFactory;
 
 $baseline = new Ruleset('harness');
 
@@ -21,19 +23,15 @@ $baseline = new Ruleset('harness');
  * sans JIT ni cache d'octets particulier, et une requete HTTP synchrone doit
  * rester dans un budget humainement raisonnable.
  *
- * `MAX_CLUBS` a ete resserre de 64 a 32 en ajoutant la simulation de match
- * (Football\CalendarSystem/MatchSystem/CompetitionSystem) au pipeline du
- * Sampler : le cout d'un match scanne tout l'effectif d'un club pour
- * calculer ses ratings (MatchSystem::ratings(), non optimise, hors
- * perimetre de ce lot cote kernel), et ce cout croit avec le **carre** du
- * nombre de clubs (le nombre de matchs par saison est proportionnel a
- * clubCount²). Mesure empiriquement : 1200 joueurs/35 ans sans override,
- * qui tournait en ~100s avant ce lot, tournait a 64 clubs en ~227s
- * (~454s pour une comparaison a graines appariees, qui execute deux fois la
- * simulation) - largement au-dela de MAX_EXECUTION_TIME_SECONDS. A 32 clubs,
- * une comparaison complete tourne en ~202s, sous le plafond avec une marge
- * comparable a celle d'avant ce lot. Au-dela de ces bornes, utiliser le CLI,
- * qui n'a pas cette contrainte de requete/reponse.
+ * `MAX_CLUBS` a ete resserre de 64 a 32 en ajoutant la simulation de match au
+ * pipeline du Sampler : le cout d'un match scanne tout l'effectif d'un club
+ * pour calculer ses ratings, et ce cout croit avec le **carre** du nombre de
+ * clubs (le nombre de matchs par saison est proportionnel a clubCount²).
+ * Mesure empiriquement : 1200 joueurs/35 ans sans override tournait a 64 clubs
+ * en ~227s (~454s pour une comparaison a graines appariees, qui execute deux
+ * fois la simulation) - largement au-dela de MAX_EXECUTION_TIME_SECONDS. A 32
+ * clubs, une comparaison complete tourne en ~202s. Au-dela de ces bornes,
+ * utiliser le CLI, qui n'a pas cette contrainte de requete/reponse.
  */
 const MAX_PLAYERS = 1200;
 const MAX_YEARS = 35;
@@ -47,25 +45,22 @@ const MAX_CLUBS = 32;
  */
 const MAX_EXECUTION_TIME_SECONDS = 300;
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if (Input::method() === 'POST') {
     header('Content-Type: application/json');
     set_time_limit(MAX_EXECUTION_TIME_SECONDS);
 
-    /** @var array<string, mixed> $input */
-    $input = json_decode((string) file_get_contents('php://input'), true) ?? [];
+    $input = Input::jsonBody();
 
     $spec = new PopulationSpec(
-        playerCount: max(1, min(MAX_PLAYERS, (int) ($input['players'] ?? 200))),
-        years: max(1, min(MAX_YEARS, (int) ($input['years'] ?? 30))),
-        seed: (int) ($input['seed'] ?? 42),
-        clubCount: max(0, min(MAX_CLUBS, (int) ($input['clubs'] ?? 18))),
-        facilitiesQuality: (float) ($input['facilitiesQuality'] ?? 1.0),
+        playerCount: Input::clamped(Input::int($input, 'players', 200), 1, MAX_PLAYERS),
+        years: Input::clamped(Input::int($input, 'years', 30), 1, MAX_YEARS),
+        seed: Input::int($input, 'seed', 42),
+        clubCount: Input::clamped(Input::int($input, 'clubs', 18), 0, MAX_CLUBS),
+        facilitiesQuality: Input::float($input, 'facilitiesQuality', 1.0),
     );
 
-    /** @var array<string, mixed> $rawOverrides */
-    $rawOverrides = \is_array($input['overrides'] ?? null) ? $input['overrides'] : [];
     $overrides = [];
-    foreach ($rawOverrides as $field => $value) {
+    foreach (Input::map($input, 'overrides') as $field => $value) {
         if (\is_string($field) && \in_array($field, RulesetOverride::ALL_FIELDS, strict: true) && is_numeric($value)) {
             $overrides[$field] = (float) $value;
         }
@@ -83,8 +78,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
 
+        // ⚠️ `$spec->world()`, pas `$spec` : la genese a quitte le harness pour
+        // `packages/worldgen` et `WorldFactory` attend un `WorldSpec`. Ce site
+        // est reste casse tout un lot faute d'etre analyse ou execute par quoi
+        // que ce soit - d'ou `public/` sous PHPStan desormais.
         $world = new WorldState();
-        $playerIds = new PopulationFactory()->populate($world, $spec);
+        $playerIds = new WorldFactory()->populate($world, $spec->world());
         $result = new Sampler()->run($world, $playerIds, $spec->years, $spec->seed, $baseline);
 
         echo json_encode(['baseline' => JsonSerializer::toArray($result)]);
@@ -96,83 +95,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-/**
- * Metadonnees d'affichage du panneau de calibration : un tuple explicite
- * par champ de Balance (libelle FR, pas du <input>, valeur par defaut lue
- * directement sur $baseline). Pas de boucle avec acces dynamique
- * ($obj->$field) sur un nom de champ variable - chaque ligne nomme son
- * champ en clair, meme esprit d'enumeration explicite que RulesetOverride.
- *
- * `min`/`max` (optionnels) : seulement renseignes pour les champs qui
- * servent de borne de boucle dans le kernel (`talentSkew`,
- * `baseIntakePerClub` - cf. `RulesetOverride::FIELD_BOUNDS`), pour empecher
- * une saisie hors bornes de declencher le timeout serveur (30s) directement
- * depuis le formulaire, meme esprit que les bornes deja sur les champs
- * Population plus haut.
- *
- * @var list<array{field: string, group: string, label: string, step: string, default: int|float, min?: int|float, max?: int|float}>
- */
-$fieldMeta = [
-    ['field' => 'retirementEligibleAge', 'group' => 'Retraite', 'label' => "Âge d'éligibilité (années)", 'step' => '0.5', 'default' => $baseline->balance->retirement->retirementEligibleAge],
-    ['field' => 'retirementAgeWeight', 'group' => 'Retraite', 'label' => "Poids de l'âge dans la probabilité", 'step' => '0.01', 'default' => $baseline->balance->retirement->retirementAgeWeight],
-    ['field' => 'retirementFragilityWeight', 'group' => 'Retraite', 'label' => 'Poids de la fragilité', 'step' => '0.01', 'default' => $baseline->balance->retirement->retirementFragilityWeight],
-
-    ['field' => 'growthPrimeAgeThreshold', 'group' => 'Développement', 'label' => "Seuil d'âge de progression max (années)", 'step' => '0.5', 'default' => $baseline->balance->playerDevelopment->growthPrimeAgeThreshold],
-    ['field' => 'growthPlateauFactor', 'group' => 'Développement', 'label' => 'Facteur de plateau', 'step' => '0.01', 'default' => $baseline->balance->playerDevelopment->growthPlateauFactor],
-    ['field' => 'declineRatePerYear', 'group' => 'Développement', 'label' => 'Pente de déclin post-pic', 'step' => '0.01', 'default' => $baseline->balance->playerDevelopment->declineRatePerYear],
-    ['field' => 'physicalDeclineMultiplier', 'group' => 'Développement', 'label' => 'Multiplicateur déclin physique', 'step' => '0.1', 'default' => $baseline->balance->playerDevelopment->physicalDeclineMultiplier],
-    ['field' => 'technicalDeclineMultiplier', 'group' => 'Développement', 'label' => 'Multiplicateur déclin technique', 'step' => '0.1', 'default' => $baseline->balance->playerDevelopment->technicalDeclineMultiplier],
-    ['field' => 'mentalDeclineMultiplier', 'group' => 'Développement', 'label' => 'Multiplicateur déclin mental', 'step' => '0.1', 'default' => $baseline->balance->playerDevelopment->mentalDeclineMultiplier],
-
-    ['field' => 'intakeDayOfYear', 'group' => 'Formation des jeunes', 'label' => 'Jour de promotion (tick % 365)', 'step' => '1', 'default' => $baseline->balance->youthIntake->intakeDayOfYear],
-    ['field' => 'intakeAgeYears', 'group' => 'Formation des jeunes', 'label' => "Âge d'entrée pro (années)", 'step' => '0.5', 'default' => $baseline->balance->youthIntake->intakeAgeYears],
-    ['field' => 'baseIntakePerClub', 'group' => 'Formation des jeunes', 'label' => 'Promotions moyennes par club/saison', 'step' => '0.1', 'default' => $baseline->balance->youthIntake->baseIntakePerClub, 'min' => 0, 'max' => 20],
-    ['field' => 'ceilingMin', 'group' => 'Formation des jeunes', 'label' => 'Potentiel min (ceiling)', 'step' => '1', 'default' => $baseline->balance->youthIntake->ceilingMin],
-    ['field' => 'ceilingMax', 'group' => 'Formation des jeunes', 'label' => 'Potentiel max (ceiling)', 'step' => '1', 'default' => $baseline->balance->youthIntake->ceilingMax],
-    ['field' => 'talentSkew', 'group' => 'Formation des jeunes', 'label' => 'Asymétrie de la loi de talent (k)', 'step' => '1', 'default' => $baseline->balance->youthIntake->talentSkew, 'min' => 1, 'max' => 50],
-    ['field' => 'startingSkillRatio', 'group' => 'Formation des jeunes', 'label' => 'Ratio de compétence de départ', 'step' => '0.01', 'default' => $baseline->balance->youthIntake->startingSkillRatio],
-    ['field' => 'startingSkillJitter', 'group' => 'Formation des jeunes', 'label' => 'Bruit de compétence de départ', 'step' => '1', 'default' => $baseline->balance->youthIntake->startingSkillJitter],
-    ['field' => 'physicalPeakAgeMin', 'group' => 'Formation des jeunes', 'label' => 'Âge de pic physique min', 'step' => '1', 'default' => $baseline->balance->youthIntake->physicalPeakAgeMin],
-    ['field' => 'physicalPeakAgeMax', 'group' => 'Formation des jeunes', 'label' => 'Âge de pic physique max', 'step' => '1', 'default' => $baseline->balance->youthIntake->physicalPeakAgeMax],
-    ['field' => 'technicalPeakAgeMin', 'group' => 'Formation des jeunes', 'label' => 'Âge de pic technique min', 'step' => '1', 'default' => $baseline->balance->youthIntake->technicalPeakAgeMin],
-    ['field' => 'technicalPeakAgeMax', 'group' => 'Formation des jeunes', 'label' => 'Âge de pic technique max', 'step' => '1', 'default' => $baseline->balance->youthIntake->technicalPeakAgeMax],
-    ['field' => 'mentalPeakAgeMin', 'group' => 'Formation des jeunes', 'label' => 'Âge de pic mental min', 'step' => '1', 'default' => $baseline->balance->youthIntake->mentalPeakAgeMin],
-    ['field' => 'mentalPeakAgeMax', 'group' => 'Formation des jeunes', 'label' => 'Âge de pic mental max', 'step' => '1', 'default' => $baseline->balance->youthIntake->mentalPeakAgeMax],
-    ['field' => 'growthRateMin', 'group' => 'Formation des jeunes', 'label' => 'Vitesse de progression min', 'step' => '0.01', 'default' => $baseline->balance->youthIntake->growthRateMin],
-    ['field' => 'growthRateMax', 'group' => 'Formation des jeunes', 'label' => 'Vitesse de progression max', 'step' => '0.01', 'default' => $baseline->balance->youthIntake->growthRateMax],
-    ['field' => 'fragilityMin', 'group' => 'Formation des jeunes', 'label' => 'Fragilité min', 'step' => '0.01', 'default' => $baseline->balance->youthIntake->fragilityMin],
-    ['field' => 'fragilityMax', 'group' => 'Formation des jeunes', 'label' => 'Fragilité max', 'step' => '0.01', 'default' => $baseline->balance->youthIntake->fragilityMax],
-
-    ['field' => 'developmentRate', 'group' => 'Global', 'label' => 'Multiplicateur global de progression/déclin', 'step' => '0.05', 'default' => $baseline->balance->developmentRate],
-    ['field' => 'trainingRate', 'group' => 'Global', 'label' => "Multiplicateur global d'entraînement", 'step' => '0.05', 'default' => $baseline->balance->trainingRate],
-
-    ['field' => 'seasonStartDayOfYear', 'group' => 'Calendrier', 'label' => "Jour de génération de la saison (tick % 365)", 'step' => '1', 'default' => $baseline->balance->calendar->seasonStartDayOfYear],
-    ['field' => 'firstMatchdayOffsetDays', 'group' => 'Calendrier', 'label' => 'Délai avant le coup d\'envoi (jours)', 'step' => '1', 'default' => $baseline->balance->calendar->firstMatchdayOffsetDays],
-    ['field' => 'matchdayIntervalDays', 'group' => 'Calendrier', 'label' => 'Espacement entre journées (jours)', 'step' => '1', 'default' => $baseline->balance->calendar->matchdayIntervalDays],
-
-    ['field' => 'homeAdvantage', 'group' => 'Match', 'label' => "Avantage du terrain (exposant)", 'step' => '0.05', 'default' => $baseline->balance->match->homeAdvantage],
-    ['field' => 'strengthScale', 'group' => 'Match', 'label' => "Échelle de force (diviseur de l'écart de rating)", 'step' => '1', 'default' => $baseline->balance->match->strengthScale],
-    ['field' => 'lowScoreCorrelation', 'group' => 'Match', 'label' => 'Corrélation Dixon-Coles (ρ, scores faibles)', 'step' => '0.01', 'default' => $baseline->balance->match->lowScoreCorrelation],
-    ['field' => 'maxSimulatedGoals', 'group' => 'Match', 'label' => 'Plafond de buts simulés par équipe', 'step' => '1', 'default' => $baseline->balance->match->maxSimulatedGoals],
-
-    ['field' => 'pointsForWin', 'group' => 'Classement', 'label' => 'Points pour une victoire', 'step' => '1', 'default' => $baseline->balance->competition->pointsForWin],
-    ['field' => 'pointsForDraw', 'group' => 'Classement', 'label' => 'Points pour un match nul', 'step' => '1', 'default' => $baseline->balance->competition->pointsForDraw],
-
-    // Perception : `baseErrorPoints` a 0 rend tout observateur exact, donc
-    // reproduit le monde d'avant ce lot - c'est l'interrupteur de mesure, et le
-    // seul champ de ce groupe qu'on veut vraiment manipuler depuis l'UI.
-    ['field' => 'baseErrorPoints', 'group' => 'Perception', 'label' => "Erreur d'estimation d'un staff median (points, 0 = omniscience)", 'step' => '0.5', 'default' => $baseline->balance->perception->baseErrorPoints],
-    ['field' => 'judgementReference', 'group' => 'Perception', 'label' => 'Jugement de reference', 'step' => '1', 'default' => $baseline->balance->perception->judgementReference],
-    ['field' => 'unstaffedJudgement', 'group' => 'Perception', 'label' => 'Jugement impute a un club sans recruteur', 'step' => '1', 'default' => $baseline->balance->perception->unstaffedJudgement],
-];
-
-$groupedFields = [];
-foreach ($fieldMeta as $meta) {
-    $groupedFields[$meta['group']][] = $meta;
-}
-
-/** Groupes deplies par defaut : ceux deja calibrables avant ce lot. Les deux autres (nouveaux, plus nombreux) restent replies. */
-$openByDefault = ['Retraite' => true, 'Développement' => true];
+$groupedFields = CalibrationFields::grouped($baseline);
 ?>
 <!doctype html>
 <html lang="fr">
@@ -199,21 +122,12 @@ $openByDefault = ['Retraite' => true, 'Développement' => true];
 
         <fieldset>
             <legend>Calibration (optionnel — laisser un champ à sa valeur par défaut pour ne pas le faire varier)</legend>
-            <?php foreach (array_keys(RulesetOverride::GROUPS) as $groupLabel): ?>
-                <details<?= ($openByDefault[$groupLabel] ?? false) ? ' open' : '' ?>>
+            <?php foreach (CalibrationFields::groupLabels() as $groupLabel): ?>
+                <details<?= isset(CalibrationFields::OPEN_BY_DEFAULT[$groupLabel]) ? ' open' : '' ?>>
                     <summary><?= htmlspecialchars($groupLabel) ?></summary>
                     <?php foreach ($groupedFields[$groupLabel] ?? [] as $meta): ?>
-                        <?php
-                            $bounds = '';
-                            if (isset($meta['min'])) {
-                                $bounds .= ' min="' . htmlspecialchars((string) $meta['min']) . '"';
-                            }
-                            if (isset($meta['max'])) {
-                                $bounds .= ' max="' . htmlspecialchars((string) $meta['max']) . '"';
-                            }
-                        ?>
-                        <label><?= htmlspecialchars($meta['label']) ?>
-                            <input type="number" step="<?= htmlspecialchars($meta['step']) ?>" name="override[<?= htmlspecialchars($meta['field']) ?>]" value="<?= htmlspecialchars((string) $meta['default']) ?>" data-default="<?= htmlspecialchars((string) $meta['default']) ?>"<?= $bounds ?>>
+                        <label><?= htmlspecialchars($meta->label) ?>
+                            <input type="number" step="<?= htmlspecialchars($meta->step) ?>" name="override[<?= htmlspecialchars($meta->field) ?>]" value="<?= htmlspecialchars((string) $meta->default) ?>" data-default="<?= htmlspecialchars((string) $meta->default) ?>"<?= $meta->boundsAttribute() ?>>
                         </label>
                     <?php endforeach; ?>
                 </details>

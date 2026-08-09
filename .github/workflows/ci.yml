@@ -2,7 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # `master`, et non `main` : c'est le nom de la branche principale de ce
+    # depot. Ecrit `main` jusqu'au 2026-08-08, ce declencheur n'avait donc
+    # jamais tourne une seule fois - seules les pull requests lancaient le CI.
+    branches: [master]
   pull_request:
 
 jobs:
@@ -32,7 +35,113 @@ jobs:
         working-directory: packages/harness
       - run: vendor/bin/phpunit
         working-directory: packages/harness
-      - run: vendor/bin/phpstan analyse
+      # `composer analyse` et pas `vendor/bin/phpstan analyse` : le script
+      # porte `--memory-limit=1G`, et depuis que `public/` est analyse le
+      # defaut de 128 Mo ne suffit plus (constate : OOM en plein worker).
+      - run: composer analyse
         working-directory: packages/harness
       - run: vendor/bin/phpunit --testsuite Regression
         working-directory: packages/harness
+
+  worldgen:
+    runs-on: ubuntu-latest
+    needs: kernel
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+      - run: composer install --no-interaction
+        working-directory: packages/worldgen
+      - run: vendor/bin/phpunit
+        working-directory: packages/worldgen
+      - run: composer analyse
+        working-directory: packages/worldgen
+
+  host:
+    runs-on: ubuntu-latest
+    needs: kernel
+    # Le service reproduit `docker-compose.yml` a l'identique - meme image,
+    # memes identifiants, **meme port 54329**. C'est delibere : ce sont les
+    # defauts de `Host\Database\DatabaseConfig`, donc le CI execute la
+    # configuration documentee au lieu d'une configuration parallele, et une
+    # panne se reproduit en local sans traduire de reglages.
+    services:
+      db:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: flair
+          POSTGRES_USER: flair
+          POSTGRES_PASSWORD: flair
+        ports:
+          - "54329:5432"
+        options: >-
+          --health-cmd "pg_isready -U flair -d flair"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_pgsql
+      - run: composer install --no-interaction
+        working-directory: packages/host
+      # `--fail-on-skipped` n'est pas une precaution de style : toute la suite
+      # de `host` se **skippe** proprement quand aucune base n'est joignable
+      # (Tests\DatabaseTestCase), ce qui est le bon comportement sur un poste
+      # de dev mais rendrait ici un job vert n'ayant rien execute. Le drapeau
+      # transforme ce skip en echec, et il ne peut rien attraper d'autre : les
+      # seuls `markTestSkipped` du depot sont ceux-la.
+      #
+      # Pas de `bin/host.php install` : la suite installe son schema elle-meme.
+      - run: vendor/bin/phpunit --fail-on-skipped
+        working-directory: packages/host
+      - run: composer analyse
+        working-directory: packages/host
+
+  api:
+    runs-on: ubuntu-latest
+    needs: kernel
+    # En parallele de `host`, pas a sa suite : les deux eprouvent des choses
+    # differentes (l'atomicite et le verrou d'un cote, la couche de lecture de
+    # l'autre), et un seul run donne les deux signaux.
+    services:
+      db:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: flair
+          POSTGRES_USER: flair
+          POSTGRES_PASSWORD: flair
+        ports:
+          - "54329:5432"
+        options: >-
+          --health-cmd "pg_isready -U flair -d flair"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_pgsql
+      # Le `.env` est ignore par git, et il est **necessaire** : les tests HTTP
+      # (Tests\TestCase) prennent leur connexion dans le conteneur Laravel,
+      # donc dans `config/flair.php`, donc dans le `.env` - la ou
+      # `Tests\ReadTestCase` lit `getenv()`. `.env.example` porte deja les
+      # defauts du `docker-compose.yml`, donc les deux chemins tombent juste
+      # sans un seul override.
+      - run: cp .env.example .env
+        working-directory: packages/api
+      - run: composer install --no-interaction
+        working-directory: packages/api
+      - run: php artisan key:generate
+        working-directory: packages/api
+      # Meme raison que pour `host` : sans ce drapeau, une base injoignable
+      # rendrait un job vert a zero test execute.
+      - run: vendor/bin/phpunit --fail-on-skipped
+        working-directory: packages/api
+      - run: composer analyse
+        working-directory: packages/api

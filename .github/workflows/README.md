@@ -4,58 +4,83 @@ Un seul workflow, `ci.yml`. Il tourne côté GitHub (Actions), jamais localement
 
 ## Pourquoi il existe
 
-Le noyau (`kernel`) et le harness d'équilibrage sont couverts par des tests, PHPStan niveau max, et un garde-fou de calibrage (`packages/harness/tests/Regression/CalibrationRegressionTest.php`) qui vérifie que la population reste stationnaire et que la répartition des scores reste plausible (`docs/15-roadmap.md` §4, Phase 0). Rien n'oblige aujourd'hui à relancer ces vérifications avant de commiter — le CI le fait automatiquement à chaque push, pour attraper une régression de calibrage tout de suite plutôt qu'après dix systèmes de plus (marché, finances...).
+Rien n'oblige à relancer les vérifications avant de commiter. Le CI le fait automatiquement, pour attraper une régression tout de suite plutôt qu'après dix systèmes de plus.
+
+Il a couvert `kernel` et `harness` seuls jusqu'au 2026-08-08 — donc **ni `worldgen`, ni `host`, ni `api`**, soit toute la persistance et toute la couche de lecture. C'était la dette D1 de `docs/18-dettes.md`. Les cinq paquets qui ont des tests sont désormais dans le workflow.
 
 ## Déclenchement
 
 ```yaml
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
 ```
 
-Le workflow se lance sur :
-- un push vers `main`,
+- un push vers `master`,
 - **ou** l'ouverture/mise à jour d'une pull request, quelle que soit la branche source.
 
-Un push sur une branche de travail (`feat/...`) qui n'a pas de PR ouverte **ne déclenche rien**. Pour voir le CI tourner sur du travail en cours, ouvrir une PR :
+> ⚠️ Ce déclencheur disait `main` jusqu'au 2026-08-08, alors que la branche principale de ce dépôt est `master` et qu'aucune branche `main` n'a jamais existé. **Le déclencheur `push` n'avait donc jamais tourné une seule fois** : seules les pull requests lançaient le CI. À ne pas réapprendre — un déclencheur qui ne se déclenche pas est silencieux par nature.
+
+Un push sur une branche de travail (`feat/...`) qui n'a pas de PR ouverte ne déclenche rien. Pour voir le CI tourner sur du travail en cours, ouvrir une PR :
 ```bash
 git push -u origin <branche>
 gh pr create
 ```
 
-## Les deux jobs
+## Les cinq jobs
 
-`harness` attend que `kernel` passe (`needs: kernel`) avant de démarrer — inutile de calibrer un harness qui dépend d'un noyau cassé.
+Tous ont `needs: kernel` — inutile de faire tourner quoi que ce soit sur un noyau cassé. `harness`, `worldgen`, `host` et `api` tournent ensuite **en parallèle** : ils éprouvent des choses différentes (le calibrage, la genèse, l'atomicité en base, la couche de lecture), et un seul run donne les quatre signaux.
 
-### `kernel`
-```bash
-cd packages/kernel
-composer install --no-interaction
-vendor/bin/phpunit
-vendor/bin/phpstan analyse
+```
+kernel ──┬── harness
+         ├── worldgen
+         ├── host
+         └── api
 ```
 
-### `harness`
+### `kernel`, `harness`, `worldgen`
 ```bash
-cd packages/harness
-composer install --no-interaction
-vendor/bin/phpunit                          # suite par defaut, exclut tests/Regression
-vendor/bin/phpstan analyse
-vendor/bin/phpunit --testsuite Regression   # ~35s, run de calibrage complet
+cd packages/kernel   && composer install --no-interaction && vendor/bin/phpunit && vendor/bin/phpstan analyse
+cd packages/worldgen && composer install --no-interaction && vendor/bin/phpunit && composer analyse
+cd packages/harness  && composer install --no-interaction && vendor/bin/phpunit && composer analyse && vendor/bin/phpunit --testsuite Regression
 ```
 
-Le détail de ce que couvre `CalibrationRegressionTest` (bornes, seeds, effectif attendu) est documenté dans `packages/harness/README.md`, section "Tests et qualité" — pas dupliqué ici.
+> `harness` et `worldgen` appellent **`composer analyse`** et non `vendor/bin/phpstan analyse` : le script porte `--memory-limit=1G`, et depuis que `harness/public/` est analysé le défaut de 128 Mo ne suffit plus (constaté : OOM en plein worker).
+
+Le détail de ce que couvre `CalibrationRegressionTest` (bornes, seeds, effectif attendu) est documenté dans `packages/harness/README.md`, section « Tests et qualité » — pas dupliqué ici.
+
+### `host` et `api` — les deux jobs à base de données
+
+Les deux montent un **service Postgres qui reproduit `docker-compose.yml` à l'identique** : même image `postgres:16-alpine`, mêmes identifiants `flair`/`flair`/`flair`, et **même port 54329**. Ce n'est pas une coquetterie : ce sont les défauts de `Host\Database\DatabaseConfig`, donc le CI exécute la configuration documentée plutôt qu'une configuration parallèle, et un échec se reproduit en local sans traduire de réglages. Aucun `FLAIR_DB_*` n'est passé nulle part.
+
+Contrepartie assumée : le chemin de surcharge par variables d'environnement (`DatabaseConfig::fromEnvironment()`) reste non exercé en CI. C'est cinq `getenv()`, et le couvrir coûterait de faire diverger CI et poste de dev.
+
+```bash
+cd packages/host && composer install --no-interaction && vendor/bin/phpunit --fail-on-skipped && composer analyse
+
+cd packages/api  && cp .env.example .env \
+                 && composer install --no-interaction \
+                 && php artisan key:generate \
+                 && vendor/bin/phpunit --fail-on-skipped && composer analyse
+```
+
+Deux choses qui ne se devinent pas en lisant le YAML :
+
+**1. `--fail-on-skipped` est le cœur du job, pas un détail.** Les suites de `host` et `api` se **skippent** proprement quand aucune base n'est joignable (`Host\Tests\DatabaseTestCase`, `Api\Tests\ReadTestCase`, `Api\Tests\TestCase`). C'est le bon comportement sur un poste de dev — un `docker compose up -d db` oublié est une machine mal préparée, pas une régression. **En CI c'est l'inverse** : un service mal câblé rendrait un job vert n'ayant rien exécuté. Mesuré, base arrêtée : sans le drapeau `exit=0`, avec le drapeau `exit=1`. Le drapeau ne peut rien attraper d'autre que ce cas — ce sont les trois seuls `markTestSkipped` du dépôt.
+
+Le job ne lance pas `bin/host.php install` : les deux suites installent leur schéma elles-mêmes.
+
+**2. Le `.env` d'`api` est nécessaire, et il est ignoré par git.** Les tests HTTP (`Api\Tests\TestCase`) prennent leur connexion dans le conteneur Laravel, donc dans `config/flair.php`, donc dans le `.env` — là où `Api\Tests\ReadTestCase` lit `getenv()`. `.env.example` porte déjà les défauts du `docker-compose.yml`, donc les deux chemins tombent juste sans un seul override, et sans la question de préséance `.env` vs environnement réel.
 
 ## Reproduire localement avant de pousser
 
-Exactement les mêmes commandes, dans chaque package :
+Exactement les mêmes commandes que ci-dessus, avec la base démarrée pour les deux derniers :
 ```bash
-cd packages/kernel && composer install && vendor/bin/phpunit && vendor/bin/phpstan analyse
-cd packages/harness && composer install && vendor/bin/phpunit && vendor/bin/phpstan analyse && vendor/bin/phpunit --testsuite Regression
+docker compose up -d db
 ```
-Si tout est vert en local, le CI doit passer de la même façon — même PHP 8.3, mêmes commandes, aucune étape cachée côté GitHub.
+
+> ⚠️ **Deux écarts entre le CI et le poste de dev, à connaître avant de débugger un rouge qui n'est pas reproductible.** Le CI tourne sur **PHP 8.3** (le plancher supporté), la machine de dev est plus avancée. Et **aucun `composer.lock` n'est suivi** (le `.gitignore` racine l'ignore), donc chaque job résout ses dépendances à neuf : le CI peut installer des versions que le poste de dev n'a pas. Les deux sont des choix, pas des oublis, mais ils expliquent la classe de panne « vert en local, rouge en CI ».
 
 ## Suivre un run
 

@@ -3,7 +3,6 @@
     bootstrap="vendor/autoload.php"
     colors="true"
     testdox="true"
-    verbose="true"
     defaultTestSuite="Application Test Suite"
 >
     <testsuites>

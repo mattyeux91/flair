@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Flair\Kernel\Core\Pipeline;
 
 use Flair\Kernel\Core\Ecs\WorldState;
+use Flair\Kernel\Core\Messaging\DecisionRequest;
 use Flair\Kernel\Core\Messaging\Intent;
+use Flair\Kernel\Core\Messaging\RequestQueue;
 use Flair\Kernel\Core\Ruleset\Ruleset;
 
 /**
@@ -40,11 +42,20 @@ final class Pipeline
         );
     }
 
-    /** @param list<Intent> $intents */
-    public function tick(WorldState $world, int $tick, int $worldSeed, Ruleset $ruleset, array $intents): void
+    /**
+     * Les questions du tick sont rendues, les Faits ne le sont pas : ceux-ci
+     * restent dans l'OutQueue du monde, qui leur survit d'un tick a l'autre.
+     * Une `RequestQueue` nait et meurt avec le tick (voir son docblock), donc
+     * elle n'a nulle part ou aller sinon ici.
+     *
+     * @param list<Intent> $intents
+     * @return list<DecisionRequest> les questions posees pendant ce tick
+     */
+    public function tick(WorldState $world, int $tick, int $worldSeed, Ruleset $ruleset, array $intents): array
     {
         $scheduler = $world->scheduler();
         $outQueue = $world->outQueue();
+        $requests = new RequestQueue();
         $seq = new SeqCounter();
 
         $incoming = [...$scheduler->drainDueBy($tick), ...$outQueue->drain()];
@@ -60,6 +71,7 @@ final class Pipeline
                 $world,
                 $scheduler,
                 $outQueue,
+                $requests,
                 $seq,
             );
 
@@ -74,5 +86,7 @@ final class Pipeline
 
             $system->update($ctx);
         }
+
+        return $requests->pending();
     }
 }

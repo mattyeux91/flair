@@ -35,7 +35,6 @@ use Flair\Kernel\Football\Events\SeasonConcluded;
 use Flair\Kernel\Football\Events\SeasonEnded;
 use Flair\Kernel\Football\Events\SeasonStarted;
 use Flair\Kernel\Football\Events\TransferAgreed;
-use Flair\Kernel\Football\Events\TransferCounterDemanded;
 use Flair\Kernel\Football\Events\TransferNegotiationBroken;
 use Flair\Kernel\Football\Events\TransferNegotiationOpened;
 use Flair\Kernel\Football\Events\YouthPlayerPromoted;
@@ -64,6 +63,14 @@ use Flair\Kernel\Football\Events\YouthPlayerPromoted;
  *   `Standings::$entries`. Les deux sont neanmoins couvertes : le test de
  *   conformite exige que tout type du domaine soit enregistre **ou**
  *   atteignable depuis un type enregistre.
+ * - **`Football\Requests\` n'y entre jamais.** Un `DecisionRequest` est
+ *   transitoire par definition (docs/16- §1) : il ne vit dans aucun
+ *   ComponentStore, ne survit a aucun tick, et n'est jamais journalise. Lui
+ *   donner une cle stable reviendrait a promettre qu'on saura le relire dans
+ *   dix ans, alors que rien ne l'ecrit. La regle est tenue **dans les deux
+ *   sens** par Tests\Core\Snapshot\SnapshotConformanceTest : les types de
+ *   `Components/`, `Singletons/` et `Events/` doivent y etre atteignables,
+ *   ceux de `Requests/` doivent en etre absents.
  * - Oublier un type ici est impossible sans casser
  *   Tests\Core\Snapshot\SnapshotConformanceTest.
  */
@@ -109,7 +116,6 @@ final class FootballTypes
                 'football.event.season_ended' => SeasonEnded::class,
                 'football.event.season_started' => SeasonStarted::class,
                 'football.event.transfer_agreed' => TransferAgreed::class,
-                'football.event.transfer_counter_demanded' => TransferCounterDemanded::class,
                 'football.event.transfer_negotiation_broken' => TransferNegotiationBroken::class,
                 'football.event.transfer_negotiation_opened' => TransferNegotiationOpened::class,
                 'football.event.youth_player_promoted' => YouthPlayerPromoted::class,

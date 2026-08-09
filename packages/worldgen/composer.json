@@ -21,6 +21,9 @@
             "Flair\\Worldgen\\Tests\\": "tests/"
         }
     },
+    "scripts": {
+        "analyse": "phpstan analyse --memory-limit=1G"
+    },
     "repositories": [
         {
             "type": "path",

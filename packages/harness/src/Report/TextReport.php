@@ -9,6 +9,7 @@ use Flair\Harness\Metrics\CompetitiveBalance;
 use Flair\Harness\Metrics\CompetitiveBalanceResult;
 use Flair\Harness\Metrics\EventGraphResult;
 use Flair\Harness\Metrics\Stats;
+use Flair\Kernel\Football\Components\Position;
 
 /**
  * Rendu console d'un AggregateResult - tables et barres ASCII, meme esprit
@@ -433,7 +434,12 @@ final class TextReport
      * budgets peuvent payer, se degonfle. Les lire comme un regime permanent
      * ferait conclure a un chomage de masse qui n'existe pas.
      *
-     * @param array<int, array{transfers: int, unattached: int, wageBillCents: int}> $byYear
+     * Les deux lignes de synthese qui suivent le tableau, elles, portent sur
+     * **tout** le run : elles comptent des evenements rares (~1,6 transfert
+     * payant par saison), et cinq annees n'en donneraient pas une lecture
+     * stable.
+     *
+     * @param array<int, array{transfers: int, paidByPosition: array<string, int>, keeperlessClubs: int, clubs: int, unattached: int, wageBillCents: int}> $byYear
      * @param array<string, int> $byClub masse salariale annuelle engagee, par club
      */
     private function renderMarket(array $byYear, array $byClub, string $title = 'Marche'): string
@@ -455,6 +461,8 @@ final class TextReport
             );
         }
 
+        $output .= $this->renderPaidTransfers($byYear);
+
         if ($byClub !== []) {
             $bills = array_values($byClub);
             sort($bills);
@@ -468,6 +476,60 @@ final class TextReport
         }
 
         return $output . "\n";
+    }
+
+    /**
+     * Les transferts **payants** ventiles par poste, cumules sur tout le run,
+     * et les club-annees sans gardien.
+     *
+     * Deux lignes qui existent parce qu'elles ont deja attrape quelque chose :
+     * mesure le 2026-08-08 a 6 graines, l'acheteur PNJ ne visait que le premier
+     * poste sous-effectif dans l'ordre de l'enum, ce qui donnait 64 % de
+     * defenseurs et **un seul attaquant transfere sur 197**. Rien ne l'affichait,
+     * donc personne ne le voyait. Meme raison pour les gardiens : la mesure
+     * n'existait que comme plafond muet dans un test de regression.
+     *
+     * @param array<int, array{transfers: int, paidByPosition: array<string, int>, keeperlessClubs: int, clubs: int, unattached: int, wageBillCents: int}> $byYear
+     */
+    private function renderPaidTransfers(array $byYear): string
+    {
+        $paid = [];
+        $total = 0;
+        $keeperless = 0;
+        $clubYears = 0;
+
+        foreach ($byYear as $row) {
+            foreach ($row['paidByPosition'] as $position => $count) {
+                $paid[$position] = ($paid[$position] ?? 0) + $count;
+                $total += $count;
+            }
+
+            $keeperless += $row['keeperlessClubs'];
+            $clubYears += $row['clubs'];
+        }
+
+        $breakdown = [];
+
+        foreach (Position::cases() as $position) {
+            $count = $paid[$position->value] ?? 0;
+            $breakdown[] = sprintf(
+                '%s %d (%.1f %%)',
+                $position->value,
+                $count,
+                $total > 0 ? 100 * $count / $total : 0.0,
+            );
+        }
+
+        return sprintf(
+            "transferts payants sur le run : %d - %s\n",
+            $total,
+            implode('  ', $breakdown),
+        ) . sprintf(
+            "club-annees sans gardien : %d/%d (%.2f %%)\n",
+            $keeperless,
+            $clubYears,
+            $clubYears > 0 ? 100 * $keeperless / $clubYears : 0.0,
+        );
     }
 
     /**

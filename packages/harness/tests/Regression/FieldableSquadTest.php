@@ -6,15 +6,10 @@ namespace Flair\Harness\Tests\Regression;
 
 use Flair\Harness\Population\PopulationSpec;
 use Flair\Harness\Simulation\StepRunner;
+use Flair\Harness\Support\WorldInspector;
 use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Ruleset\Ruleset;
-use Flair\Kernel\Football\Components\Club;
-use Flair\Kernel\Football\Components\PlayerMentalSkills;
-use Flair\Kernel\Football\Components\PlayerPhysicalSkills;
-use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
 use Flair\Kernel\Football\Components\Position;
-use Flair\Kernel\Football\Components\SquadMembership;
-use Flair\Kernel\Football\Support\PositionModel;
 use Flair\Worldgen\WorldFactory;
 use PHPUnit\Framework\TestCase;
 
@@ -85,7 +80,7 @@ final class FieldableSquadTest extends TestCase
         for ($year = 1; $year <= self::YEARS; $year++) {
             $runner->advance(365);
 
-            foreach ($this->squadsByClub($world) as $clubId => $squad) {
+            foreach (WorldInspector::squadsByPosition($world) as $clubId => $squad) {
                 self::assertGreaterThanOrEqual(
                     self::MINIMUM_SQUAD,
                     $squad['total'],
@@ -107,42 +102,4 @@ final class FieldableSquadTest extends TestCase
         );
     }
 
-    /**
-     * Effectif de chaque club, total et nombre de gardiens - un club sans le
-     * moindre joueur est inclus avec des compteurs a zero, sinon un club vide
-     * echapperait silencieusement aux deux assertions.
-     *
-     * @return array<int, array{total: int, GK: int}>
-     */
-    private function squadsByClub(WorldState $world): array
-    {
-        $squads = [];
-
-        foreach ($world->components(Club::class)->entities() as $clubId) {
-            $squads[$clubId] = ['total' => 0, Position::Goalkeeper->value => 0];
-        }
-
-        foreach ($world->components(SquadMembership::class)->entities() as $playerId) {
-            $membership = $world->components(SquadMembership::class)->get($playerId);
-            $physical = $world->components(PlayerPhysicalSkills::class)->get($playerId);
-            $technical = $world->components(PlayerTechnicalSkills::class)->get($playerId);
-            $mental = $world->components(PlayerMentalSkills::class)->get($playerId);
-
-            if ($membership === null || !isset($squads[$membership->clubId])) {
-                continue;
-            }
-
-            $squads[$membership->clubId]['total']++;
-
-            if ($physical === null || $technical === null || $mental === null) {
-                continue;
-            }
-
-            if (PositionModel::bestPosition($physical, $technical, $mental) === Position::Goalkeeper) {
-                $squads[$membership->clubId][Position::Goalkeeper->value]++;
-            }
-        }
-
-        return $squads;
-    }
 }

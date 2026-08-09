@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace Flair\Host;
 
 use Flair\Host\Database\Database;
+use Flair\Host\Rules\RulesetForWorld;
 use Flair\Host\Store\SnapshotStore;
 use Flair\Host\Store\WorldRecord;
 use Flair\Host\Store\WorldRepository;
 use Flair\Kernel\Core\Ecs\WorldState;
-use Flair\Kernel\Core\Ruleset\Ruleset;
 use Flair\Kernel\Core\Snapshot\SnapshotCodec;
 use Flair\Kernel\Core\Snapshot\WorldSnapshot;
 use Flair\Kernel\Football\FootballTypes;
@@ -29,6 +29,19 @@ use RuntimeException;
  * Le monde nait epingle a `(Kernel::VERSION, ruleset.version)` (docs/12- §6).
  * Aucun tick n'est joue ici : un monde neuf est un monde au tick 0, avec son
  * premier snapshot et un event log vide. `AdvanceWorld` fait le reste.
+ *
+ * ## Une **version** de regles, pas un `Ruleset`
+ *
+ * Ce constructeur prenait un `Ruleset` complet, et c'etait un piege : le
+ * genesis n'en lisait que `->version`. `Worldgen\WorldFactory::populate()`
+ * accepte bien des groupes de `Balance`, mais on ne lui en passe aucun - donc
+ * un `Ruleset` porteur d'un `Balance` sur mesure aurait ete **silencieusement
+ * ignore ici**, puis reconstruit aux defauts par `AdvanceWorld`. Le parametre
+ * promettait un reglage qu'il n'appliquait nulle part.
+ *
+ * Il prend donc une chaine, et c'est `Rules\RulesetForWorld` - le site unique
+ * qui traduit une version en regles - qui la valide. Un monde ne peut plus
+ * naitre epingle a des regles que ce Host ne saura pas lui appliquer.
  */
 final class CreateWorld
 {
@@ -43,11 +56,18 @@ final class CreateWorld
         $this->codec = new SnapshotCodec(FootballTypes::registry());
     }
 
-    public function __invoke(string $worldId, WorldSpec $spec, Ruleset $ruleset = new Ruleset('default')): WorldRecord
-    {
+    public function __invoke(
+        string $worldId,
+        WorldSpec $spec,
+        string $rulesetVersion = RulesetForWorld::VERSION,
+    ): WorldRecord {
         if ($this->worlds->exists($worldId)) {
             throw new RuntimeException("Le monde \"{$worldId}\" existe deja.");
         }
+
+        // Avant toute ecriture, et avant meme d'engendrer le monde : un monde
+        // qu'on ne saura pas avancer n'a pas a exister.
+        RulesetForWorld::for($rulesetVersion);
 
         $state = new WorldState();
 
@@ -62,11 +82,11 @@ final class CreateWorld
             id: $worldId,
             seed: $spec->seed,
             kernelVersion: Kernel::VERSION,
-            rulesetVersion: $ruleset->version,
+            rulesetVersion: $rulesetVersion,
             tick: 0,
         );
 
-        $this->database->connection()->transaction(function () use ($record, $state, $worldId, $spec, $ruleset): void {
+        $this->database->connection()->transaction(function () use ($record, $state, $worldId, $spec, $rulesetVersion): void {
             $this->worlds->create($record);
             $this->snapshots->save(WorldSnapshot::capture(
                 $this->codec,
@@ -74,7 +94,7 @@ final class CreateWorld
                 $worldId,
                 tick: 0,
                 seed: $spec->seed,
-                rulesetVersion: $ruleset->version,
+                rulesetVersion: $rulesetVersion,
             ));
         });
 

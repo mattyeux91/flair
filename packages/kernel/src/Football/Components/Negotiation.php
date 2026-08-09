@@ -33,8 +33,9 @@ namespace Flair\Kernel\Football\Components;
  *   `TransferBalance::$responseGraceTicks` sans intention, la negociation
  *   s'eteint.
  *
- * L'attente existe parce qu'un acheteur peut etre **humain** : il voit le Fait
- * `TransferCounterDemanded` a la fin du tick qui l'a emis (docs/13- §2) et ne
+ * L'attente existe parce qu'un acheteur peut etre **humain** : il voit la
+ * question `Football\Requests\TransferCounterOffered` a la fin du tick qui l'a
+ * posee (docs/13- §2) et ne
  * peut donc repondre qu'au tick suivant. Une source PNJ, elle, repond dans le
  * tick meme ou elle voit la contre-demande - d'ou un delai de grace a `0` par
  * defaut, strictement sans effet sur un monde 100 % PNJ.

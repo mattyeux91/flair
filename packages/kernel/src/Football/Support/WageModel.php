@@ -19,7 +19,7 @@ use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
  *
  * Deux consommateurs reels, jamais un seul : `Football\ContractSystem` (a
  * chaque renouvellement et chaque signature) et
- * `Harness\Population\PopulationFactory` (le monde doit demarrer a la meme
+ * `Worldgen\WorldFactory` (le monde doit demarrer a la meme
  * echelle de salaires que celle vers laquelle il convergera, sinon la masse
  * salariale derive pendant les quatre premieres annees et la ligne de base du
  * grand livre n'est comparable a rien). C'est le seul critere que le projet

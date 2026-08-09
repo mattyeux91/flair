@@ -123,11 +123,37 @@ final class CompetitionSystemTest extends TestCase
 
         self::assertSame(self::COMPETITION_ID, $concluded->competitionId);
         // 30 : 4 pts, +3 ; 10 : 4 pts, +2 ; 20 : 0 pt.
-        self::assertSame([30, 10, 20], $concluded->finalRanking);
+        self::assertSame([30, 10, 20], $concluded->ranking());
 
         // La table survit a la fin de saison : Harness\Metrics\Sampler l'y
         // lit pour son historique, et seul SeasonStarted la remet a zero.
         self::assertCount(3, $world->components(Standings::class)->get(self::COMPETITION_ID)->entries ?? []);
+    }
+
+    /**
+     * **Ce que le Fait doit emporter avec lui.** `Standings` sera vide au
+     * prochain `SeasonStarted` : ce qui n'est pas dans ce payload n'existera
+     * plus nulle part, et un lecteur du passe devrait le recalculer - ce qui
+     * n'est juste que tant que les points ne viennent que de resultats de
+     * match. On verifie donc les chiffres, pas seulement l'ordre.
+     */
+    public function testTheConcludedSeasonCarriesTheFullTableAndNotJustTheOrder(): void
+    {
+        $world = new WorldState();
+        $this->playMatch($world, home: 10, away: 20, homeGoals: 2, awayGoals: 0, atTick: 5);
+        $this->playMatch($world, home: 30, away: 20, homeGoals: 4, awayGoals: 1, atTick: 6);
+        $this->playMatch($world, home: 30, away: 10, homeGoals: 0, awayGoals: 0, atTick: 7);
+
+        $champion = $this->endSeason($world, atTick: 10)->finalTable[0];
+
+        self::assertSame(30, $champion->clubId);
+        self::assertSame(2, $champion->played);
+        self::assertSame(1, $champion->won);
+        self::assertSame(1, $champion->drawn);
+        self::assertSame(0, $champion->lost);
+        self::assertSame(4, $champion->goalsFor);
+        self::assertSame(1, $champion->goalsAgainst);
+        self::assertSame(4, $champion->points);
     }
 
     /**
@@ -145,7 +171,7 @@ final class CompetitionSystemTest extends TestCase
 
         $concluded = $this->endSeason($world, atTick: 10);
 
-        self::assertSame([10, 20, 30, 40], $concluded->finalRanking);
+        self::assertSame([10, 20, 30, 40], $concluded->ranking());
     }
 
     public function testAConcludedSeasonWithoutAnyMatchCarriesAnEmptyRanking(): void
@@ -154,7 +180,7 @@ final class CompetitionSystemTest extends TestCase
 
         $concluded = $this->endSeason($world, atTick: 10);
 
-        self::assertSame([], $concluded->finalRanking);
+        self::assertSame([], $concluded->ranking());
     }
 
     /**

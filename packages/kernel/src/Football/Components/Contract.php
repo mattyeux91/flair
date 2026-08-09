@@ -41,7 +41,7 @@ use Flair\Kernel\Core\Support\SimDate;
  * transferts, pas avant (docs/15-roadmap.md §4).
  *
  * Cree par `Football\YouthIntakeSystem` (joueur promu) et
- * `Harness\Population\PopulationFactory` (joueur du genesis), ecrit et retire
+ * `Worldgen\WorldFactory` (joueur du genesis), ecrit et retire
  * par `Football\SquadSystem` - seul proprietaire de la relation d'emploi.
  */
 final readonly class Contract

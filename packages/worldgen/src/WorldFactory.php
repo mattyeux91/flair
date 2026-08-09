@@ -8,6 +8,7 @@ use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Ruleset\ContractBalance;
 use Flair\Kernel\Core\Ruleset\PositionBalance;
 use Flair\Kernel\Core\Ruleset\YouthIntakeBalance;
+use Flair\Kernel\Core\Support\Hash;
 use Flair\Kernel\Core\Support\Rng;
 use Flair\Kernel\Core\Support\SimDate;
 use Flair\Kernel\Football\Components\Contract;
@@ -19,6 +20,7 @@ use Flair\Kernel\Football\Components\PlayerTechnicalSkills;
 use Flair\Kernel\Football\Components\Position;
 use Flair\Kernel\Football\Components\SquadMembership;
 use Flair\Kernel\Football\Generation\PlayerFactory;
+use Flair\Kernel\Football\Support\NameBook;
 use Flair\Kernel\Football\Support\PositionModel;
 use Flair\Kernel\Football\Support\WageModel;
 
@@ -96,7 +98,7 @@ final class WorldFactory
         $contracts ??= new ContractBalance();
         $positions ??= new PositionBalance();
 
-        $clubIds = $spec->clubCount > 0 ? $this->clubs->create($world, $spec->clubCount, $spec->facilitiesQuality, $spec->startingBalanceCents) : [];
+        $clubIds = $spec->clubCount > 0 ? $this->clubs->create($world, $spec->clubCount, $spec->facilitiesQuality, $spec->startingBalanceCents, $spec->seed) : [];
         if ($clubIds !== []) {
             $this->competitions->create($world);
         }
@@ -112,7 +114,7 @@ final class WorldFactory
             $clubId = $clubIds === [] ? null : $clubIds[$i % \count($clubIds)];
             $rank = $clubId === null ? $i : $dealt[$clubId] = ($dealt[$clubId] ?? -1) + 1;
             $archetype = $deal[$rank % \count($deal)];
-            $playerIds[] = $this->createPlayer($world, $rng, $atTick, $talent, $contracts, $positions, $archetype, $clubId);
+            $playerIds[] = $this->createPlayer($world, $rng, $atTick, $talent, $contracts, $positions, $archetype, $clubId, $spec->seed);
         }
 
         // Le staff **apres** les joueurs, deliberement : les identifiants des
@@ -120,7 +122,7 @@ final class WorldFactory
         // scouts, et avec eux tous les flux RNG qui en derivent. C'est ce qui
         // garde comparables les mesures deja enregistrees (docs/15- §4) au lieu
         // de decaler le monde entier pour une entite par club.
-        $this->staff->create($world, $rng, $clubIds, $spec->scoutJudgementMean, $spec->scoutJudgementSpread);
+        $this->staff->create($world, $rng, $clubIds, $spec->scoutJudgementMean, $spec->scoutJudgementSpread, $spec->seed);
 
         // Meme raison, meme place : la patience du conseil d'administration
         // (docs/17-marche-transferts.md point 2 reouvert) ne cree aucune
@@ -166,13 +168,13 @@ final class WorldFactory
         return $deal;
     }
 
-    private function createPlayer(WorldState $world, Rng $rng, int $atTick, YouthIntakeBalance $talent, ContractBalance $contracts, PositionBalance $positions, Position $archetype, ?int $clubId): int
+    private function createPlayer(WorldState $world, Rng $rng, int $atTick, YouthIntakeBalance $talent, ContractBalance $contracts, PositionBalance $positions, Position $archetype, ?int $clubId, int $seed): int
     {
         $entity = $world->createEntity();
 
         $startAge = $this->uniform($rng, self::YOUNGEST_START_AGE, self::OLDEST_START_AGE);
         $birthDay = (int) round($atTick - $startAge * 365);
-        $world->components(Person::class)->set($entity, new Person("Joueur {$entity}", new SimDate($birthDay)));
+        $world->components(Person::class)->set($entity, new Person(NameBook::personName(Hash::mixAll($seed, $entity)), new SimDate($birthDay)));
 
         $potentials = $this->players->drawPotentials($rng, $talent, $positions, $archetype);
         $world->components(PlayerPotentials::class)->set($entity, $potentials);

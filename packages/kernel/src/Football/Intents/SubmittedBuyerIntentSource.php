@@ -19,8 +19,9 @@ use Flair\Kernel\Football\Components\Negotiation;
  *
  * ## Pourquoi ca marche pour un humain
  *
- * Le vendeur contre-demande au tick N et le Fait `TransferCounterDemanded`
- * n'est visible qu'a la fin de ce tick (docs/13- §2). L'humain le lit, soumet
+ * Le vendeur contre-demande au tick N et la question
+ * `Football\Requests\TransferCounterOffered` sort avec le `StepResult` de ce
+ * tick, pas avant (docs/13- §2). L'humain la lit, soumet
  * son intention, et `Football\TransferSystem` la trouve ici au tick N+1 - d'ou
  * le fait que la reponse de l'acheteur ait ete decalee d'un tick au point 3.
  * Sans ce decalage, cette classe ne pourrait rien fournir d'autre qu'une

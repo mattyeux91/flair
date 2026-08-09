@@ -8,6 +8,7 @@ use Flair\Kernel\Core\Ecs\WorldState;
 use Flair\Kernel\Core\Messaging\DomainEvent;
 use Flair\Kernel\Core\Messaging\Intent;
 use Flair\Kernel\Core\Messaging\OutQueue;
+use Flair\Kernel\Core\Messaging\RequestQueue;
 use Flair\Kernel\Core\Messaging\Scheduler;
 use Flair\Kernel\Core\Pipeline\SeqCounter;
 use Flair\Kernel\Core\Pipeline\SystemAccess;
@@ -171,6 +172,7 @@ final class SystemContextTest extends TestCase
         ?WorldState $world = null,
         ?Scheduler $scheduler = null,
         ?OutQueue $outQueue = null,
+        ?RequestQueue $requests = null,
         ?SeqCounter $seq = null,
     ): SystemContext {
         return new SystemContext(
@@ -187,6 +189,7 @@ final class SystemContextTest extends TestCase
             world: $world ?? new WorldState(),
             scheduler: $scheduler ?? new Scheduler(),
             outQueue: $outQueue ?? new OutQueue(),
+            requests: $requests ?? new RequestQueue(),
             seq: $seq ?? new SeqCounter(),
         );
     }

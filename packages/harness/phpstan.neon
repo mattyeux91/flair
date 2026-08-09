@@ -4,3 +4,9 @@ parameters:
         - src
         - tests
         - bin
+        # `public/` y est entre le 2026-08-08, apres etre reste casse tout un
+        # lot sans que rien ne le signale : il importait une classe deplacee
+        # vers `packages/worldgen`, et le cas nominal du POST etait fatal. Les
+        # superglobales passent par `Harness\Web\Input`, qui est ce qui rend le
+        # niveau max tenable ici.
+        - public

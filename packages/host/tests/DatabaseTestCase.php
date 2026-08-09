@@ -6,6 +6,7 @@ namespace Flair\Host\Tests;
 
 use Flair\Host\Database\Database;
 use Flair\Host\Database\Schema;
+use Flair\Host\DestroyWorld;
 use Flair\Host\Store\EventStore;
 use Flair\Host\Store\SnapshotStore;
 use Flair\Host\Store\WorldRepository;
@@ -75,13 +76,16 @@ abstract class DatabaseTestCase extends TestCase
         return $worldId;
     }
 
+    /**
+     * Passe par `DestroyWorld`, et non par ses propres `DELETE`.
+     *
+     * Ce menage recopiait les trois tables a la main - le meme code que la
+     * commande d'exploitation, sans que l'un teste l'autre. Deux consommateurs
+     * reels : c'est le critere d'extraction du projet, et le nettoyage de
+     * chaque test exerce desormais le chemin de production.
+     */
     protected function forget(string $worldId): void
     {
-        $connection = $this->database->connection();
-
-        foreach (['events', 'snapshots', 'worlds'] as $table) {
-            $column = $table === 'worlds' ? 'id' : 'world_id';
-            $connection->table($table)->where($column, $worldId)->delete();
-        }
+        (new DestroyWorld($this->database))($worldId);
     }
 }

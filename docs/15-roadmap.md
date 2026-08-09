@@ -244,6 +244,65 @@ Projections, API de requêtes, flux SSE, IHM d'administration pour explorer et �
 
 C'est la première fois que le monde devient *visible*. Ne repousse pas cette phase plus loin — psychologiquement, elle compte.
 
+#### Découpage retenu (ouvert le 2026-08-08) — **critère de sortie atteint le 2026-08-08**
+
+| Lot | Contenu | État |
+|---|---|---|
+| 0 | Le jeu de données : un monde de dix ans en base, et ce qu'il coûte | ✅ 2026-08-08 |
+| 1 | `packages/api`, la couche de lecture, la fiche d'un club | ✅ 2026-08-08 |
+| 2 | Dix ans d'histoire d'un club, en blocs par saison | ✅ 2026-08-08 |
+| — | Les dettes de Faits que le lot 2 a mises à nu | ✅ 2026-08-08 |
+| 3 | Le digest cadré **club** | ✅ 2026-08-08 |
+| — | Les dettes que le digest a ouvertes (D7 moitié « bavard », D8) | ✅ 2026-08-09 |
+| 4 | SSE | **requalifié en Phase 5 le 2026-08-09** |
+
+#### Pourquoi SSE quitte cette phase plutôt que d'y être coché
+
+Le lot était déjà hors critère de sortie, avec un demi-argument écrit ici : « à un tick par heure, un flux temps réel ne vaut pas mieux qu'un rafraîchissement ». En le regardant vraiment, il y en a **cinq**, et trois n'avaient pas été vus :
+
+1. **Aucun consommateur.** `game-web` n'existe pas ; l'admin est mono-utilisateur et son lecteur rafraîchit.
+2. **Le transport ne peut pas être choisi honnêtement.** PostgreSQL seul (`11-` §5) laisse deux voies : interroger `events` en boucle — un worker immobilisé par client — ou `LISTEN`/`NOTIFY`, que **PDO n'expose pas** (il faut `ext-pgsql`, quand la CI n'installe que `pdo_pgsql`). Trancher sans connaître le budget de latence du seul futur consommateur, c'est deviner.
+3. **`artisan serve` est un serveur PHP mono-processus** : une seule connexion SSE tenue bloquerait tout l'admin. L'infrastructure pour des connexions longues n'existe pas, et l'inventer pour un lecteur qui n'existe pas non plus serait de l'anticipation.
+4. **On câblerait la livraison temps réel d'un flux dont le lot 3 venait de dire qu'il était à 10,6 % de procédure.** Construire le tuyau avant d'avoir réglé ce qui y coule est l'ordre inverse du bon.
+5. Ce que SSE a de structurant — **publier hors transaction**, sans quoi on annoncerait un tick encore annulable — est déjà écrit dans le docblock d'`AdvanceWorld` et en `13-` §8, et ne coûte rien à conserver.
+
+Le vrai moment de SSE est celui où un joueur humain regarde un match ou un tour de négociation se dérouler : Phase 5, avec l'inbox d'intentions dont il est la moitié symétrique.
+
+#### Les deux dettes que la phase a ouvertes, soldées avec elle *(2026-08-09)*
+
+Elles n'étaient pas au découpage initial : c'est le digest qui les a produites, en montrant ce que le journal dit de trop et ce qu'il ne dit pas. Détail dans `18-dettes.md` ; ce qui compte ici est ce qu'elles ont appris.
+
+**`TransferCounterDemanded` n'était pas un Fait de trop, c'était un Fait mal classé.** Les trois critères de `16-` §1 le désignaient sans ambiguïté — adressé à un acheteur précis, attend une réponse, porte une échéance (`responseGraceTicks`, dont le docblock se décrivait déjà comme « l'échéance sans le canal ») : un **`DecisionRequest`**, journalisé par erreur dans un log permanent. Le supprimer aurait cassé le canal que `Football\Intents\SubmittedBuyerIntentSource` attend pour la Phase 5. Le reclasser ne coûte rien, parce que `TransferAgreed` **et** `TransferNegotiationBroken` portaient déjà `round` et que toute négociation se clôt par l'un des deux : distribution des tours **identique au chiffre près** (médiane 2, moyenne 2,518, 41 des 85 au premier tour). Le canal s'arrête à `StepResult::$requests` — aucune livraison, aucune table ; le bénéfice immédiat est que ces questions ne sont plus écrites — 96 lignes sur 4 610 pour `dix-ans`, soit **~2 %** du journal. ⚠️ Un premier chiffre de −15 % a circulé ici quelques minutes : il comparait deux `pg_total_relation_size('events')`, qui agrègent **tous** les mondes de la base et varient avec le ballonnement. Mesurer une table partagée pour juger d'un monde est le même piège que lire un Gini sur une seule graine, et le disque n'était pas l'argument — le journal l'était. ⚠️ La dette accusait les **trois** Faits de négociation ; deux franchissent bien un seuil de `16-` §2 (un club qui s'engage, une rupture irréversible) et restent.
+
+**Un nom ne doit rien coûter au monde.** Tirer un nom dans le flux RNG partagé aurait décalé toutes les allocations suivantes et **changé le monde entier** — le piège des 18 scouts, cette fois pour du cosmétique. `Football\Support\NameBook` dérive donc le nom de `(worldSeed, entityId)` par `Hash::mixAll()`, sans consommer un seul tirage. Vérifié par empreinte appariée sur douze ans : `EntityId`, compteur d'entités, **et séquence d'événements privée du type retiré, identiques octet pour octet** ; l'état ne diffère que par les chaînes de noms. Point non anticipé : les clubs ne pouvaient pas être nommés comme les joueurs — 18 noms tirés parmi 320 combinaisons se heurtent une fois sur deux, d'où un parcours de tous les couples (lieu, forme) à pas premier avec leur nombre, qui rend l'unicité **structurelle** plutôt que probable.
+
+> ⚠️ **Fait de méthode, et il annule une conclusion tentante.** Régénérer `dix-ans` a donné des comptes différents de ceux inscrits ici (`transfer_agreed` 17 → 20, `contract_signed` 819 → 823…), ce qui ressemblait à une régression de ce lot. Ça n'en était pas une : le monde en base n'avait **jamais été régénéré depuis le correctif du marché** (`b963783`). Vérifié en rejouant l'arbre d'avant ce correctif, qui reproduit les anciens chiffres **exactement**, et l'arbre d'avant ce lot, qui reproduit les nouveaux. Un monde persisté vieillit par rapport au code : ses chiffres ne valent que datés du commit qui les a produits.
+
+#### Deux décisions structurelles, prises d'entrée
+
+**1. Un seul paquet `api`, qui sert le JSON *et* les pages Blade de l'admin — pas de `packages/admin`.** C'est un **écart assumé au graphe de `11-` §7**, et il mérite d'être écrit noir sur blanc plutôt que de vivre dans un commentaire : l'admin est un outil interne mono-utilisateur, un SPA n'y achète rien, et deux paquets n'auraient pas empêché les deux présentations de diverger.
+
+Ce qui les empêche de diverger, c'est qu'elles n'ont **qu'une source** — la couche de lecture `Api\Read\`, et un test (`Tests\Http\PagesMatchJsonTest`) qui prend les chiffres du JSON, les met sous la forme de la page et exige de les y retrouver. La frontière entre `src/` (lecture, PHP nu) et `app/` (adaptation Laravel) est tenue mécaniquement, par balayage du disque, pas par convention. **Si elle gêne un jour à l'usage, la bonne réponse est de tout ramener sous `App\` et de l'assumer — jamais de la laisser mentir.**
+
+**2. Zéro table de projection**, jusqu'à ce qu'un écran soit *mesuré* trop lent. L'event log et le snapshot répondent aux deux moitiés du critère de sortie ; et `snapshot + PerceptionModel` à la lecture est de toute façon la seule forme conforme à `12-` §4, une projection stockée figeant une vérité qui devrait être dérivée par observateur.
+
+Ce qui a été mesuré et rend l'attente raisonnable : fiche de club **28,7 ms**, histoire de dix ans **57,1 ms**, `Seq Scan` sur dix ans d'event log à **2,17 ms**. Le déclencheur est nommé (`ClubHistoryView::$factsRead`) et l'échappatoire aussi — dériver les prédicats SQL de la même déclaration que le filtre PHP, pour avoir une source et la vitesse du SQL.
+
+> ⚠️ **Ce que le lot 2 a appris, et qui dépasse la phase.** Rendre le monde visible est aussi ce qui le rend *vérifiable* : le seul vrai bug du lot — 753 prolongations sur 819 signatures comptées comme des arrivées, une page annonçant « 7 arrivées » pour un club qui n'avait recruté personne — a été trouvé **en ouvrant la vraie page**, par aucun test. Et deux Faits se sont révélés incapables de dire qui ils concernaient, ce qui a donné la règle de contenu de `16-` §2.
+
+#### Le lot 3 (digest) ferme la phase — et ce qu'il a appris sur les seuils
+
+Trois blocs (bilan agrégé / 8 faits marquants / 4 faits du monde), tri `amplitude × poids_du_rôle × fraîcheur`, **aucun changement au noyau**, aucune table. Détail dans `packages/api/README.md`. Page à 41,9 ms, moins cher que l'histoire complète.
+
+**Le digest est le contrôle qualité des seuils d'émission promis par `14-` §9, et il a rendu son verdict** :
+
+1. **La densité des Faits varie d'un facteur ~30 dans l'année** — ~178 Faits au mois du mercato, moins de 3 par mois pendant l'intersaison (jours 270-365). La moyenne « ~115 Faits par trimestre » du lot 0 ne décrit **aucune** fenêtre réelle. Conséquence immédiate : `dix-ans` s'arrêtant au jour 0 d'une année, son digest par défaut est vide — 12 Faits, zéro pour le club. Ce n'est pas une panne, c'est l'intersaison.
+2. **Sur une fenêtre représentative, le digest se lit vraiment en trente secondes** : le titre, une correction 5-1, deux recrues sans club, une défaite 0-3, et un bandeau 10/4/5. Le critère de sortie est atteint au sens propre.
+3. **Ce qui manque au journal est maintenant visible en creux**, et c'est le vrai livrable : le digest sait dire « large victoire 5-1 » mais **jamais pourquoi** — pas de buteur, pas de blessure, pas de débuts. Et 10,6 % des Faits d'une fenêtre sont des `TransferCounterDemanded`, pure procédure qu'aucun lecteur ne voudra jamais. Ce sont les deux bouts du même réglage : le journal est trop bavard là où rien ne se raconte, et muet là où tout se raconterait.
+4. **Les noms sont des identifiants** (`Joueur 261`, `Club synthetique 12`, `WorldFactory`) — le plus gros obstacle à ce qu'un digest ressemble à un récit, et il ne coûte presque rien à lever.
+
+> Rien de tout ça n'a été corrigé dans le lot, **délibérément** : ajouter des Faits au noyau se décide le digest sous les yeux, et c'est maintenant possible. Urgence à ne pas perdre — `events.payload` n'a pas de colonne de version, donc ajouter un Fait est gratuit tant qu'aucun monde ne compte, et devient une migration ensuite.
+
 ### Phase 5 — Le jeu d'agent *(≈ 6 semaines, et le vrai inconnu)*
 
 Client d'incarnation : recruter un client, le scouter, le placer, négocier, gérer sa carrière.
@@ -251,6 +310,18 @@ Client d'incarnation : recruter un client, le scouter, le placer, négocier, gé
 > **Critère de sortie :** trois personnes extérieures jouent une semaine et **reviennent** sans qu'on le leur demande.
 
 ⚠️ **À faire en prototype papier / CLI dès maintenant, en parallèle de la phase 0.** C'est la seule inconnue qui peut tuer le projet, et elle ne coûte que quelques heures à lever. Ne découvre pas en phase 5 que le métier d'agent n'est pas amusant.
+
+#### Ce qui l'attend déjà, posé par les phases précédentes
+
+Trois pièces sont en place et n'attendent que leur câblage dans `host` — aucune n'est à concevoir :
+
+| Pièce | État | Ce qui manque |
+|---|---|---|
+| **L'inbox d'intentions** (`13-` §8) | `TickContext::$intents` traverse le noyau, et `Football\Intents\SubmittedBuyerIntentSource` le lit | ce qui le **remplit** en production |
+| **La sortie des questions** | `StepResult::$requests` sort du noyau depuis le 2026-08-09, avec `TransferCounterOffered` comme premier exemplaire réel | leur **livraison** — `AdvanceWorld` les lit et les ignore, délibérément |
+| **SSE** (requalifié depuis la Phase 4) | rien, et c'est voulu | tout, à commencer par le choix de transport que seul un consommateur réel peut trancher |
+
+Les deux premières sont les deux moitiés d'un même mouvement — une question sort, une intention entre — et le bon moment pour les brancher est le même. SSE ne les précède pas : il transporte ce qu'elles produisent.
 
 ### Phase 6 — Profondeur
 
@@ -270,6 +341,9 @@ Moteur L1 Markov, narration émergente, multi-pays, coupes continentales, média
 ---
 
 ## 5. Ce qu'il ne faut pas faire
+
+> Le pendant de cette section est `18-dettes.md` : ce qu'on s'est **déjà** autorisé à remettre à plus tard, avec le déclencheur qui dit quand. Une dette sans déclencheur n'y entre pas, et ce qui peut être mécanisé en sort pour devenir un test.
+
 
 | Tentation | Pourquoi c'est un piège |
 |---|---|
@@ -310,4 +384,6 @@ Les décisions 1 à 4, 6 et 7 sont chères à corriger plus tard. La cinquième 
 | `13-moteur-de-simulation.md` | Tick hybride, scheduler, déterminisme, event sourcing, dimensionnement |
 | `14-algorithmes.md` | Moteurs de match, développement, composition de facteurs, marché, économie, équilibre, narration |
 | `16-evenements-et-cascades.md` | Taxonomie des messages, seuils d'émission, contrôle des cascades, Event Monitor |
+| `17-marche-transferts.md` | Chantier du marché des transferts et de l'inflation (Phase 2, lot 3), en 5 points |
+| `18-dettes.md` | Les dettes ouvertes, chacune avec son déclencheur — et ce qui n'y entre pas |
 | `ressource.md`, `ressource2.md` | Sources internes (discussion avec un ami) — matière première, non normatives |

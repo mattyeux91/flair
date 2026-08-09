@@ -19,6 +19,7 @@ php bin/host.php create alpha --players=500 --clubs=18 --seed=42
 php bin/host.php advance alpha     # un tick
 php bin/host.php status
 php bin/host.php events alpha --limit=20
+php bin/host.php destroy alpha --force   # irréversible, d'où le --force
 ```
 
 Connexion par variables d'environnement, dont les défauts sont ceux du `docker-compose.yml` : `FLAIR_DB_HOST`, `FLAIR_DB_PORT`, `FLAIR_DB_NAME`, `FLAIR_DB_USER`, `FLAIR_DB_PASSWORD`.
@@ -50,9 +51,13 @@ Un snapshot en avance ou en retard d'un tick sur l'event log rendrait l'histoire
 - **`Database`/`DatabaseConfig`** — amorce `illuminate/database` en mode Capsule. Pas de `setAsGlobal()` ni de facades : la connexion est un objet qu'on passe, pas un état global qu'on invoque. `getenv()` est interdit dans le noyau (`docs/11-` §1) ; `host` est précisément la couche dont c'est le rôle.
 - **`Schema`** — les trois tables, posées par `install()`. Volontairement **pas** de migrations versionnées : aucun monde en production, donc aucune base à faire évoluer sans la casser. `illuminate/database` embarque de quoi les câbler le jour venu.
 - **`WorldRepository`/`WorldRecord`** — l'identité d'un monde et son tick de commodité.
-- **`EventStore`** — l'event log append-only. `type` prend les **clés stables** de `Core\Snapshot\TypeRegistry`, jamais un FQCN : c'est le second consommateur réel du registre, celui qui justifiait de l'écrire au lot snapshot.
+- **`EventStore`** — l'event log append-only. `type` prend les **clés stables** de `Core\Snapshot\TypeRegistry`, jamais un FQCN : c'est le second consommateur réel du registre, celui qui justifiait de l'écrire au lot snapshot. `between()` est le **miroir exact** de `append()` — l'écriture traduit une classe en clé par `keyFor()`, la lecture fait le chemin inverse par `classFor()` puis `ValueCodec`, et rend des `RecordedEvent` porteurs d'objets **réhydratés**. Ça vit ici et pas côté lecteur : personne d'autre n'a à savoir que `events.type` porte une clé de registre. Ce que ce paquet n'apprend **pas** au passage, c'est le football — une méthode `forClub()` ferait entrer le domaine dans la persistance et devrait être retouchée à chaque Fait ajouté au noyau.
+- **`RecordedEvent`** — un Fait et sa place dans l'histoire, `(tick, seq)`. Le couple vit dans l'enveloppe et non sur le `DomainEvent` parce que le noyau ne le connaît pas : un Fait ne sait pas *quand* il a eu lieu, il dit seulement ce qui est arrivé. Même partage que `WorldSnapshot`, dont l'enveloppe porte le tick que le `WorldState` ne porte pas.
 - **`SnapshotStore`** — un snapshot par tick, rétention des N derniers. Le chargement passe par `WorldSnapshot::fromArray()` pour bénéficier des gardes de version — contourner ces gardes serait échanger la seule protection contre un rejeu déguisé (`docs/13-` §6) contre un tableau intermédiaire.
+- **`Rules\RulesetForWorld`/`UnsupportedRulesetVersion`** — traduit le `rulesetVersion` d'un monde en `Ruleset`, et **lève** pour toute version qu'il ne sait pas reconstruire. Le garde vit ici et pas dans le noyau parce que là-bas la version est une **étiquette** libre, dont le harness se sert comme telle (`'harness'`, `'ci'`, `'snapshot-continuity'`…) ; dans un monde persisté, la même chaîne sert à *reconstruire* les règles des mois plus tard, et une chaîne qui ne les détermine pas donne un monde qui tourne selon des règles qui ne sont pas les siennes. `AdvanceWorld` faisait `new Ruleset($world->rulesetVersion)`, ce qui rendait les défauts du noyau quoi qu'il arrive. Au-delà de rendre l'erreur bruyante, le garde rend une classe entière de désaccord **inatteignable** : `Worldgen\WorldFactory::populate()` accepte des groupes de `Balance` que `CreateWorld` ne lui passe pas, donc le genesis utilise toujours les défauts — tant qu'une seule version est acceptée, genesis et avancement lisent forcément les mêmes règles. C'est le seul site que `packages/ruleset` aura à rebrancher.
 - **`WorldLock`**, **`AdvanceWorld`**, **`CreateWorld`**, **`AdvanceOutcome`/`AdvanceResult`**, **`Row`/`UnexpectedColumn`** (lecture typée : le query builder rend du `mixed`, et un cast transformerait silencieusement `null` en tick 0).
+
+> **`CreateWorld` prend une version, plus un `Ruleset`.** Le paramètre promettait un réglage qu'il n'appliquait nulle part : le genesis n'en lisait que `->version`, donc un `Balance` sur mesure était silencieusement ignoré à la création puis reconstruit aux défauts à l'avancement.
 
 ## `jsonb` pour les Faits, `json` pour les snapshots
 
@@ -60,17 +65,89 @@ Un snapshot en avance ou en retard d'un tick sur l'event log rendrait l'histoire
 
 `snapshots.state` est en **`json`**, et c'est un choix corrigé après mesure. `jsonb` ne stocke pas le texte reçu mais une forme normalisée — **les clés d'objet sont réordonnées**. Un état relu depuis `jsonb` n'est donc plus identique octet pour octet à ce que le noyau a produit, alors que `SnapshotCodec` garantit précisément cette stabilité. La relecture reste correcte (le décodage cherche ses clés par nom), mais la propriété se perdait en silence à la frontière de la base et rendait impossible un test de parité. `json` conserve le texte tel quel ; on n'y perd rien, personne n'interroge l'intérieur d'un snapshot.
 
-## Mesures (500 joueurs / 18 clubs, 300 ticks)
+## Mesures — dix ans en base
+
+Mesuré le 2026-08-08, monde de référence (500 joueurs, 18 clubs, graine 42), **3 650 ticks = dix ans à un tick par jour**, joués d'un seul trait par `advance --ticks=3650`. C'est le jeu de données sur lequel la Phase 4 va construire ses écrans, d'où la mesure avant l'écran plutôt qu'après.
 
 | | |
 |---|---|
-| Simulation | **18,7 ms/tick** |
-| Persistance | **17,8 ms/tick** |
-| Taille d'un snapshot | **0,39 Mo** de JSON |
+| Durée totale | **181 s** pour 3 650 ticks, soit **49,7 ms/tick** |
+| dont simulation | 17,5 ms/tick |
+| dont écritures dans la transaction | 17,2 ms/tick |
+| dont lecture du snapshot | 5,6 ms/tick |
+| dont le reste (~8 ms) | commit, verrou, lecture de `worlds` |
+| Faits journalisés | **4 517** sur dix ans, soit ~450 par saison (4 610 avant le 2026-08-09, cf. la note ci-dessous) |
+| `events` | **637 ko** de payload pour 4 517 lignes (~875 ko avec les en-têtes de ligne) |
+| `snapshots` | **100 Mo** en fin de run, **808 ko** après `VACUUM FULL` |
+| Taille d'un snapshot | **0,39 Mo** de JSON (1,2 Mo pour les 3 retenus) |
 
-L'écriture en base coûte donc à peu près autant que le noyau lui-même — c'est la première confirmation chiffrée de `docs/13-` §7 (« les vrais coûts sont l'écriture en base, pas le CPU »). À un tick par heure, les deux sont sans objet.
+L'écriture en base coûte à peu près autant que le noyau lui-même — confirmation chiffrée de `docs/13-` §7 (« les vrais coûts sont l'écriture en base, pas le CPU »). À un tick par heure, les deux sont sans objet.
 
-> **Ballonnement de table à connaître.** Un snapshot par tick avec rétention, c'est une insertion et une suppression par tick : la table `snapshots` est montée à **23 Mo** pour 1,2 Mo de données vivantes après 300 ticks joués en cinq secondes, puis **304 ko** après un `VACUUM FULL`. Ce sont des tuples morts qu'autovacuum n'avait pas encore ramassés. À la cadence réelle (24 ticks/jour) le problème ne se pose pas ; il ne se poserait qu'en rattrapage massif.
+> **Ce que `advance` imprime, et ce qu'il taisait.** Ses deux compteurs internes totalisaient 34,7 ms quand le tick en coûtait 48,5 : `SnapshotStore::latest()` était appelé **avant** `$startedSimulation`, et le commit de la transaction arrive **après** le retour de la closure — structurellement hors de portée de tout compteur posé dedans. Corrigé le 2026-08-08 : le chronomètre de simulation englobe désormais le chargement du snapshot, et un troisième compteur `AdvanceResult::$totalSeconds` entoure la transaction entière ; `overheadSeconds()` nomme l'écart plutôt que de le laisser inexpliqué.
+>
+> Les 29 % manquants ont un visage, et il n'était pas devinable :
+>
+> ```
+> 49,7 ms/tick au total : simulation 24,9, persistance 17,9, verrou+commit 6,8
+> ```
+>
+> **Charger le snapshot coûte ~6 ms, soit un quart du « temps de simulation »** — le `SELECT` d'un JSON de 0,4 Mo et sa désérialisation ; et le verrou plus le `COMMIT` en coûtent 6,8, presque autant. Autrement dit le noyau proprement dit tourne en ~19 ms sur 49,7, et **les trois cinquièmes d'un tick sont de la base**. `docs/13-` §7 annonçait que l'écriture serait le facteur limitant ; la lecture et le commit le sont tout autant.
+
+> **Ballonnement de `snapshots`, et sa vraie nature.** Un snapshot par tick avec rétention 3, c'est une insertion et une suppression de ~0,4 Mo par tick : la table monte à **104 Mo pour 808 ko de données vivantes** après 3 650 ticks joués en trois minutes — un facteur 128. Ce n'est *pas* qu'autovacuum n'a rien ramassé (il ne reste que 96 tuples morts) : il a bien libéré l'espace, mais **PostgreSQL ne rend pas les pages au système**, il les garde réutilisables dans le fichier. Les 104 Mo sont donc un plafond que les ticks suivants réutilisent, pas une fuite. À la cadence réelle (24 ticks/jour) ce plafond ne se forme jamais ; il ne se forme qu'en rattrapage massif, et un `VACUUM FULL` le remet à plat.
+
+### Le mélange de Faits, avant d'écrire le digest
+
+```
+football.event.match_played                 2754   (61 %)
+football.event.contract_signed               823
+football.event.player_retired                359
+football.event.youth_player_promoted         213
+football.event.contract_expired              194
+football.event.club_invested_in_facilities    57
+football.event.transfer_negotiation_opened    49
+football.event.transfer_negotiation_broken    29
+football.event.transfer_agreed                20
+football.event.season_started                 10
+football.event.season_concluded                9
+```
+
+Onze types sur les treize enregistrés. Les deux absents ne le sont pas par accident : `season_ended` et `fixture_kickoff` passent par le Scheduler (`SystemContext::schedule()`) et ne sont donc **jamais journalisés** — seuls les Faits *émis* le sont.
+
+> ⚠️ **Ce tableau a changé deux fois depuis sa première mesure, pour deux raisons différentes — et l'une d'elles a failli passer pour une régression.**
+>
+> `transfer_counter_demanded` (96 lignes) a **disparu** le 2026-08-09 : ce n'était pas un Fait mais un `DecisionRequest` journalisé par erreur (`docs/16-` §1). Soit **~2 % du journal de ce monde**, et ~16 ko de payload sur 637 — négligeable en disque, ce qui est le résultat attendu : l'argument était la nature du message, pas la place.
+>
+> ⚠️ **Et une leçon de mesure au passage.** J'ai d'abord annoncé −15 %, en comparant deux `pg_total_relation_size('events')` avant/après. Ce chiffre ne veut rien dire ici : la table porte **tous** les mondes de la base, et sa taille physique bouge avec le vacuum sans qu'une seule ligne change — trois lectures successives ont donné 2 184, 1 848 puis 2 072 ko à données constantes. Pour juger d'un monde, compter ses **lignes** et sommer `pg_column_size(payload)` sur son `world_id` ; la taille de relation ne mesure que la relation.
+>
+> Les autres écarts (`transfer_agreed` 17 → 20, `contract_signed` 819 → 823, `contract_expired` 192 → 194, `youth_player_promoted` 214 → 213, négociations 50/33 → 49/29) ne viennent **pas** de là : le monde en base n'avait jamais été régénéré depuis le correctif du marché (`b963783`, ventilation des transferts par poste). Vérifié plutôt que supposé — rejouer l'arbre d'avant ce correctif reproduit les anciens chiffres **exactement**, l'arbre d'après reproduit les nouveaux.
+>
+> **La leçon générale** : un monde persisté vieillit par rapport au code qui l'a produit, et ses chiffres ne valent que datés du commit qui les a écrits. Un écart après régénération se prouve à sa source, il ne se conclut pas.
+
+Trois mois de digest (`docs/14-` §9), c'est donc ~115 Faits dont ~70 `MatchPlayed`. C'est un journal, pas une histoire — l'information à avoir avant de construire le lot du digest, et le contrôle qualité des seuils d'émission que `docs/14-` §9 promettait.
+
+### Le monde à dix ans
+
+Composants du dernier snapshot : 18 clubs (avec `Finances`, `Facilities`, `SeasonIncome`, `BoardPatience`, un `Scout` employé chacun), 355 joueurs dont **297 sous contrat**, 306 `Fixture`, 1 `Competition`, 1 `Standings`.
+
+Deux choses valent d'être notées, aucune n'étant du ressort de ce package :
+
+- **`Person` s'accumule sans fin, et c'est voulu.** 732 `Person` pour 373 entités vivantes (355 joueurs + 18 recruteurs) : l'écart de 359 est exactement le nombre de `PlayerRetired`. `Football\RetirementSystem::removes()` retire les quatre composants de compétences mais **garde `Person`**. C'était noté comme une dette au motif que rien ne le documentait ; le lot suivant lui a trouvé un **usage réel** — c'est ce qui garde lisible le nom d'un joueur parti ou retraité dans l'histoire d'un club. La rétention est désormais écrite dans le docblock de `RetirementSystem`, avec son prix : l'état d'un monde croît linéairement avec son histoire. À revoir si un monde vit un siècle, jamais sans un remplaçant pour les noms.
+- **L'équilibre compétitif sur une fenêtre de dix ans est trompeur.** Neuf saisons conclues, et le club 17 en gagne **sept d'affilée**. Le harness sur le **même build** et la même graine, en 39 saisons : 12 champions distincts, Gini des titres 0,608, rotation du top 5 48,9 %. Le monde en base n'a donc rien d'anormal — c'est le même monde vu par une fenêtre trop courte, et c'est le piège que `CLAUDE.md` signale déjà (« un Gini lu sur une seule graine est du bruit »). Aucune conclusion de régression n'est tirée ici : la comparer aux chiffres notés dans les documents serait précisément la comparaison interdite, qui doit se faire à graines appariées dans un même build.
+
+### « Dix ans d'histoire d'un club » : aucun index à poser
+
+`events` porte la primaire `(world_id, tick, seq)` et un index `(world_id, type)`. Rien ne sert un filtre sur le club — et le club n'a même pas de clé unique : `MatchPlayed` porte `homeClubId`/`awayClubId`, `ContractSigned` porte `clubId`, `SeasonConcluded` un tableau `finalTable` où le rang est la **position**. L'histoire d'un club est donc une **union de prédicats par type**, pas un `payload->>'clubId'`.
+
+Mesuré sur les dix ans, les cent derniers Faits du club 11 :
+
+```sql
+EXPLAIN (ANALYZE, BUFFERS) SELECT tick, seq, type, payload FROM events
+WHERE world_id = 'dix-ans'
+  AND (payload @> '{"homeClubId": 11}' OR payload @> '{"awayClubId": 11}' OR payload @> '{"clubId": 11}')
+ORDER BY tick DESC, seq DESC LIMIT 100;
+```
+
+`Seq Scan`, **2,17 ms**, 385 lignes retenues sur 4 733, tout en cache. Toute la table tient dans 2,1 Mo. **Conclusion : aucun index, aucune projection.** Le seuil à surveiller n'est pas le nombre de saisons mais le nombre de mondes — dix ans coûtent 2,1 Mo d'event log, et le `world_id` en tête de la primaire découpe déjà proprement.
 
 ## Tests
 
@@ -80,5 +157,14 @@ composer analyse      # phpstan niveau max
 ```
 
 Toute la suite tourne sur **une vraie base PostgreSQL**, jamais un double : ce que ce package apporte est *ce que la base garantit* (transaction atomique, verrou advisory), et un double ne testerait que le double. La suite se **skippe** proprement si aucune base n'est joignable.
+
+`PersistedWorldMatchesMemoryTest` garantit que **persister ne change rien au monde** : le même monde avancé par le Host, avec un aller-retour complet en base à chaque tick, doit être identique à celui d'un processus qui n'a jamais rien écrit.
+
+> ⚠️ **Il tournait sur 120 ticks, et c'était un trou.** `CalendarBalance::$seasonStartDayOfYear` vaut 0 et un monde naît au tick 0 : la première saison n'est générée qu'au **tick 365**. En 120 ticks l'aller-retour n'avait donc jamais traversé un match, une fin de saison, un contrat renouvelé ni une négociation de transfert — **tout ce que la Phase 2 a construit était hors du seul test qui garantit ça.** Corrigé le 2026-08-08 : 575 ticks, ce qui fait traverser la base à une `Negotiation` **en cours de vol**, le seul état multi-tick du noyau.
+
+Deux détails de ce test valent d'être connus avant d'y toucher :
+
+- **La couverture est vérifiée, pas supposée.** `MUST_COVER` exige dix types de Faits dans l'event log du run. Sans elle, déplacer un jour-de-l'année du `Ruleset` ramènerait ce test à une parité sur un monde où il ne se passe rien, sans qu'aucune assertion ne rougisse — c'est exactement ce qui s'était produit. Sabotage vérifié : à 120 ticks le test échoue en annonçant qu'il n'a jamais rencontré que `player_retired`.
+- **Quinze joueurs par club, un chiffre à ne pas monter à la légère.** Dix par club (l'ancien 40/4) ne composent pas un onze. Vingt-cinq par club saturent les effectifs, plus aucun club n'est en manque et **le marché des transferts ne s'ouvre jamais** — mesuré : 4/100, 4/140, 6/150 et 8/200 n'ouvrent aucune négociation en 600 ticks. Au passage : le marché n'ouvre qu'au jour 200 de l'**année 2**, jamais de l'année 1, parce qu'au genesis aucun club n'est en manque.
 
 `CrashRecoveryTest` est le critère de sortie de la Phase 3 pris au mot : un vrai sous-processus, un vrai **SIGKILL** en plein vol, trois fois de suite, puis vérification que la base est cohérente et que le monde repris est identique à un monde jamais interrompu. Sa limite est documentée dans son propre docblock — c'est un filet probabiliste, pas une preuve ; la garantie est structurelle.

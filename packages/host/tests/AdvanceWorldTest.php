@@ -50,6 +50,43 @@ final class AdvanceWorldTest extends DatabaseTestCase
         self::assertSame(3, $this->snapshots->latest($worldId)?->tick);
     }
 
+    /**
+     * **Le compteur qui ne doit plus mentir.**
+     *
+     * `simulationSeconds` et `persistenceSeconds` totalisaient 34,7 ms sur
+     * 48,5 mesurees : le chargement du snapshot etait pris avant le premier
+     * `microtime()`, et le `COMMIT` tombe apres le retour de la closure de
+     * transaction, hors de portee de tout compteur interne. Un chiffre de perf
+     * qui manque 29 % de son sujet sert a decider de travers.
+     *
+     * Ce test n'affirme aucune duree - elles dependent de la machine - mais la
+     * **relation** entre les trois, qui est structurelle : le total encadre la
+     * somme des deux autres, et l'ecart porte un nom.
+     */
+    public function testTheTotalCoversTheTwoInnerCountersAndTheCommitTheyCannotSee(): void
+    {
+        $worldId = $this->newWorldId('compteurs');
+        $this->create($worldId);
+
+        $result = ($this->advance())($worldId);
+
+        self::assertSame(AdvanceOutcome::Advanced, $result->outcome);
+        self::assertGreaterThan(0.0, $result->simulationSeconds);
+        self::assertGreaterThan(0.0, $result->persistenceSeconds);
+
+        self::assertGreaterThanOrEqual(
+            $result->simulationSeconds + $result->persistenceSeconds,
+            $result->totalSeconds,
+            'Le total doit encadrer les deux compteurs internes : il entoure la transaction entiere.',
+        );
+
+        self::assertSame(
+            $result->totalSeconds - $result->simulationSeconds - $result->persistenceSeconds,
+            $result->overheadSeconds(),
+            "L'ecart doit etre nomme, pas subi : c'est le verrou et le COMMIT.",
+        );
+    }
+
     public function testAnUnknownWorldIsReportedRatherThanCrashing(): void
     {
         $result = ($this->advance())('monde-qui-n-existe-pas');

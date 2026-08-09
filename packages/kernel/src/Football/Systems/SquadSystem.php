@@ -141,8 +141,13 @@ final class SquadSystem implements System
         }
 
         if ($event instanceof PlayerRetired) {
-            $contract = $ctx->read(Contract::class)->get($event->playerId);
-            $this->release($ctx, $event->playerId, $contract?->clubId);
+            // Sans club attendu, **a dessein**. Une expiration de contrat est
+            // propre a un employeur, une retraite ne l'est pas : elle delie de
+            // qui que ce soit. Ce cas relisait `Contract` pour en passer le
+            // club a `release()`, qui le comparait ensuite au meme contrat -
+            // une garde qui ne pouvait pas se declencher, donc une lecture qui
+            // ne servait a rien. Comportement identique, intention lisible.
+            $this->release($ctx, $event->playerId, expectedClubId: null);
         }
     }
 
