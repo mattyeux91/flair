@@ -83,7 +83,7 @@ Un club **n'a pas de clé unique** dans les payloads de l'event log. Il apparaî
 | `clubId` | `contract_expired`, `contract_signed`, `youth_player_promoted`, `club_invested_in_facilities` |
 | `previousClubId` | `contract_signed` — un transfert entre dans l'histoire des **deux** clubs |
 | `homeClubId` / `awayClubId` | `match_played` |
-| `buyerClubId` / `sellerClubId` | `transfer_agreed`, `transfer_negotiation_opened`, `transfer_negotiation_broken`, `transfer_counter_demanded` |
+| `buyerClubId` / `sellerClubId` | `transfer_agreed`, `transfer_negotiation_opened`, `transfer_negotiation_broken` |
 | `finalTable[].clubId` | `season_concluded` — le rang **est** la position |
 
 « L'histoire du club X » n'est donc pas une requête, c'est une union de cas. Elle est déclarée **une seule fois**, dans `Read\History\ClubMentions`, sur des objets réhydratés par `Host\Store\EventStore::between()` — un `match` sur classe avec accès typé, que PHPStan vérifie. Un `$payload['homeClubId'] ?? null` compilerait aussi bien avec une faute de frappe.
@@ -110,7 +110,7 @@ Les deux chemins doivent coïncider tant qu'aucune règle n'attribue de points h
 
 ### Coût, et le seuil à surveiller
 
-Sur `dix-ans` (club 11, tick 3650, 4 610 Faits dans le monde dont **402 le concernent**) : page **57,1 ms**, JSON **54,1 ms**.
+Sur `dix-ans` (club 12, tick 3650, 4 517 Faits dans le monde) : page **55,5 ms**.
 
 On charge l'intervalle complet et on filtre en PHP. Le filtre SQL serait ~8× plus rapide (2,17 ms en `Seq Scan` avec des `payload @>`), mais **dupliquerait la correspondance club ↔ clé** en deux endroits, l'un en PHP typé et l'autre en chaînes SQL — exactement la divergence que `ClubMentions` existe pour empêcher.
 
@@ -138,21 +138,24 @@ Mesuré sur `dix-ans`, Faits par mois de l'année simulée :
 
 Conséquence à connaître avant de juger un digest vide : **le monde `dix-ans` s'arrête au tick 3650, c'est-à-dire au jour 0 d'une année**, donc la fenêtre par défaut de 90 jours tombe intégralement dans l'intersaison — 12 Faits, dont zéro concernant le club. Ce n'est pas une panne, et c'est pourquoi `?days=` existe.
 
-Sur une fenêtre représentative (`?days=250`, 432 Faits dont 43 pour le club), le digest rend ceci :
+Sur une fenêtre représentative (`?days=250`, 387 Faits dont 34 pour le club), le digest rend ceci :
 
 ```
-bilan 10/4/5, 26:15 — 2 arrivées, 6 prolongations, 1 jeune promu
+FC Merignac — bilan 8/8/3, 30:22 — 2 arrivées, 7 prolongations, 1 jeune promu
 
-Champion : la saison s'achève à la 1re place sur 18, avec 61 points.
-Large victoire à domicile contre Club synthetique 9 (5-1).
-Joueur 261, sans club, signe à Club synthetique 12 (660 € par semaine).
-Large victoire à domicile contre Club synthetique 7 (4-0).
-Lourde défaite à domicile contre Club synthetique 16 (0-3).
+Sur le podium : la saison s'achève à la 2e place sur 18, avec 61 points.
+Lilian Langlois quitte FC Montfaucon pour FC Merignac (490 € par semaine).
+Youssef Jourdan quitte Olympique Chantrigne pour FC Merignac (1 000 € par semaine).
+Large victoire à l'extérieur contre US Salvagnac (4-1).
+Lilian Langlois arrive de FC Montfaucon pour 4 768 €.
+Wilfried Lefevre raccroche à 30 ans, sous les couleurs de FC Merignac.
 ```
+
+> **Ce que les vrais noms ont changé, mesuré en relisant la même page** *(2026-08-09, dette D8)*. Le digest disait auparavant « Joueur 261, sans club, signe à Club synthetique 12 » — la phrase était déjà juste, elle n'était pas **lisible**. Rien d'autre n'a bougé : ni le tri, ni les seuils, ni le coût. C'est le meilleur rapport qualité/prix de toute la phase, et c'est aussi ce qui rend le reste de D7 enfin jugeable — on voit maintenant qu'il manque *pourquoi* la victoire fut large, pas *qui* l'a obtenue.
 
 ### Coût
 
-Page **41,9 ms** par défaut, **35,2 ms** à `days=400` — moins cher que l'histoire complète (63,3 ms) sur le même monde, la fenêtre étant plus courte. Aucune projection, aucune table : `Host\Store\EventStore::between()` existait déjà.
+Page **31,8 ms** à `days=250` — moins cher que l'histoire complète (55,5 ms) sur le même monde, la fenêtre étant plus courte. Aucune projection, aucune table : `Host\Store\EventStore::between()` existait déjà.
 
 ### `factsByType` est un livrable, pas du débogage
 

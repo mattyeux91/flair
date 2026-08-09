@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace Flair\Worldgen;
 
 use Flair\Kernel\Core\Ecs\WorldState;
+use Flair\Kernel\Core\Support\Hash;
 use Flair\Kernel\Core\Support\Rng;
 use Flair\Kernel\Football\Components\BoardPatience;
 use Flair\Kernel\Football\Components\Club;
 use Flair\Kernel\Football\Components\Facilities;
 use Flair\Kernel\Football\Components\Finances;
+use Flair\Kernel\Football\Support\NameBook;
 
 /**
  * Cree les clubs d'un monde - sans clubs (`Club` + `Facilities`), ni
@@ -27,14 +29,23 @@ use Flair\Kernel\Football\Components\Finances;
  */
 final class ClubFactory
 {
-    /** @return list<int> identifiants des entites club creees */
-    public function create(WorldState $world, int $count, float $facilitiesQuality, int $startingBalanceCents): array
+    /**
+     * `$seed` ne sert **qu'aux noms**, et n'entre dans aucun tirage : les
+     * `EntityId` ne dependent pas de la graine (l'allocation est deterministe
+     * et identique d'un monde a l'autre), donc sans elle tous les mondes
+     * porteraient les memes noms de clubs. Voir `Football\Support\NameBook`
+     * pour la raison de ne rien tirer ici.
+     *
+     * @return list<int> identifiants des entites club creees
+     */
+    public function create(WorldState $world, int $count, float $facilitiesQuality, int $startingBalanceCents, int $seed): array
     {
         $clubIds = [];
+        $derived = Hash::mixAll($seed);
 
         for ($i = 1; $i <= $count; $i++) {
             $entity = $world->createEntity();
-            $world->components(Club::class)->set($entity, new Club("Club synthetique {$i}"));
+            $world->components(Club::class)->set($entity, new Club(NameBook::clubName($derived, $i)));
             $world->components(Facilities::class)->set($entity, new Facilities($facilitiesQuality));
             $world->components(Finances::class)->set($entity, new Finances($startingBalanceCents));
             $clubIds[] = $entity;

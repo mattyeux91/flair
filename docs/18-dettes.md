@@ -50,24 +50,15 @@ Détail : `17-marche-transferts.md` point 5.
 
 Aucun des deux n'est arrivé, et le construire avant serait de l'anticipation — le critère du projet est « deux consommateurs réels ». `Host\Rules\RulesetForWorld` est le **site unique** à rebrancher le jour venu : tant qu'une seule version est acceptée, genèse et avancement lisent forcément les mêmes règles, et la classe de désaccord est inatteignable.
 
-### D7 — Le journal est bavard là où rien ne se raconte, et muet là où tout se raconterait
+### D7 — Le journal est muet là où tout se raconterait
 
-**Déclencheur : maintenant, et il a une date de péremption.** `events.payload` n'a **aucune colonne de version de format** et `Core\Snapshot\ValueCodec` est strict dans les deux sens : ajouter ou retirer un Fait est gratuit tant qu'aucun monde ne compte, et devient une migration ensuite. C'est le même déclencheur que la dette des Faits inattribuables, qui a été soldée pour cette raison exacte.
+**Déclencheur : le moteur de match L1 (Phase 6), avec lequel cette dette ne fait qu'une** — et plus « maintenant » : la moitié qui avait une date de péremption a été soldée le 2026-08-09, voir le journal.
 
-Le digest (lot 3 de la Phase 4) est le contrôle qualité des seuils d'émission que `14-` §9 promettait. Verdict, lu sur une vraie page :
+Le digest (lot 3 de la Phase 4) est le contrôle qualité des seuils d'émission que `14-` §9 promettait. Ce qu'il en reste après le 2026-08-09 :
 
-- **Muet là où tout se raconterait.** Le digest sait écrire « large victoire à domicile contre X (5-1) » et **jamais pourquoi**. Il n'existe ni buteur, ni blessure, ni débuts, ni performance individuelle — le moteur L0 Dixon-Coles ne produit qu'un score. L'exemple de `14-` §9 (« Diallo a marqué 7 buts en 9 matchs — sa valeur a doublé ») décrit un monde qui n'existe pas.
-- **Bavard là où rien ne se raconte.** `TransferCounterDemanded` pèse **10,6 %** des Faits d'une fenêtre représentative — de la procédure de négociation, inscrite dans `FactAmplitude::NEVER_NEWSWORTHY` parce qu'aucun lecteur n'en voudra jamais. `16-` §2 dit qu'un Fait mérite d'être émis s'il franchit un seuil comportemental, est irréversible, ou est racontable : ces trois-là ne sont ni l'un ni l'autre.
+Le digest sait écrire « large victoire à domicile contre X (5-1) » et **jamais pourquoi**. Il n'existe ni buteur, ni blessure, ni débuts, ni performance individuelle — le moteur L0 Dixon-Coles ne produit qu'un score. L'exemple de `14-` §9 (« Diallo a marqué 7 buts en 9 matchs — sa valeur a doublé ») décrit un monde qui n'existe pas.
 
-Ce qui empêche de trancher tout de suite, et pourquoi c'est une dette et non un lot : ajouter un Fait de performance suppose que le moteur en produise la matière, ce qui touche `MatchSystem` et rejoint **D2**. Retirer les Faits de négociation est en revanche isolé et bon marché.
-
-### D8 — Les noms du monde sont des identifiants
-
-**Déclencheur : le premier lecteur humain qui n'est pas l'exploitant** — donc le client de jeu (Phase 5), ou tout partage d'une page à un tiers.
-
-`Worldgen\WorldFactory` nomme les joueurs `"Joueur {$entity}"` et les clubs `"Club synthetique {$n}"`. Tant que la seule surface est l'administration, c'est sans conséquence et même pratique (le nom porte l'`EntityId`). Dès qu'un digest est censé se lire comme un récit, c'est le plus gros obstacle qui reste — et **le moins cher à lever de tous ceux inscrits ici**.
-
-Noté en lisant le digest, pas cherché.
+C'est une dette et non un lot parce qu'ajouter un Fait de performance **suppose que le moteur en produise la matière** : ça touche `MatchSystem`, rejoint **D2**, et n'a aucun sens avant le L1. La péremption du format ne s'y applique pas non plus de la même façon — un Fait *ajouté* n'invalide pas les lignes déjà en base, c'est un Fait *modifié ou retiré* qui le fait.
 
 ### D6 — Un club vise 22 joueurs, en a 16,5, et n'en veut que 20
 
@@ -123,6 +114,8 @@ Gardé court, et uniquement pour ce qui a appris quelque chose.
 
 | Date | Dette | Ce qu'elle a appris |
 |---|---|---|
+| 2026-08-09 | D8 — les noms du monde étaient des identifiants | **Un nom ne doit rien coûter au monde, et c'est une contrainte de conception, pas un détail.** Tirer un nom dans le flux RNG partagé aurait décalé tout ce qui suit et changé le monde entier — le piège des 18 scouts, sur du cosmétique. Le nom est donc une **fonction pure de `(worldSeed, entityId)`** via `Hash::mixAll()`, zéro tirage consommé : mesuré, `EntityId`, compteur d'entités, et **séquence d'événements identiques au chiffre près**, l'état ne différant que par les chaînes. Un point non anticipé : les clubs ne pouvaient pas être nommés comme les joueurs — 18 noms tirés parmi 320 se heurtent une fois sur deux, d'où un parcours à pas premier avec le nombre de couples, qui rend l'unicité **structurelle** et non probable |
+| 2026-08-09 | D7, moitié « bavard » — `TransferCounterDemanded` journalisé pour rien | **Ce n'était pas un Fait de trop, c'était un Fait mal classé**, et le bon diagnostic a changé la correction. Les trois critères de `16-` §1 le désignaient : adressé à un acheteur précis, attend une réponse, porte une échéance — un `DecisionRequest`. Le supprimer aurait cassé le canal que `SubmittedBuyerIntentSource` attend pour la Phase 5 ; le reclasser ne coûte rien, parce que **`TransferAgreed` et `TransferNegotiationBroken` portaient déjà `round`** et que toute négociation se clôt par l'un des deux (mesuré : médiane 2, moyenne 2,518, 41/85 au premier tour — identiques avant et après). Deux des trois Faits de négociation, eux, franchissent bien un seuil de `16-` §2 et restent : la dette les accusait tous les trois |
 | 2026-08-08 | D5 — les club-années sans gardien jamais re-mesurées depuis que le marché existe | **Trois choses, et la dette avait tort sur les trois.** (1) Le marché n'a pas fermé l'écart : 2,41 % sur 6 graines, mais l'écart est **transitoire** — aucun club ne reste sans gardien deux années consécutives, ce que ni la dette ni le docblock ne disaient. (2) Le 1,39 % de référence était une lecture **mono-graine**, et c'était le bas d'une fourchette 1,39-3,61 % ; le même piège que les deux Gini avant lui, sur une métrique de plus. (3) Le doute inscrit dans la dette (« le PNJ chasse les fins de contrat, pas le poste qui manque ») était **faux** : les gardiens étaient 2,5× sur-représentés dans les transferts. Ce que la mesure a réellement trouvé était ailleurs et plus gros — **zéro attaquant transféré sur 261**, sur six graines et 120 saisons |
 | 2026-08-08 | D1 — la CI ne couvrait ni `worldgen`, ni `host`, ni `api` | **Une suite qui se skippe proprement devient, en CI, un job vert qui n'a rien exécuté.** Le mécanisme de confort local (base injoignable ⇒ skip) et le mécanisme de garantie sont opposés, et il faut nommer le second : `--fail-on-skipped`, mesuré par sabotage (base arrêtée, `exit=0` sans le drapeau, `exit=1` avec). Deux silences trouvés au passage, de la même famille : le déclencheur `push` pointait sur `main` quand la branche est `master`, donc **il n'avait jamais tourné**, et quatre `phpunit.xml` validaient contre un schéma déprécié |
 | 2026-08-08 | `PlayerRetired` et `TransferCounterDemanded` inattribuables à un club ; `SeasonConcluded` sans ses points | **Un Fait porte de quoi l'attribuer à ses sujets** — `16-` §2. L'état courant ne rattrape jamais ce qu'un Fait a omis, et le format des payloads n'a pas de version : la correction est gratuite tant qu'aucun monde ne compte, migration ensuite |

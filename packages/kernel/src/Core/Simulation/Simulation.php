@@ -25,8 +25,8 @@ final class Simulation
 
     public function step(WorldState $state, TickContext $ctx): StepResult
     {
-        $this->pipeline->tick($state, $ctx->tick, $ctx->seed, $ctx->ruleset, $ctx->intents);
+        $requests = $this->pipeline->tick($state, $ctx->tick, $ctx->seed, $ctx->ruleset, $ctx->intents);
 
-        return new StepResult($state, $state->outQueue()->pending());
+        return new StepResult($state, $state->outQueue()->pending(), $requests);
     }
 }

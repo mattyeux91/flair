@@ -253,9 +253,30 @@ C'est la première fois que le monde devient *visible*. Ne repousse pas cette ph
 | 2 | Dix ans d'histoire d'un club, en blocs par saison | ✅ 2026-08-08 |
 | — | Les dettes de Faits que le lot 2 a mises à nu | ✅ 2026-08-08 |
 | 3 | Le digest cadré **club** | ✅ 2026-08-08 |
-| 4 | SSE | à faire, **hors critère de sortie** |
+| — | Les dettes que le digest a ouvertes (D7 moitié « bavard », D8) | ✅ 2026-08-09 |
+| 4 | SSE | **requalifié en Phase 5 le 2026-08-09** |
 
-SSE en dernier et hors critère : à un tick par heure, un flux temps réel ne vaut pas mieux qu'un rafraîchissement, et rien dans le critère ne l'exige.
+#### Pourquoi SSE quitte cette phase plutôt que d'y être coché
+
+Le lot était déjà hors critère de sortie, avec un demi-argument écrit ici : « à un tick par heure, un flux temps réel ne vaut pas mieux qu'un rafraîchissement ». En le regardant vraiment, il y en a **cinq**, et trois n'avaient pas été vus :
+
+1. **Aucun consommateur.** `game-web` n'existe pas ; l'admin est mono-utilisateur et son lecteur rafraîchit.
+2. **Le transport ne peut pas être choisi honnêtement.** PostgreSQL seul (`11-` §5) laisse deux voies : interroger `events` en boucle — un worker immobilisé par client — ou `LISTEN`/`NOTIFY`, que **PDO n'expose pas** (il faut `ext-pgsql`, quand la CI n'installe que `pdo_pgsql`). Trancher sans connaître le budget de latence du seul futur consommateur, c'est deviner.
+3. **`artisan serve` est un serveur PHP mono-processus** : une seule connexion SSE tenue bloquerait tout l'admin. L'infrastructure pour des connexions longues n'existe pas, et l'inventer pour un lecteur qui n'existe pas non plus serait de l'anticipation.
+4. **On câblerait la livraison temps réel d'un flux dont le lot 3 venait de dire qu'il était à 10,6 % de procédure.** Construire le tuyau avant d'avoir réglé ce qui y coule est l'ordre inverse du bon.
+5. Ce que SSE a de structurant — **publier hors transaction**, sans quoi on annoncerait un tick encore annulable — est déjà écrit dans le docblock d'`AdvanceWorld` et en `13-` §8, et ne coûte rien à conserver.
+
+Le vrai moment de SSE est celui où un joueur humain regarde un match ou un tour de négociation se dérouler : Phase 5, avec l'inbox d'intentions dont il est la moitié symétrique.
+
+#### Les deux dettes que la phase a ouvertes, soldées avec elle *(2026-08-09)*
+
+Elles n'étaient pas au découpage initial : c'est le digest qui les a produites, en montrant ce que le journal dit de trop et ce qu'il ne dit pas. Détail dans `18-dettes.md` ; ce qui compte ici est ce qu'elles ont appris.
+
+**`TransferCounterDemanded` n'était pas un Fait de trop, c'était un Fait mal classé.** Les trois critères de `16-` §1 le désignaient sans ambiguïté — adressé à un acheteur précis, attend une réponse, porte une échéance (`responseGraceTicks`, dont le docblock se décrivait déjà comme « l'échéance sans le canal ») : un **`DecisionRequest`**, journalisé par erreur dans un log permanent. Le supprimer aurait cassé le canal que `Football\Intents\SubmittedBuyerIntentSource` attend pour la Phase 5. Le reclasser ne coûte rien, parce que `TransferAgreed` **et** `TransferNegotiationBroken` portaient déjà `round` et que toute négociation se clôt par l'un des deux : distribution des tours **identique au chiffre près** (médiane 2, moyenne 2,518, 41 des 85 au premier tour). Le canal s'arrête à `StepResult::$requests` — aucune livraison, aucune table ; le bénéfice immédiat est que ces questions ne sont plus écrites — 96 lignes sur 4 610 pour `dix-ans`, soit **~2 %** du journal. ⚠️ Un premier chiffre de −15 % a circulé ici quelques minutes : il comparait deux `pg_total_relation_size('events')`, qui agrègent **tous** les mondes de la base et varient avec le ballonnement. Mesurer une table partagée pour juger d'un monde est le même piège que lire un Gini sur une seule graine, et le disque n'était pas l'argument — le journal l'était. ⚠️ La dette accusait les **trois** Faits de négociation ; deux franchissent bien un seuil de `16-` §2 (un club qui s'engage, une rupture irréversible) et restent.
+
+**Un nom ne doit rien coûter au monde.** Tirer un nom dans le flux RNG partagé aurait décalé toutes les allocations suivantes et **changé le monde entier** — le piège des 18 scouts, cette fois pour du cosmétique. `Football\Support\NameBook` dérive donc le nom de `(worldSeed, entityId)` par `Hash::mixAll()`, sans consommer un seul tirage. Vérifié par empreinte appariée sur douze ans : `EntityId`, compteur d'entités, **et séquence d'événements privée du type retiré, identiques octet pour octet** ; l'état ne diffère que par les chaînes de noms. Point non anticipé : les clubs ne pouvaient pas être nommés comme les joueurs — 18 noms tirés parmi 320 combinaisons se heurtent une fois sur deux, d'où un parcours de tous les couples (lieu, forme) à pas premier avec leur nombre, qui rend l'unicité **structurelle** plutôt que probable.
+
+> ⚠️ **Fait de méthode, et il annule une conclusion tentante.** Régénérer `dix-ans` a donné des comptes différents de ceux inscrits ici (`transfer_agreed` 17 → 20, `contract_signed` 819 → 823…), ce qui ressemblait à une régression de ce lot. Ça n'en était pas une : le monde en base n'avait **jamais été régénéré depuis le correctif du marché** (`b963783`). Vérifié en rejouant l'arbre d'avant ce correctif, qui reproduit les anciens chiffres **exactement**, et l'arbre d'avant ce lot, qui reproduit les nouveaux. Un monde persisté vieillit par rapport au code : ses chiffres ne valent que datés du commit qui les a produits.
 
 #### Deux décisions structurelles, prises d'entrée
 
@@ -289,6 +310,18 @@ Client d'incarnation : recruter un client, le scouter, le placer, négocier, gé
 > **Critère de sortie :** trois personnes extérieures jouent une semaine et **reviennent** sans qu'on le leur demande.
 
 ⚠️ **À faire en prototype papier / CLI dès maintenant, en parallèle de la phase 0.** C'est la seule inconnue qui peut tuer le projet, et elle ne coûte que quelques heures à lever. Ne découvre pas en phase 5 que le métier d'agent n'est pas amusant.
+
+#### Ce qui l'attend déjà, posé par les phases précédentes
+
+Trois pièces sont en place et n'attendent que leur câblage dans `host` — aucune n'est à concevoir :
+
+| Pièce | État | Ce qui manque |
+|---|---|---|
+| **L'inbox d'intentions** (`13-` §8) | `TickContext::$intents` traverse le noyau, et `Football\Intents\SubmittedBuyerIntentSource` le lit | ce qui le **remplit** en production |
+| **La sortie des questions** | `StepResult::$requests` sort du noyau depuis le 2026-08-09, avec `TransferCounterOffered` comme premier exemplaire réel | leur **livraison** — `AdvanceWorld` les lit et les ignore, délibérément |
+| **SSE** (requalifié depuis la Phase 4) | rien, et c'est voulu | tout, à commencer par le choix de transport que seul un consommateur réel peut trancher |
+
+Les deux premières sont les deux moitiés d'un même mouvement — une question sort, une intention entre — et le bon moment pour les brancher est le même. SSE ne les précède pas : il transporte ce qu'elles produisent.
 
 ### Phase 6 — Profondeur
 

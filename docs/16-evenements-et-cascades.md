@@ -49,6 +49,18 @@ final readonly class ClubNeedsRecruitment implements DecisionRequest
 
 L'échéance n'est pas un détail : c'est ce qui empêche les questions non traitées de s'accumuler indéfiniment dans un monde qui tourne sans personne.
 
+### Le premier `DecisionRequest` réel *(2026-08-09)* — et comment on l'a reconnu
+
+`Football\Requests\TransferCounterOffered` : le club vendeur contre-demande, l'acheteur doit trancher. Il est né **Fait** (`Events\TransferCounterDemanded`, lot 3 de la Phase 2) et le fut un an ; ce qui l'a démasqué n'est pas cette section mais le **volume** — le digest de retour d'absence l'a mesuré à 10,6 % des Faits d'une fenêtre de mercato, pour un contenu qu'aucun lecteur ne veut.
+
+Le tableau ci-dessus l'aurait pourtant classé du premier coup, et c'est la leçon à retenir : **les trois critères se lisent sur le message, pas sur son contenu.** Une contre-demande est *adressée* à quelqu'un de précis, elle *attend* une réponse, et elle *expire* — trois colonnes sur trois du milieu. Le signe le plus net était même déjà écrit ailleurs : le docblock de `TransferBalance::$responseGraceTicks` se décrivait lui-même comme « la version minimale de l'`expiresAtTick` que `16-` §1 attache aux `DecisionRequest` — l'échéance sans le canal ». Le message portait déjà son échéance ; il lui manquait sa famille.
+
+Trois conséquences pratiques, valables pour le prochain :
+
+- **Reclasser n'est pas supprimer.** Un `DecisionRequest` reste indispensable — c'est par lui qu'un agent humain apprendra la contre-demande. Ce qui disparaît est son écriture dans l'event log, pas le message.
+- **Ce qui survit à un crash n'est pas la question, c'est l'état qui la motive.** La contre-demande en attente vit dans le composant `Negotiation` ; le message n'est que la sonnette. C'est pour ça qu'une `RequestQueue` naît et meurt avec le tick quand l'OutQueue, elle, est sérialisée.
+- **Une question sort par `StepResult::$requests`, jamais par l'OutQueue.** Aucun système ne la lit : un système qui répondrait à la question d'un autre serait exactement l'appel direct que `13-` §2 interdit. Le destinataire est toujours hors du noyau.
+
 ---
 
 ## 2. Seuils d'émission : une mutation n'est pas un événement

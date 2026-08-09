@@ -37,6 +37,16 @@ final class SnapshotConformanceTest extends TestCase
         'Events' => 'Flair\\Kernel\\Football\\Events\\',
     ];
 
+    /**
+     * Ce qui doit rester **hors** du registre. Le balayage ci-dessus ne peut
+     * rien dire d'un repertoire qu'il ne lit pas : sans cette seconde liste,
+     * `Requests/` serait un angle mort, et un `DecisionRequest` enregistre par
+     * reflexe passerait sans bruit.
+     */
+    private const array TRANSIENT_DIRECTORIES = [
+        'Requests' => 'Flair\\Kernel\\Football\\Requests\\',
+    ];
+
     public function testEveryDomainTypeIsRegisteredOrReachableFromARegisteredOne(): void
     {
         $reachable = $this->reachableTypes();
@@ -47,6 +57,36 @@ final class SnapshotConformanceTest extends TestCase
                 $reachable,
                 "{$class} n'est ni enregistre dans FootballTypes ni atteignable depuis un type enregistre : "
                 . 'son etat serait perdu au redemarrage.',
+            );
+        }
+    }
+
+    /**
+     * **La garde inverse**, et elle vaut autant que la premiere. Une cle de
+     * registre est une promesse de relecture a dix ans ; un `DecisionRequest`
+     * n'est jamais ecrit nulle part (docs/16- §1). L'enregistrer ne casserait
+     * rien tout de suite - c'est bien le probleme : ca installerait dans le
+     * registre un type que personne ne relira jamais, et le prochain lecteur
+     * en deduirait que les questions sont journalisees.
+     */
+    public function testNoTransientMessageIsRegistered(): void
+    {
+        $registry = FootballTypes::registry();
+        $registered = [
+            ...array_values($registry->components),
+            ...array_values($registry->singletons),
+            ...array_values($registry->events),
+        ];
+
+        $transient = $this->typesIn(self::TRANSIENT_DIRECTORIES);
+        self::assertNotSame([], $transient, 'Aucun type transitoire trouve : le balayage ne prouverait rien.');
+
+        foreach ($transient as $class) {
+            self::assertNotContains(
+                $class,
+                $registered,
+                "{$class} est un DecisionRequest : il ne doit pas avoir de cle de registre, "
+                . 'rien ne l\'ecrit ni sur disque ni dans l\'event log.',
             );
         }
     }
@@ -144,9 +184,18 @@ final class SnapshotConformanceTest extends TestCase
     /** @return list<class-string> */
     private function domainTypes(): array
     {
+        return $this->typesIn(self::DOMAIN_DIRECTORIES);
+    }
+
+    /**
+     * @param array<string, string> $directories repertoire -> namespace
+     * @return list<class-string>
+     */
+    private function typesIn(array $directories): array
+    {
         $types = [];
 
-        foreach (self::DOMAIN_DIRECTORIES as $directory => $namespace) {
+        foreach ($directories as $directory => $namespace) {
             $files = glob(__DIR__ . "/../../../src/Football/{$directory}/*.php");
             self::assertIsArray($files);
             self::assertNotEmpty($files, "Aucun type trouve dans src/Football/{$directory}.");

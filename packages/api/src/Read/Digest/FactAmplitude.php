@@ -15,7 +15,6 @@ use Flair\Kernel\Football\Events\SeasonConcluded;
 use Flair\Kernel\Football\Events\SeasonEnded;
 use Flair\Kernel\Football\Events\SeasonStarted;
 use Flair\Kernel\Football\Events\TransferAgreed;
-use Flair\Kernel\Football\Events\TransferCounterDemanded;
 use Flair\Kernel\Football\Events\TransferNegotiationBroken;
 use Flair\Kernel\Football\Events\TransferNegotiationOpened;
 use Flair\Kernel\Football\Events\YouthPlayerPromoted;
@@ -57,13 +56,18 @@ final class FactAmplitude
      * @var array<class-string, string>
      */
     public const array NEVER_NEWSWORTHY = [
-        // Etapes d'une negociation, pas des nouvelles. Elles disent qu'une
-        // chose est *en train* de se produire ; le digest raconte ce qui **a**
-        // eu lieu, et `TransferAgreed` le dira. Les journaliser reste utile
-        // (l'histoire d'un club les montre), les raconter ne l'est pas.
+        // **Journalise n'est pas racontable, et les deux decisions sont
+        // distinctes.** Ces deux Faits meritent le journal (docs/16- §2 : un
+        // club qui s'engage franchit un seuil, une rupture est irreversible) et
+        // l'histoire d'un club les montre. Ils ne meritent pas le digest, qui
+        // raconte ce qui **a** eu lieu : `TransferAgreed` le dira mieux.
+        //
+        // La contre-demande, elle, etait un troisieme cas qu'on avait range
+        // ici par defaut - elle n'appartenait ni au journal ni au recit, mais
+        // aux questions. Elle est sortie de l'event log le 2026-08-09 (cf.
+        // `Football\Requests\TransferCounterOffered`), donc de cette table.
         TransferNegotiationOpened::class => 'etape de negociation, pas une nouvelle',
         TransferNegotiationBroken::class => 'etape de negociation, pas une nouvelle',
-        TransferCounterDemanded::class => 'etape de negociation, pas une nouvelle',
 
         // Le debut d'une saison est un fait de calendrier : il est deja dit par
         // le bandeau de synthese, qui nomme la periode couverte.

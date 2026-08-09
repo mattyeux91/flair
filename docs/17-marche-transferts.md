@@ -102,7 +102,7 @@ valeur = base × modif × indice_inflation_global
 >
 > **Ce qui a changé de nature : de la règle à la politique.** Trois comportements ne sont plus imposés par le noyau mais choisis par `NpcBuyerIntentSource`, et une autre source a le droit d'en décider autrement : n'acheter qu'au premier poste sous-effectif, viser le meilleur rapport qualité perçue / prix, et renoncer dès que la contre-demande dépasse le plafond. Ce dernier point sort littéralement de `TransferSystem`. En regard, le système gagne une **validation** des intentions reçues (`11-` §3 : « mises en file, validées, puis consommées ») : un acheteur déjà engagé, un joueur déjà ciblé, un joueur déjà au club acheteur, un joueur sans compétences ou sans potentiel sont rejetés. Un PNJ respecte ces règles par construction, une intention soumise de l'extérieur non.
 >
-> **Le délai de grâce (`responseGraceTicks`, défaut `0`).** Un PNJ répond toujours dans le tick où il voit la contre-demande — il calcule, il n'attend pas. Un humain, lui, lit le Fait à la fin du tick N et ne peut répondre qu'au N+1 ; « je n'ai rien envoyé » veut alors dire « je réfléchis », pas « je me retire ». Mais l'attente doit être bornée : `maxRounds` compte les tours, pas les ticks, et un tour n'avance que quand l'acheteur répond. C'est la version minimale de l'`expiresAtTick` que `16-` §1 attache aux `DecisionRequest` — l'échéance sans le canal. À `0`, strictement sans effet sur un monde 100 % PNJ.
+> **Le délai de grâce (`responseGraceTicks`, défaut `0`).** Un PNJ répond toujours dans le tick où il voit la contre-demande — il calcule, il n'attend pas. Un humain, lui, lit le Fait à la fin du tick N et ne peut répondre qu'au N+1 ; « je n'ai rien envoyé » veut alors dire « je réfléchis », pas « je me retire ». Mais l'attente doit être bornée : `maxRounds` compte les tours, pas les ticks, et un tour n'avance que quand l'acheteur répond. C'était la version minimale de l'`expiresAtTick` que `16-` §1 attache aux `DecisionRequest` — l'échéance sans le canal. **Le canal existe depuis le 2026-08-09** : la contre-demande a quitté les Faits pour devenir `Football\Requests\TransferCounterOffered`, un vrai `DecisionRequest` qui porte enfin son `expiresAtTick`, et `responseGraceTicks` en est le paramètre. À `0`, strictement sans effet sur un monde 100 % PNJ.
 >
 > **Mesuré, et c'est le point important : rien n'a bougé.** Même population que le point 2 (500 joueurs, 18 clubs, 40 saisons, graine 42) : **715 négociations, médiane 2 tours, moyenne 2,81, 44,9 % au premier tour, 74,1 s** — identique au chiffre près à la mesure du point 2 réouvert. Attendu et vérifié à la main avant l'implémentation : le découpage déplace *où dans le tick* le nombre de l'acheteur est décidé (fin du tick N → début du tick N+1), pas le nombre de ticks ni de tours, ni les ticks où le tirage de rupture a lieu. Un écart aurait signalé un bug, pas une nouveauté.
 >
@@ -318,3 +318,22 @@ Le déficit permanent lui-même — cibles à 22, effectif souhaité à 20, effe
 C'est la moitié du lot qui n'est pas dans le noyau. `Metrics\Sampler` compte les `TransferAgreed` par poste et les club-années sans gardien, `Report\TextReport` les affiche, donc toute campagne les remet à jour. Avant ça, la ventilation n'existait nulle part et les gardiens n'existaient que comme plafond muet dans un test.
 
 > **Piège de méthode rencontré en instrumentant.** Le script jetable qui a servi à la première mesure dérivait le poste du joueur **en fin d'année** et perdait ceux partis à la retraite entre-temps : 38 transferts comptés contre 51 réels sur une graine. Les comparaisons avant/après restent valides (même méthode des deux côtés), mais c'est précisément l'argument pour sortir une mesure d'un script : `Sampler` dérive le poste **au tick du Fait**.
+
+---
+
+## Après le chantier — la contre-demande sort de l'event log (2026-08-09)
+
+Le point 2 avait produit un Fait de trop, et le digest de la Phase 4 l'a rendu visible : `TransferCounterDemanded` pesait **10,6 % des Faits d'une fenêtre de mercato**, pour un contenu qu'aucun lecteur ne veut. La correction n'est pas une suppression — c'est un **reclassement**, détaillé en `16-` §1 : une contre-demande est adressée, attend une réponse et expire, donc c'est un `DecisionRequest` (`Football\Requests\TransferCounterOffered`) et non un Fait.
+
+**Ce que ça ne coûte pas à la vérification du point 2.** Le critère d'échec (« si la médiane est à 1 tour, le point a échoué ») reste calculable au chiffre près : `TransferAgreed` **et** `TransferNegotiationBroken` portent tous deux `round`, et toute négociation se clôt par l'un des deux. Mesuré avant/après sur douze ans, graine 42, 500 joueurs / 18 clubs :
+
+| Grandeur | Avant | Après |
+|---|---|---|
+| Négociations ouvertes / closes | 85 / 85 | 85 / 85 |
+| Médiane des tours | 2 | 2 |
+| Moyenne des tours | 2,518 | 2,518 |
+| Résolues au premier tour | 41 | 41 |
+
+**Ce que ça coûte au journal, en revanche** : 141 Faits sur 5 686 disparaissent sur ce même run (2,5 % du log complet — les 10,6 % étaient une part *de fenêtre de mercato*, pas de l'histoire entière, et les deux chiffres décrivent bien la même chose lue à deux échelles). Sur le monde de référence `dix-ans`, ce sont **96 lignes sur 4 610** qui disparaissent, pour ~16 ko de payload sur 637 (estimé à partir des 174 octets moyens de `transfer_agreed`, qui porte le même nombre de champs entiers) — un gain de disque négligeable, et c'est très bien : l'argument n'a jamais été la place mais le fait qu'un journal permanent ne doit pas contenir de questions. ⚠️ Ne pas mesurer ça avec `pg_total_relation_size('events')` : la table porte tous les mondes de la base et sa taille bouge avec le vacuum, indépendamment des données.
+
+⚠️ **Les deux autres Faits de négociation restent, et la dette avait tort de les accuser ensemble.** `TransferNegotiationOpened` marque un club qui s'engage — un seuil comportemental franchi ; `TransferNegotiationBroken` est irréversible et symétrique de `TransferAgreed`. Tous deux passent le test de pertinence de `16-` §2. Seule la contre-demande, répétée à chaque tour et réversible par construction, ne le passait pas.

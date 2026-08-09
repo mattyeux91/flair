@@ -15,7 +15,6 @@ use Flair\Kernel\Football\Events\SeasonConcluded;
 use Flair\Kernel\Football\Events\SeasonEnded;
 use Flair\Kernel\Football\Events\SeasonStarted;
 use Flair\Kernel\Football\Events\TransferAgreed;
-use Flair\Kernel\Football\Events\TransferCounterDemanded;
 use Flair\Kernel\Football\Events\TransferNegotiationBroken;
 use Flair\Kernel\Football\Events\TransferNegotiationOpened;
 use Flair\Kernel\Football\Events\FixtureKickoff;
@@ -101,8 +100,7 @@ final class ClubMentions
 
             $event instanceof TransferAgreed,
             $event instanceof TransferNegotiationOpened,
-            $event instanceof TransferNegotiationBroken,
-            $event instanceof TransferCounterDemanded => [
+            $event instanceof TransferNegotiationBroken => [
                 new ClubMention($event->buyerClubId, ClubRole::Buyer),
                 new ClubMention($event->sellerClubId, ClubRole::Seller),
             ],

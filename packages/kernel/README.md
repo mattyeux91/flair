@@ -9,7 +9,7 @@ Ce fichier documente **l'implémentation telle qu'elle existe** : les classes, l
 ```
 src/Core/
   Ecs/          entités, composants, l'état du monde
-  Messaging/    les trois messages (Fait/DecisionRequest/Intent), les deux files inter-ticks
+  Messaging/    les trois messages (Fait/DecisionRequest/Intent), les deux files inter-ticks, la file de questions du tick
   Pipeline/     l'exécution d'un tick sur une liste de systèmes
   Support/      PRNG déterministe, arithmétique 32 bits, calendrier simulé
   Ruleset/      règles paramétriques versionnées, imbriquées par sous-domaine
@@ -30,6 +30,7 @@ src/Football/   le domaine football, au-dessus du kernel générique
 
 - **`DomainEvent`/`DecisionRequest`/`Intent`** — trois interfaces marqueurs vides. Jamais confondues : un Fait est passé et journalisé, une `DecisionRequest` est transitoire et jamais journalisée, un `Intent` est un futur immédiat consommé une fois. `TaxonomyTest` encode cette non-confusion en assertion exécutable.
 - **`Scheduler`/`ScheduledEntry`** — file d'événements datés. `schedule($event, $atTick, $systemIndex, $entityId, $seq)`, `drainDueBy($tick)` retire et renvoie tout ce qui est échu, trié `(tick, systemIndex, entityId, seq)` — jamais l'ordre d'un tas binaire.
+- **`RequestQueue`/`RequestQueueEntry`** — les questions posées pendant un tick. `ask()` écrit, `pending()` rend le contenu trié `(systemIndex, entityId, seq)` comme l'`OutQueue`. Trois différences avec elle, et chacune tient à la nature d'une question : elle **ne vit pas dans le `WorldState`** (ce qui doit survivre à un crash est l'*état* qui la motive — `Negotiation::$pendingCounterCents` — pas le message, qui n'est que la sonnette), elle **n'est jamais journalisée** (elle sort par `StepResult::$requests`, que `Host\AdvanceWorld` ne donne pas à l'event log), et **aucun système ne la lit** (une question va à un décideur *hors* du noyau ; un système répondant à un autre serait l'appel direct qu'interdit `docs/13-` §2). Elle naît et meurt donc avec le tick, ce qui explique que `Pipeline::tick()` la **retourne** au lieu de la laisser dans le monde.
 - **`OutQueue`/`OutQueueEntry`** — canal par défaut entre deux ticks. `emit()` écrit, `drain()` vide et renvoie trié `(systemIndex, entityId, seq)` — c'est ce retour qui devient l'`$incoming` du tick suivant. `pending()` fait la même lecture triée **sans vider** la file : sert à capturer ce qui vient d'être émis pendant le tick courant (voir `Simulation::step()` plus bas).
 
 ### `Pipeline/`
@@ -71,15 +72,15 @@ Famille à part entière plutôt qu'un fichier isolé à la racine de `Core/` : 
 ### `Simulation/`
 
 - **`TickContext`** — readonly : `tick`, `seed`, `intents` (`list<Intent>`), `ruleset`. Les entrées d'un tick, façon `11-` §1.
-- **`StepResult`** — readonly : `state` (le `WorldState`, muté en place), `events` (`list<DomainEvent>`, ce qui a été émis *pendant* ce tick).
+- **`StepResult`** — readonly : `state` (le `WorldState`, muté en place), `events` (`list<DomainEvent>`, ce qui a été émis *pendant* ce tick), et `requests` (`list<DecisionRequest>`, ce qui a été **demandé** pendant ce tick). Deux listes, deux destins : la première est journalisée pour toujours, la seconde ne l'est jamais — c'est tout l'objet de `docs/16-` §1, et les confondre revient à garder pour l'éternité des questions dont la réponse est tombée le lendemain.
 - **`Simulation::step(WorldState $state, TickContext $ctx): StepResult`** — la fonction pure documentée. Implémentation complète :
 
   ```php
   public function step(WorldState $state, TickContext $ctx): StepResult
   {
-      $this->pipeline->tick($state, $ctx->tick, $ctx->seed, $ctx->ruleset, $ctx->intents);
+      $requests = $this->pipeline->tick($state, $ctx->tick, $ctx->seed, $ctx->ruleset, $ctx->intents);
 
-      return new StepResult($state, $state->outQueue()->pending());
+      return new StepResult($state, $state->outQueue()->pending(), $requests);
   }
   ```
 
@@ -116,7 +117,7 @@ sequenceDiagram
     SystemA-->>Pipeline: ctx.emit()/ctx.schedule() (OutQueue/Scheduler du WorldState)
     Pipeline->>SystemB: handle(event), update(ctx)
     Simulation->>Simulation: events = state.outQueue().pending()
-    Simulation-->>Host: StepResult(state, events)
+    Simulation-->>Host: StepResult(state, events, requests)
 ```
 
 Points structurants :
@@ -124,6 +125,7 @@ Points structurants :
 - **`$incoming` est figé avant qu'aucun système ne s'exécute.** Ce qu'un système émet pendant le tick part dans `OutQueue`/`Scheduler`, jamais dans `$incoming` — une boucle infinie intra-tick est donc **structurellement** impossible, pas juste évitée par convention (`docs/16-` §3).
 - **Un événement émis ce tick est traité au tick suivant, jamais celui-ci.** `PipelineTest::testAnEventEmittedDuringThisTickIsNeverHandledInTheSameTick` verrouille ce comportement.
 - **`StepResult.events` ne contient que les `emit()` de ce tick**, pas les événements déjà traités (`$incoming`), et rien du `Scheduler` : un événement seulement planifié n'est pas encore un Fait tant qu'il n'a pas été déclenché.
+- **`StepResult.requests` ne rejoint jamais `events`.** Un `ask()` sort du tick sans passer par l'OutQueue, donc sans être journalisé ni relu par un système au tick suivant. Premier exemplaire réel : `Football\Requests\TransferCounterOffered` (voir `docs/16-` §1).
 - **L'ordre de souscription = l'ordre du pipeline.** Si deux systèmes écoutent le même type d'événement, ils le traitent dans l'ordre déclaré à la construction de `Pipeline`, jamais dans un ordre d'enregistrement de handlers.
 
 ## Déterminisme en pratique
@@ -326,6 +328,8 @@ Vocabulaire : un joueur sans contrat est dit **sans club**, jamais « agent libr
 
 Troisième brique de la Phase 2, et la plus courte en code pour la conséquence qu'elle a. Avant elle, `ContractSystem` décidait des renouvellements en lisant les compétences **vraies** : une simplification de périmètre enregistrée comme telle, jamais une affirmation sur le monde. Un club n'a pas d'yeux ; c'est son staff qui perçoit, et un club au staff médiocre doit pouvoir se tromper sur son propre joueur.
 
+- **`Support/NameBook`** — les noms du monde (joueurs, clubs, staff), purs et **sans un seul tirage RNG**. C'est la contrainte qui dicte la conception, pas un raffinement : tirer un nom dans le flux partagé décalerait tout ce qui suit et changerait le monde entier (`packages/worldgen/README.md`), pour du cosmétique. Le nom est donc une fonction de `(worldSeed, entityId)` via `Hash::mixAll()` — même arbitrage que `PerceptionModel`, une dérivation n'est pas un flux. La graine entre dans le calcul parce que les `EntityId` n'en dépendent pas : sans elle, tous les mondes porteraient les mêmes noms. Trois consommateurs réels (`YouthIntakeSystem`, `Worldgen\WorldFactory`, `Worldgen\StaffFactory`), donc le critère d'extraction du projet est satisfait sans être forcé. ⚠️ Les **clubs** ne sont pas nommés comme les joueurs : dix-huit noms tirés indépendamment parmi 320 combinaisons se heurtent une fois sur deux, et deux clubs homonymes dans une même compétition sont un bug d'affichage. Ils parcourent donc tous les couples (lieu, forme) par un pas premier avec leur nombre — l'unicité devient **structurelle** au lieu d'être probable, et `NameBookTest` vérifie la primalité relative en même temps que l'absence de doublon.
+
 - **`Support/PerceptionModel`** — pure, sans état, sans RNG, sans accès au monde, et **sans hachage** : l'appelant fournit l'entier de bruit, ce qui rend le modèle testable à la main. `sigma = erreurDeBase / sqrt(facteurDeJugement × (1 + nbObservations))`, puis `estimation = clamp(vérité + z × sigma, 1, 100)`.
 
   **Écart assumé avec l'esquisse de `docs/12-` §4**, qui écrit `sigma = baseSigma / sqrt(1 + nbObservations × jugement)`. Sous cette forme, un `nbObservations` de zéro annule l'effet du jugement : *tous* les clubs jugeraient un joueur qu'ils n'ont jamais eu sous les yeux aussi mal les uns que les autres, et un bon scout ne servirait qu'à apprendre plus vite sur les joueurs maison. C'est l'inverse du métier. La forme retenue garde les deux effets et redonne l'esquisse à un facteur près.
@@ -352,7 +356,7 @@ Dernier lot de la Phase 2, découpé en points vérifiables. Tous faits.
 
 - **`Support/MarketValueModel`** — la fonction de prix, forme bornée de `docs/14-` §3 : `valeur = base(qualité perçue) × courbe_âge × clamp(rareté_poste × richesse_acheteur, 0.4, 2.5) × facteur_contrat × indice_inflation`. Le `facteur_contrat` est appliqué **après** le clamp (un joueur à six mois du terme doit pouvoir tomber sous 0.4×) : le bloc formule de `docs/14-` §5 et sa prose se contredisaient, la prose l'emporte. `indice_inflation` est figé à `1.0` jusqu'au point 5. Le pic d'âge est la **moyenne** des trois pics de `PlayerPotentials` : le pondérer par la catégorie dominante du poste dégénère, la table de `PositionModel` range « technique » en tête sur les quatre postes.
 
-- **`Components/Negotiation` + `TransferSystem`** — le **premier état multi-tick du noyau**. Une négociation vit sur une entité dédiée, créée puis `set()` à nouveau à chaque tick tant qu'elle n'est pas résolue : déclarer le même composant dans `creates()` **et** `writes()` autorise `set()` sur cette entité à n'importe quel tick, pas seulement celui de sa création (`SystemAccess::requiresCreatedEntity()`). Aucun nouveau mécanisme de scheduler — l'OutQueue suffit, un Fait par étape. « Mémoire des tours précédents » (`docs/14-` §5) est satisfaite par l'état persistant lui-même, pas par un historique rejoué.
+- **`Components/Negotiation` + `TransferSystem`** — le **premier état multi-tick du noyau**. Une négociation vit sur une entité dédiée, créée puis `set()` à nouveau à chaque tick tant qu'elle n'est pas résolue : déclarer le même composant dans `creates()` **et** `writes()` autorise `set()` sur cette entité à n'importe quel tick, pas seulement celui de sa création (`SystemAccess::requiresCreatedEntity()`). Aucun nouveau mécanisme de scheduler — l'OutQueue suffit. ⚠️ « Un Fait par étape » était vrai jusqu'au 2026-08-09 : la contre-demande est devenue `Requests/TransferCounterOffered`, un `DecisionRequest` qui sort par `StepResult::$requests` sans être journalisé (`docs/16-` §1). L'ouverture, l'accord et la rupture restent des Faits. « Mémoire des tours précédents » (`docs/14-` §5) est satisfaite par l'état persistant lui-même, pas par un historique rejoué.
 
   Le risque que ce point devait écarter est ludique, pas économique : `docs/14-` §5 interdit le marché « économiquement correct et ludiquement mort » qui se résout d'un coup. Mesuré sur 40 saisons, 500 joueurs, 18 clubs : **715 négociations, médiane 2 tours, moyenne 2,81, de 1 à 7**. Réserve honnête portée au doc : 44,9 % se résolvent quand même au premier tour, l'offre initiale couvrant parfois déjà la réserve du vendeur — les coefficients de `TransferBalance` sont tous des premiers jets, non calibrés.
 

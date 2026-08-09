@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flair\Kernel\Tests\Core\Pipeline;
 
 use Flair\Kernel\Core\Ecs\WorldState;
+use Flair\Kernel\Core\Messaging\DecisionRequest;
 use Flair\Kernel\Core\Messaging\DomainEvent;
 use Flair\Kernel\Core\Messaging\Intent;
 use Flair\Kernel\Core\Messaging\OutQueue;
@@ -187,9 +188,71 @@ final class PipelineTest extends TestCase
         self::assertSame([$intent], $seenIntents);
     }
 
+    /**
+     * Les questions sortent du tick, **et n'entrent nulle part ailleurs**.
+     * C'est la moitie du contrat de docs/16- §1 qu'un test peut tenir : une
+     * question n'est ni journalisee (elle n'est pas dans l'OutQueue, donc pas
+     * dans `StepResult::$events`), ni relue par un systeme au tick suivant.
+     */
+    public function testQuestionsLeaveTheTickWithoutEnteringTheEventFlow(): void
+    {
+        $request = new PipelineTestRequest();
+        $asker = new PipelineTestRecordingSystem(
+            'asker',
+            onUpdate: function (SystemContext $ctx) use ($request): void {
+                $ctx->ask($request, entityId: 3);
+            },
+        );
+        $listener = new PipelineTestRecordingSystem('listener', subscribesTo: [PipelineTestEventX::class]);
+
+        $world = new WorldState();
+        $pipeline = new Pipeline([$asker, $listener]);
+
+        $asked = $pipeline->tick($world, tick: 1, worldSeed: 1, ruleset: $this->ruleset(), intents: []);
+        self::assertSame([$request], $asked);
+        self::assertSame([], $world->outQueue()->pending(), 'Une question n\'est pas un Fait.');
+
+        // Au tick suivant : la question ne revient pas, et personne ne l'a
+        // recue. Une OutQueue rejouerait son contenu ici.
+        $again = $pipeline->tick($world, tick: 2, worldSeed: 1, ruleset: $this->ruleset(), intents: []);
+        self::assertSame([$request], $again, 'La question du tick 2 est celle du tick 2, pas un rejeu.');
+        self::assertSame(['update', 'update'], $listener->log);
+    }
+
+    /**
+     * L'ordre total de docs/13- §4.5, applique aux questions : l'ordre
+     * d'insertion ne doit jamais transparaitre. Ici le second systeme
+     * interroge l'entite **1**, le premier l'entite **9** - trier par
+     * `(systemIndex, entityId)` les laisse donc dans l'ordre des systemes,
+     * quand un tri par entite seule les inverserait.
+     */
+    public function testQuestionsComeOutInTotalOrderNotInsertionOrder(): void
+    {
+        $first = new PipelineTestRequest();
+        $second = new PipelineTestRequest();
+
+        $a = new PipelineTestRecordingSystem('a', onUpdate: function (SystemContext $ctx) use ($first): void {
+            $ctx->ask($first, entityId: 9);
+        });
+        $b = new PipelineTestRecordingSystem('b', onUpdate: function (SystemContext $ctx) use ($second): void {
+            $ctx->ask($second, entityId: 1);
+        });
+
+        $asked = (new Pipeline([$a, $b]))->tick(new WorldState(), tick: 1, worldSeed: 1, ruleset: $this->ruleset(), intents: []);
+
+        self::assertSame([$first, $second], $asked);
+    }
+
     private function ruleset(string $version = 'test'): Ruleset
     {
         return new Ruleset($version);
+    }
+}
+
+final class PipelineTestRequest implements DecisionRequest
+{
+    public function __construct(public int $expiresAtTick = 1)
+    {
     }
 }
 

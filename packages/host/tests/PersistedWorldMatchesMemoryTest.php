@@ -66,7 +66,7 @@ final class PersistedWorldMatchesMemoryTest extends DatabaseTestCase
      *   379  MatchPlayed         ... jusqu'au 414, six journees
      *   415  SeasonConcluded     (le revenu de saison suit au 416)
      *   565  TransferNegotiationOpened
-     *   566  TransferAgreed, TransferCounterDemanded
+     *   566  TransferAgreed
      *   568  TransferNegotiationBroken   ... jusqu'au 569
      *
      * D'ou 575 : le marche n'ouvre qu'au **jour 200 de l'annee 2**, jamais de
@@ -74,6 +74,13 @@ final class PersistedWorldMatchesMemoryTest extends DatabaseTestCase
      * retraites et de fins de contrat pour que des besoins apparaissent. C'est
      * ce qui rend ce test le premier a faire traverser la base a une
      * `Negotiation` **en cours de vol** : le seul etat multi-tick du noyau.
+     *
+     * ⚠️ Cette propriete-la ne dependait **pas** du Fait de contre-demande,
+     * sorti de l'event log le 2026-08-09 (cf.
+     * `Football\Requests\TransferCounterOffered`). Ce qui traverse la base est
+     * le composant `Negotiation` et son `pendingCounterCents`, pas le message
+     * qui l'annoncait - c'est meme l'argument exact qui a permis de sortir ce
+     * message du journal sans rien perdre.
      */
     private const int TICKS = 575;
 
@@ -85,7 +92,7 @@ final class PersistedWorldMatchesMemoryTest extends DatabaseTestCase
      * dans `events.type`, et qui par contrat ne se renomment jamais
      * (`Football\FootballTypes`).
      *
-     * Quatorze types sont enregistres, dix sont exiges ici. Les quatre
+     * Treize types sont enregistres, neuf sont exiges ici. Les quatre
      * absents ne sont pas un oubli : `season_ended` et `fixture_kickoff`
      * passent par le Scheduler (`SystemContext::schedule()`) et ne sont donc
      * **jamais** journalises - seuls les Faits emis le sont ;
@@ -103,7 +110,6 @@ final class PersistedWorldMatchesMemoryTest extends DatabaseTestCase
         'football.event.match_played',
         'football.event.season_concluded',
         'football.event.transfer_negotiation_opened',
-        'football.event.transfer_counter_demanded',
         'football.event.transfer_agreed',
         'football.event.transfer_negotiation_broken',
     ];

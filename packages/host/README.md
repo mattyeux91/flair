@@ -76,8 +76,8 @@ Mesuré le 2026-08-08, monde de référence (500 joueurs, 18 clubs, graine 42), 
 | dont écritures dans la transaction | 17,2 ms/tick |
 | dont lecture du snapshot | 5,6 ms/tick |
 | dont le reste (~8 ms) | commit, verrou, lecture de `worlds` |
-| Faits journalisés | **4 610** sur dix ans, soit ~460 par saison |
-| `events` | **2,1 Mo** pour 4 734 lignes |
+| Faits journalisés | **4 517** sur dix ans, soit ~450 par saison (4 610 avant le 2026-08-09, cf. la note ci-dessous) |
+| `events` | **637 ko** de payload pour 4 517 lignes (~875 ko avec les en-têtes de ligne) |
 | `snapshots` | **100 Mo** en fin de run, **808 ko** après `VACUUM FULL` |
 | Taille d'un snapshot | **0,39 Mo** de JSON (1,2 Mo pour les 3 retenus) |
 
@@ -98,21 +98,30 @@ L'écriture en base coûte à peu près autant que le noyau lui-même — confir
 ### Le mélange de Faits, avant d'écrire le digest
 
 ```
-football.event.match_played                 2754   (60 %)
-football.event.contract_signed               819
+football.event.match_played                 2754   (61 %)
+football.event.contract_signed               823
 football.event.player_retired                359
-football.event.youth_player_promoted         214
-football.event.contract_expired              192
-football.event.transfer_counter_demanded      96
+football.event.youth_player_promoted         213
+football.event.contract_expired              194
 football.event.club_invested_in_facilities    57
-football.event.transfer_negotiation_opened    50
-football.event.transfer_negotiation_broken    33
-football.event.transfer_agreed                17
+football.event.transfer_negotiation_opened    49
+football.event.transfer_negotiation_broken    29
+football.event.transfer_agreed                20
 football.event.season_started                 10
 football.event.season_concluded                9
 ```
 
-Douze types sur les quatorze enregistrés. Les deux absents ne le sont pas par accident : `season_ended` et `fixture_kickoff` passent par le Scheduler (`SystemContext::schedule()`) et ne sont donc **jamais journalisés** — seuls les Faits *émis* le sont.
+Onze types sur les treize enregistrés. Les deux absents ne le sont pas par accident : `season_ended` et `fixture_kickoff` passent par le Scheduler (`SystemContext::schedule()`) et ne sont donc **jamais journalisés** — seuls les Faits *émis* le sont.
+
+> ⚠️ **Ce tableau a changé deux fois depuis sa première mesure, pour deux raisons différentes — et l'une d'elles a failli passer pour une régression.**
+>
+> `transfer_counter_demanded` (96 lignes) a **disparu** le 2026-08-09 : ce n'était pas un Fait mais un `DecisionRequest` journalisé par erreur (`docs/16-` §1). Soit **~2 % du journal de ce monde**, et ~16 ko de payload sur 637 — négligeable en disque, ce qui est le résultat attendu : l'argument était la nature du message, pas la place.
+>
+> ⚠️ **Et une leçon de mesure au passage.** J'ai d'abord annoncé −15 %, en comparant deux `pg_total_relation_size('events')` avant/après. Ce chiffre ne veut rien dire ici : la table porte **tous** les mondes de la base, et sa taille physique bouge avec le vacuum sans qu'une seule ligne change — trois lectures successives ont donné 2 184, 1 848 puis 2 072 ko à données constantes. Pour juger d'un monde, compter ses **lignes** et sommer `pg_column_size(payload)` sur son `world_id` ; la taille de relation ne mesure que la relation.
+>
+> Les autres écarts (`transfer_agreed` 17 → 20, `contract_signed` 819 → 823, `contract_expired` 192 → 194, `youth_player_promoted` 214 → 213, négociations 50/33 → 49/29) ne viennent **pas** de là : le monde en base n'avait jamais été régénéré depuis le correctif du marché (`b963783`, ventilation des transferts par poste). Vérifié plutôt que supposé — rejouer l'arbre d'avant ce correctif reproduit les anciens chiffres **exactement**, l'arbre d'après reproduit les nouveaux.
+>
+> **La leçon générale** : un monde persisté vieillit par rapport au code qui l'a produit, et ses chiffres ne valent que datés du commit qui les a écrits. Un écart après régénération se prouve à sa source, il ne se conclut pas.
 
 Trois mois de digest (`docs/14-` §9), c'est donc ~115 Faits dont ~70 `MatchPlayed`. C'est un journal, pas une histoire — l'information à avoir avant de construire le lot du digest, et le contrôle qualité des seuils d'émission que `docs/14-` §9 promettait.
 

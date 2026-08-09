@@ -47,6 +47,11 @@ use Flair\Kernel\Football\FootballTypes;
  * - **Aucune intention n'est consommee** : `TickContext::$intents` recoit un
  *   tableau vide. L'inbox d'intentions du Host (docs/13- §8) est Phase 5, et
  *   `Football\Intents\SubmittedBuyerIntentSource` l'attend deja.
+ * - **Aucune question n'est livree** : `StepResult::$requests` est lu et
+ *   ignore. C'est le miroir exact du point precedent - une question sort, une
+ *   intention entre - et les deux moities arrivent ensemble en Phase 5. Ce
+ *   qu'on gagne des maintenant est ailleurs : ces questions ne sont plus
+ *   **journalisees**, ce qu'elles etaient a tort.
  * - **Aucune projection** : docs/15- §4 les place en Phase 4. Le jour venu,
  *   elles s'appliqueront **dans cette meme transaction**, sinon un client
  *   verra un monde incoherent apres un crash.
@@ -121,6 +126,16 @@ final class AdvanceWorld
             $simulationSeconds = microtime(true) - $startedSimulation;
 
             $startedPersistence = microtime(true);
+
+            // `$result->events` seulement, **jamais** `$result->requests` : une
+            // question est transitoire par definition (docs/16- §1), et la
+            // journaliser reviendrait a garder pour toujours des questions
+            // dont la reponse est tombee le lendemain. C'est exactement ce que
+            // faisait le marche des transferts avant le 2026-08-09.
+            //
+            // Les questions ne sont donc **pas livrees non plus** : leur inbox
+            // est le miroir de l'inbox d'intentions de docs/13- §8, et les deux
+            // sont Phase 5. Les ignorer ici est un choix, pas un oubli.
             $written = $this->events->append($worldId, $tick, $result->events);
             $this->snapshots->save(WorldSnapshot::capture(
                 $this->codec,

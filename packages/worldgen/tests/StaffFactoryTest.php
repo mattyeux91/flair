@@ -24,7 +24,7 @@ final class StaffFactoryTest extends TestCase
         $world = new WorldState();
         $clubIds = [11, 22, 33];
 
-        $scoutIds = (new StaffFactory())->create($world, new Rng(1), $clubIds, judgementMean: 50, judgementSpread: 25);
+        $scoutIds = (new StaffFactory())->create($world, new Rng(1), $clubIds, judgementMean: 50, judgementSpread: 25, seed: 1);
 
         self::assertCount(3, $scoutIds);
         self::assertSame(
@@ -46,7 +46,7 @@ final class StaffFactoryTest extends TestCase
     {
         $world = new WorldState();
 
-        $scoutIds = (new StaffFactory())->create($world, new Rng(1), [11], judgementMean: 50, judgementSpread: 25);
+        $scoutIds = (new StaffFactory())->create($world, new Rng(1), [11], judgementMean: 50, judgementSpread: 25, seed: 1);
 
         foreach ($scoutIds as $scoutId) {
             self::assertNull($world->components(SquadMembership::class)->get($scoutId));
@@ -60,7 +60,7 @@ final class StaffFactoryTest extends TestCase
         $world = new WorldState();
         $clubIds = range(1, 60);
 
-        $scoutIds = (new StaffFactory())->create($world, new Rng(7), $clubIds, judgementMean: 50, judgementSpread: 25);
+        $scoutIds = (new StaffFactory())->create($world, new Rng(7), $clubIds, judgementMean: 50, judgementSpread: 25, seed: 1);
         $judgements = array_map(static fn (int $id): int => $world->components(Scout::class)->get($id)->judgement ?? 0, $scoutIds);
 
         if ($judgements === []) {
@@ -77,7 +77,7 @@ final class StaffFactoryTest extends TestCase
     {
         $world = new WorldState();
 
-        $scoutIds = (new StaffFactory())->create($world, new Rng(7), range(1, 10), judgementMean: 50, judgementSpread: 0);
+        $scoutIds = (new StaffFactory())->create($world, new Rng(7), range(1, 10), judgementMean: 50, judgementSpread: 0, seed: 1);
         $judgements = array_map(static fn (int $id): int => $world->components(Scout::class)->get($id)->judgement ?? 0, $scoutIds);
 
         self::assertSame(array_fill(0, 10, 50), $judgements);
